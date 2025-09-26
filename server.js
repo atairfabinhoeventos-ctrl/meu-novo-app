@@ -1,4 +1,4 @@
-// backend/server.js (VERSÃO COMPLETA E ATUALIZADA)
+// backend/server.js (VERSÃO FINAL E ROBUSTA PARA NUVEM E LOCAL)
 
 require('dotenv').config();
 
@@ -11,11 +11,14 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors({ origin: '*' }));
 
-// --- FUNÇÃO DE AUTENTICAÇÃO ---
+// --- FUNÇÃO DE AUTENTICAÇÃO ATUALIZADA ---
 async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
-      keyFilename: path.join(__dirname, 'credentials.json'),
+      // Tenta usar a variável de ambiente primeiro (para o Render)
+      // Se não existir, usa o arquivo local (para desenvolvimento)
+      credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
+      keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(__dirname, 'credentials.json'),
       scopes: 'https://www.googleapis.com/auth/spreadsheets',
     });
     const client = await auth.getClient();
@@ -85,7 +88,6 @@ app.post('/api/cloud-sync', async (req, res) => {
     if (waiterData && waiterData.data && waiterData.data.length > 0) {
       const waiterSheetName = `Garçons - ${eventName}`;
       const sheet = sheets.find(s => s.properties.title === waiterSheetName);
-      
       let existingProtocols = new Set();
       if (sheet) {
         const response = await googleSheets.spreadsheets.values.get({
@@ -98,9 +100,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: waiterSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
       }
-
       const newWaiterRows = waiterData.data.filter(row => !existingProtocols.has(row[1]));
-      
       if (newWaiterRows.length > 0) {
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: newWaiterRows } });
         newWaitersCount = newWaiterRows.length;
@@ -110,7 +110,6 @@ app.post('/api/cloud-sync', async (req, res) => {
     if (cashierData && cashierData.data && cashierData.data.length > 0) {
       const cashierSheetName = `Caixas - ${eventName}`;
       const sheet = sheets.find(s => s.properties.title === cashierSheetName);
-      
       let existingProtocols = new Set();
       if (sheet) {
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:A` });
@@ -120,9 +119,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: cashierSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
       }
-
       const newCashierRows = cashierData.data.filter(row => !existingProtocols.has(row[0]));
-      
       if (newCashierRows.length > 0) {
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: newCashierRows } });
         newCashiersCount = newCashierRows.length;
