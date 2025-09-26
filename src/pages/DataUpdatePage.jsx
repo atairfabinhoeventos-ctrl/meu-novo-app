@@ -47,10 +47,10 @@ function DataUpdatePage() {
         axios.get(`${API_URL}/api/sync/waiters`),
         axios.get(`${API_URL}/api/sync/events`)
       ]);
-
+      
       const onlineWaiters = waitersResponse.data;
       const onlineEvents = eventsResponse.data;
-
+      
       const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
       const localCpfSet = new Set(localWaiters.map(w => w.cpf.trim()));
       let newWaitersCount = 0;
@@ -65,7 +65,7 @@ function DataUpdatePage() {
       const localEventsMap = new Map(localEvents.map(e => [e.name, e]));
       let newEventsCount = 0;
       let updatedEventsCount = 0;
-
+      
       onlineEvents.forEach(onlineEvent => {
         if (onlineEvent.name) {
           if (localEventsMap.has(onlineEvent.name)) {
@@ -80,9 +80,9 @@ function DataUpdatePage() {
           }
         }
       });
-
+      
       const mergedEvents = Array.from(localEventsMap.values());
-
+      
       localStorage.setItem('master_waiters', JSON.stringify(localWaiters));
       localStorage.setItem('master_events', JSON.stringify(mergedEvents));
       setWaiters(localWaiters);
@@ -171,17 +171,17 @@ function DataUpdatePage() {
     };
     reader.readAsBinaryString(selectedFile);
   };
-
+  
   const handleToggleEventStatus = (eventName) => {
-  const updatedEvents = events.map(event => {
-    if (event.name === eventName) {
-      return { ...event, active: !event.active };
-    }
-    return event;
-  });
-  setEvents(updatedEvents); // Atualiza o estado da tela
-  localStorage.setItem('master_events', JSON.stringify(updatedEvents)); // Salva a mudança
-};
+    const updatedEvents = events.map(event => {
+      if (event.name === eventName) {
+        return { ...event, active: !event.active };
+      }
+      return event;
+    });
+    setEvents(updatedEvents);
+    localStorage.setItem('master_events', JSON.stringify(updatedEvents));
+  };
 
   return (
     <div className="update-container">
@@ -238,7 +238,7 @@ function DataUpdatePage() {
           </div>
         </div>
       )}
-
+      
       {activeTab === 'events' && (
           <div className="tab-content">
             <div className="update-card full-width">
