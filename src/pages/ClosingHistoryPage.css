@@ -1,0 +1,109 @@
+/* Adicione ou atualize este conteúdo em src/pages/ClosingHistoryPage.css */
+
+/* ... (seus estilos existentes aqui) ... */
+
+.card-footer {
+  display: flex;
+  justify-content: flex-end; /* Alinha botões à direita */
+  gap: 10px; /* Espaço entre os botões */
+  padding: 10px 15px;
+  border-top: 1px solid #eee;
+}
+
+/* Estilo para o novo botão de Detalhes */
+.details-button {
+  padding: 8px 16px;
+  border: 1px solid #5bc0de;
+  background-color: #fff;
+  color: #5bc0de;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.details-button:hover {
+  background-color: #5bc0de;
+  color: #fff;
+}
+
+/* Estilos para o Modal/Pop-up (pode reutilizar se já tiver) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 25px 30px;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  width: 90%;
+  max-width: 600px; /* Ajuste a largura conforme necessário */
+  animation: slide-down 0.3s ease-out;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  color: #333;
+}
+
+.modal-content p {
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.modal-content hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 15px 0;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 25px;
+}
+
+.cancel-button {
+  padding: 10px 20px;
+  border: 1px solid #ccc;
+  background-color: #f0f0f0;
+  color: #333;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.cancel-button:hover {
+  background-color: #e0e0e0;
+}
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Adicione este código em src/pages/ClosingHistoryPage.css */
+
+.history-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center; /* Centraliza os cards horizontalmente */
+  gap: 20px; /* Adiciona um espaço consistente entre os cards */
+  padding: 10px 0;
+}

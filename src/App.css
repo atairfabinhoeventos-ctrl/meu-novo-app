@@ -1,0 +1,142 @@
+/* src/App.css */
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f0f2f5; /* Fundo padrão do corpo */
+  color: #333; /* Cor de texto padrão */
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+.app-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start; /* Alinha no topo */
+  min-height: 100vh;
+  padding: 20px;
+  box-sizing: border-box; /* Garante que o padding não adicione à largura/altura total */
+}
+
+/* Estilos de formulário gerais que podem ser herdados ou sobrescritos */
+.login-form { /* Este nome de classe é reutilizado, mas o LoginPage.css terá prioridade por ser mais específico */
+  background-color: #ffffff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 600px; /* Largura padrão para outros formulários */
+  margin-top: 20px; /* Espaçamento do topo */
+}
+
+/* Botões gerais */
+.login-button { /* Este nome de classe é reutilizado, mas o LoginPage.css terá prioridade */
+  background-color: #1E63B8; /* Azul principal */
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.login-button:hover {
+  background-color: #164a87; /* Azul mais escuro no hover */
+}
+
+/* Seções de formulário */
+.form-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+}
+.form-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* Estilos para campos de input e label dentro de .input-group */
+.input-group {
+    margin-bottom: 15px;
+    text-align: left; /* Garante que labels ficam à esquerda */
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #444;
+}
+
+.input-group input,
+.input-group select {
+    width: calc(100% - 20px); /* Ajuste para padding */
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    box-sizing: border-box; /* Inclui padding e borda na largura total */
+}
+
+.input-group input:focus,
+.input-group select:focus {
+    border-color: #1E63B8;
+    box-shadow: 0 0 0 2px rgba(30, 99, 184, 0.2);
+    outline: none;
+}
+
+
+/* Estilos para a navegação (Header) */
+.header {
+  background-color: #1E63B8; /* Cor principal do SisFO */
+  color: white;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.header-brand {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: white;
+  text-decoration: none;
+}
+
+.header-nav a {
+  color: white;
+  text-decoration: none;
+  margin-left: 20px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.header-nav a:hover {
+  color: #fd7e14; /* Laranja no hover */
+}
+
+.logout-button {
+  background-color: #fd7e14; /* Laranja */
+  color: white;
+  padding: 8px 15px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.logout-button:hover {
+  background-color: #e06c00; /* Laranja mais escuro */
+}

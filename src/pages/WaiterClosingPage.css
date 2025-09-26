@@ -1,0 +1,85 @@
+/* src/pages/WaiterClosingPage.css (Versão Limpa e Final) */
+
+.form-row {
+  display: flex;
+  gap: 20px; /* Espaço entre os campos */
+  align-items: flex-end; /* Alinha a base dos elementos */
+}
+
+.form-row .input-group {
+  flex: 1;
+}
+
+.input-group {
+  position: relative;
+}
+
+.selected-name {
+  background-color: #e9f5ff;
+  border-left: 4px solid #1E63B8;
+  padding: 10px 15px;
+  margin-top: -5px;
+  margin-bottom: 20px;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.switch-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc; transition: .4s;
+}
+.slider:before {
+  position: absolute; content: ""; height: 20px; width: 20px; left: 4px;
+  bottom: 4px; background-color: white; transition: .4s;
+}
+input:checked + .slider { background-color: #28a745; }
+input:checked + .slider:before { transform: translateX(22px); }
+.slider.round { border-radius: 28px; }
+.slider.round:before { border-radius: 50%; }
+
+.results-container {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid #eee;
+}
+
+.results-container p { font-size: 1.1rem; margin: 8px 0; }
+.total-text { font-size: 1.3rem !important; font-weight: 500; }
+.final-value { font-weight: bold; font-size: 1.4rem; margin-left: 10px; }
+
+.suggestions-list {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background-color: white; border: 1px solid #ddd; border-top: none;
+  border-radius: 0 0 5px 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  z-index: 100; max-height: 200px; overflow-y: auto;
+}
+.suggestion-item { padding: 12px 15px; cursor: pointer; }
+.suggestion-item:hover { background-color: #f0f4f8; }
+
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6); display: flex;
+    justify-content: center; align-items: center; z-index: 1000;
+}
+.modal-content {
+    background-color: white; padding: 30px; border-radius: 10px;
+    width: 90%; max-width: 500px;
+}
+.modal-buttons {
+    display: flex; justify-content: flex-end; gap: 15px;
+    margin-top: 25px;
+}
+.cancel-button {
+    background-color: #6c757d; color: white; padding: 10px 20px;
+    border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
+}
+.cancel-button:hover { background-color: #5a6268; }

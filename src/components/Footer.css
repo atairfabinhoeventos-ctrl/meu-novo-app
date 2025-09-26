@@ -1,0 +1,11 @@
+.app-footer {
+  padding: 15px;
+  background-color: #0D1B2A; /* Mesma cor do cabeçalho */
+  color: white;
+  text-align: center;
+  font-size: 14px;
+}
+
+.app-footer p {
+  margin: 0;
+}

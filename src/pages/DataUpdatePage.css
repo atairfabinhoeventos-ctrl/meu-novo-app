@@ -1,0 +1,139 @@
+/* src/pages/DataUpdatePage.css (Com cores da flag alteradas) */
+.update-container {
+  padding: 40px;
+  max-width: 1200px;
+  margin: 40px auto;
+  text-align: center;
+}
+.update-title {
+  font-size: 2.5rem;
+  color: #333;
+  margin-bottom: 30px;
+}
+
+/* --- ESTILOS PARA ABAS --- */
+.tab-navigation {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 30px;
+  border-bottom: 2px solid #ddd;
+}
+.tab-button {
+  padding: 15px 30px; border: none; background-color: transparent; cursor: pointer;
+  font-size: 1.1rem; font-weight: 600; color: #555; position: relative;
+  transition: color 0.2s;
+}
+.tab-button.active { color: #1E63B8; }
+.tab-button.active::after {
+  content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+  height: 2px; background-color: #1E63B8;
+}
+.tab-content { animation: fadeIn 0.5s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- ESTILOS GERAIS DOS CARDS --- */
+.update-card {
+  background-color: #fff; border-radius: 8px; padding: 30px; margin-bottom: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05); text-align: left;
+}
+.update-card.full-width { max-width: 900px; margin-left: auto; margin-right: auto; }
+.update-card h2 { margin-top: 0; text-align: center; }
+.update-card p { text-align: center; color: #666; font-size: 1rem; }
+.download-button {
+  background-color: #28a745; color: white; border: none; padding: 12px 25px;
+  border-radius: 5px; font-size: 1rem; font-weight: bold; cursor: pointer;
+  transition: background-color 0.2s; display: block; margin: 20px auto 0;
+}
+.download-button:hover { background-color: #218838; }
+#file-upload { display: none; }
+.file-upload-label {
+  display: block; padding: 15px; border: 2px dashed #ccc; border-radius: 8px;
+  text-align: center; cursor: pointer; background-color: #f8f9fa;
+  color: #555; font-weight: bold; margin: 20px 0; transition: all 0.2s;
+}
+.file-upload-label:hover { background-color: #e9ecef; border-color: #1E63B8; }
+.update-button {
+  background-color: #1E63B8; color: white; border: none; padding: 15px 25px;
+  border-radius: 5px; font-size: 1rem; font-weight: bold; cursor: pointer;
+  width: 100%; margin-top: 15px; transition: background-color 0.2s;
+}
+.update-button:hover { background-color: #164a87; }
+.update-button:disabled { background-color: #cccccc; cursor: not-allowed; }
+
+/* --- ESTILOS PARA CONSULTA DE GARÇONS --- */
+.search-container { margin-bottom: 20px; }
+.search-input {
+  width: 100%; padding: 12px 15px; font-size: 1rem; border-radius: 5px;
+  border: 1px solid #ddd; box-sizing: border-box;
+}
+.table-container { max-height: 50vh; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+th { background-color: #f8f9fa; font-weight: 600; position: sticky; top: 0; }
+tr:hover { background-color: #f1f1f1; }
+td[colSpan="2"] { text-align: center; color: #888; padding: 20px; }
+
+/* --- ESTILOS PARA LISTA DE EVENTOS E SWITCH --- */
+.event-list { margin-top: 20px; max-height: 400px; overflow-y: auto; }
+.event-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 15px; border-bottom: 1px solid #eee;
+}
+.event-item:last-child { border-bottom: none; }
+.event-item span { font-size: 1.1rem; }
+.switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  transition: .4s;
+}
+.slider:before {
+  position: absolute; content: ""; height: 26px; width: 26px; left: 4px;
+  bottom: 4px; background-color: white; transition: .4s;
+}
+.slider.round { border-radius: 34px; }
+.slider.round:before { border-radius: 50%; }
+
+/* --- CORES ALTERADAS AQUI --- */
+input:checked + .slider {
+  background-color: #28a745; /* Verde para Ativo */
+}
+.slider {
+  background-color: #dc3545; /* Vermelho para Inativo */
+}
+input:checked + .slider:before {
+  transform: translateX(26px);
+}
+/* Adicione no final de src/pages/DataUpdatePage.css */
+
+.online-sync-section {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.update-card {
+  border-left-color: #fd7e14; /* Laranja */
+}
+
+.sync-button {
+  background-color: #fd7e14; /* Laranja */
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sync-button:hover:not(:disabled) {
+  background-color: #e06c00;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.sync-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+

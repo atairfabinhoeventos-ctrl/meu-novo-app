@@ -1,0 +1,144 @@
+/* src/pages/OperatorScreen.css */
+
+.operator-screen-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden; /* Impede barras de rolagem */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: fadeInScreen 0.8s ease-in-out;
+}
+
+@keyframes fadeInScreen {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --- Coluna da Esquerda (Branding) --- */
+.branding-section {
+  flex: 1;
+  background: linear-gradient(135deg, #1d2b4a, #2c3e50); /* Gradiente azul escuro */
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  text-align: center;
+}
+
+.branding-logo {
+  width: 350px;
+  height: 350px;
+  margin-bottom: -100px;
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.branding-title {
+  font-size: 6rem; /* Letras bem grandes para "SisFO" */
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: 2px;
+  text-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.branding-subtitle {
+  font-size: 1.5rem;
+  font-weight: 300;
+  margin-top: 10px;
+  opacity: 0.8;
+}
+
+/* --- Coluna da Direita (Formulário) --- */
+.form-section {
+  flex: 1;
+  background-color: #f4f7f9; /* Cinza claro */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+}
+
+.form-content {
+  width: 100%;
+  max-width: 500px;
+}
+
+.form-content h2 {
+  font-size: 2.2rem;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.form-content p {
+  color: #666;
+  margin-bottom: 30px;
+}
+
+.input-group {
+  margin-bottom: 25px;
+}
+
+.input-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #444;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+  transition: all 0.2s;
+}
+
+.input-group input:focus {
+  border-color: #1E63B8;
+  box-shadow: 0 0 0 4px rgba(30, 99, 184, 0.1);
+  outline: none;
+}
+
+.start-button {
+  width: 100%;
+  padding: 18px;
+  border: none;
+  border-radius: 8px;
+  background-color: #1E63B8; /* Azul principal */
+  color: white;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.start-button:hover {
+  background-color: #164a87;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Responsividade para telas menores */
+@media (max-width: 800px) {
+  .operator-screen-container {
+    flex-direction: column;
+  }
+  .branding-section {
+    flex: 0 0 250px; /* Altura fixa para a seção de branding em telas pequenas */
+  }
+  .branding-title {
+    font-size: 4rem;
+  }
+  .branding-subtitle {
+    font-size: 1.2rem;
+  }
+}

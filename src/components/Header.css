@@ -1,0 +1,64 @@
+/* src/components/Header.css (Com o tamanho da logo restaurado) */
+
+.app-header {
+  padding: 10px 30px;
+  background-color: #0D1B2A;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+  position: relative; 
+  height: 80px; 
+}
+
+.header-left, .header-right {
+  flex: 1;
+  z-index: 2;
+}
+
+.header-left {
+  text-align: left;
+}
+.header-right {
+  text-align: right;
+}
+
+.header-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  z-index: 1; 
+}
+
+/* ===== TAMANHO RESTAURADO AQUI ===== */
+.header-logo-img {
+  height: 130px; /* Tamanho anterior restaurado */
+  cursor: pointer;
+}
+/* ==================================== */
+
+.header-center a {
+  display: inline-block; 
+  line-height: 0;      
+}
+
+.logout-button {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.user-info {
+  margin: 2px 0;
+  font-size: 14px;
+}

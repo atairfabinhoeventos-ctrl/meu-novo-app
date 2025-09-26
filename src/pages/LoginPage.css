@@ -1,0 +1,105 @@
+/* src/pages/LoginPage.css */
+
+.login-page-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f0f2f5; /* Um cinza claro para o fundo */
+  padding: 20px;
+}
+
+.login-form {
+  background-color: #ffffff;
+  padding: 40px;
+  border-radius: 10px;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 450px; /* Largura máxima para o formulário */
+  text-align: center;
+}
+
+.system-identity {
+  margin-bottom: 30px;
+}
+
+.system-tagline {
+  font-size: 1rem;
+  color: #666;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.system-name {
+  font-size: 2rem; /* Tamanho maior para o nome completo */
+  color: #1E63B8; /* Azul escuro, cor principal */
+  margin-bottom: 5px;
+  font-weight: 700;
+}
+
+.system-abbreviation {
+  font-size: 2.8rem; /* Tamanho ainda maior para a abreviação */
+  color: #fd7e14; /* Laranja, cor secundária */
+  font-weight: 900;
+  margin-top: 0;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.1); /* Um leve relevo */
+}
+
+/* Estilos de input e botão (ajustados para serem mais consistentes) */
+.input-group {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+.input-group input {
+  width: calc(100% - 24px); /* Considera o padding */
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-group input:focus {
+  border-color: #1E63B8;
+  box-shadow: 0 0 0 3px rgba(30, 99, 184, 0.2); /* Sombra suave ao focar */
+  outline: none;
+}
+
+.error-message {
+  color: #dc3545; /* Vermelho para mensagens de erro */
+  margin-top: -10px;
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+}
+
+.login-button {
+  background-color: #1E63B8; /* Azul escuro */
+  color: white;
+  padding: 15px 25px;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  width: 100%;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.login-button:hover {
+  background-color: #164a87; /* Tom de azul mais escuro no hover */
+  transform: translateY(-1px);
+}
+
+.login-button:active {
+  transform: translateY(0);
+}

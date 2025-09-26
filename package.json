@@ -1,0 +1,64 @@
+{
+  "name": "meu-novo-app",
+  "productName": "SisFO",
+  "version": "1.0.0",
+  "description": "Sistema de Fechamento Operacional",
+  "main": "src/main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "concurrently \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on tcp:5173 && electron .",
+    "build": "vite build && electron-builder",
+    "lint": "eslint --ext .ts,.tsx ."
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "electron-squirrel-startup": "^1.0.1",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "jspdf": "^2.5.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^1.8.0",
+    "@vitejs/plugin-react": "^5.0.3",
+    "concurrently": "^8.2.2",
+    "electron": "31.0.2",
+    "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.1",
+    "vite": "^5.2.13",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.sisfo.app",
+    "productName": "SisFO",
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "src/main.js",
+      "src/preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    }
+  }
+}

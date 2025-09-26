@@ -1,0 +1,14 @@
+.cloud-sync-container { padding: 40px; display: flex; justify-content: center; align-items: flex-start; }
+.cloud-sync-card {
+  width: 100%; max-width: 700px; background-color: #fff; padding: 40px;
+  border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center;
+}
+.cloud-sync-card h1 { font-size: 2.2rem; margin-top: 0; }
+.cloud-sync-card .input-group { text-align: left; margin: 30px 0; }
+.cloud-sync-card select { width: 100%; padding: 12px; font-size: 1rem; }
+.cloud-sync-card button {
+  background-color: #007bff; color: white; padding: 15px 30px; font-size: 1.1rem;
+  border: none; border-radius: 8px; cursor: pointer; font-weight: bold;
+}
+.cloud-sync-card button:disabled { background-color: #ccc; cursor: not-allowed; }
+.feedback-message { margin-top: 20px; font-weight: bold; }

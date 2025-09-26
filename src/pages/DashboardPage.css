@@ -1,0 +1,79 @@
+/* src/pages/DashboardPage.css (Com altura dos cards corrigida) */
+
+.dashboard-container {
+  padding: 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.dashboard-title {
+  font-size: 2.5rem;
+  color: #333;
+  margin-bottom: 40px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 30px;
+}
+
+.dashboard-card {
+  background-color: #ffffff;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: left;
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+  border-left: 5px solid transparent;
+  
+  /* --- ALTERAÇÕES AQUI --- */
+  /* 1. Transforma o card em um container flexível vertical */
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 15px;
+}
+
+.card-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.card-description {
+  font-size: 1rem;
+  color: #666;
+  line-height: 1.5;
+
+  /* --- ALTERAÇÃO AQUI --- */
+  /* 2. Faz a descrição crescer para ocupar o espaço vazio, empurrando o conteúdo para baixo */
+  flex-grow: 1;
+}
+
+/* Cores específicas para cada card */
+.finance-card {
+  border-left-color: #1E63B8; /* Azul */
+}
+
+.export-card {
+  border-left-color: #28a745; /* Verde */
+}
+
+.update-card {
+  border-left-color: #fd7e14; /* Laranja */
+}
+/* Adicione esta regra ao final de DashboardPage.css */
+.cloud-card {
+  border-left-color: #00ffbfe5; /* Azul claro */
+}
