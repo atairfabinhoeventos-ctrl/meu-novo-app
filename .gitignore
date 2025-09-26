@@ -11,3 +11,4 @@ build/
 
 # dotenv environment variables file
 .env
+credentials.json
