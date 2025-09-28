@@ -1,7 +1,7 @@
 {
   "name": "meu-novo-app",
   "productName": "SisFO",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sistema de Fechamento Operacional",
   "main": "src/main.js",
   "homepage": "./",
