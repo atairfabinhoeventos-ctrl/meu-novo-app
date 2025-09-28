@@ -1,7 +1,7 @@
 // src/pages/ClosingHistoryPage.js (Versão Completa com Pop-up e Centralização)
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './ClosingHistoryPage.css';
 import '../App.css';
 

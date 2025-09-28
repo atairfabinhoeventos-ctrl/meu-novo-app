@@ -1,4 +1,4 @@
-// src/pages/DataUpdatePage.jsx (VERSÃO COMPLETA E CORRIGIDA)
+// src/pages/DataUpdatePage.jsx (VERSÃO COMPLETA E FINAL)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -104,8 +104,8 @@ function DataUpdatePage() {
     waitersSheet.columns = [{ header: 'CPF', key: 'cpf', width: 20 }, { header: 'NOME', key: 'name', width: 40 }];
     waitersSheet.addRow({ cpf: '111.222.333-44', name: 'Exemplo de Garçom 1' });
     const eventsSheet = workbook.addWorksheet('Eventos');
-    eventsSheet.columns = [{ header: 'NOME DO EVENTO', key: 'name', width: 50 }];
-    eventsSheet.addRow({ name: 'Exemplo de Evento A' });
+    eventsSheet.columns = [{ header: 'NOME DO EVENTO', key: 'name', width: 50 }, { header: 'STATUS', key: 'status', width: 20}];
+    eventsSheet.addRow({ name: 'Exemplo de Evento A', status: 'ATIVO' });
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, 'Modelo_Cadastro_Garçons_Eventos.xlsx');
@@ -155,7 +155,8 @@ function DataUpdatePage() {
             newEventsData.forEach(newEvent => {
               const eventName = String(newEvent['NOME DO EVENTO'] || '').trim();
               if (eventName && !existingEventNames.has(eventName)) {
-                existingEvents.push({ name: eventName, active: true });
+                const status = String(newEvent.STATUS || 'ATIVO').toUpperCase() === 'ATIVO';
+                existingEvents.push({ name: eventName, active: status });
                 addedCount++;
               }
             });

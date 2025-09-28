@@ -1,0 +1,65 @@
+/* src/components/AlertModal.css */
+
+.alert-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000; /* Garante que fique acima de tudo */
+}
+
+.alert-modal-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
+  animation: slide-down 0.3s ease-out;
+}
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.alert-modal-title {
+  font-size: 1.5rem;
+  color: #dc3545; /* Vermelho para atenção */
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.alert-modal-message {
+  font-size: 1.1rem;
+  color: #333;
+  margin-bottom: 25px;
+}
+
+.alert-modal-button {
+  background-color: #1E63B8;
+  color: white;
+  border: none;
+  padding: 12px 40px;
+  border-radius: 5px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.alert-modal-button:hover {
+  background-color: #164a87;
+}

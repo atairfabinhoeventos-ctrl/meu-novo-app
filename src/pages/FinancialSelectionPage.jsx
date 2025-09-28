@@ -1,4 +1,4 @@
-// src/pages/FinancialSelectionPage.js (Simplificado, sem pop-up)
+// src/pages/FinancialSelectionPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -13,11 +13,12 @@ function FinancialSelectionPage() {
     if (event) {
       setActiveEvent(event);
     } else {
+      // Se nenhum evento estiver ativo, volta para a tela de seleção
       navigate('/event-selection');
     }
   }, [navigate]);
 
-  // Componente interno para os cards
+  // Componente interno para os cards do menu
   const Card = ({ to, icon, title, description }) => (
     <Link to={to} className="menu-card">
       <div className="card-icon">{icon}</div>
@@ -28,6 +29,10 @@ function FinancialSelectionPage() {
 
   return (
     <div className="menu-container">
+      {/* --- BOTÃO VOLTAR ADICIONADO AQUI --- */}
+      <button onClick={() => navigate(-1)} className="back-button" style={{alignSelf: 'center'}}>&#x2190; Voltar ao Painel</button>
+
+
       <div className="menu-header">
         <h1 className="menu-title">Módulo Financeiro</h1>
         <p className="menu-subtitle">Evento Ativo: <strong>{activeEvent}</strong></p>
@@ -35,7 +40,7 @@ function FinancialSelectionPage() {
       
       <div className="menu-grid">
         <Card
-          to="/waiter-closing" // Navega diretamente
+          to="/waiter-closing"
           icon="👨‍💼"
           title="Fechamento Garçom 8%"
           description="Lançamento de vendas e cálculo de comissão de 8%/4%."

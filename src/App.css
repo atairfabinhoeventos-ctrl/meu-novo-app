@@ -140,3 +140,24 @@ code {
 .logout-button:hover {
   background-color: #e06c00; /* Laranja mais escuro */
 }
+
+/* src/App.css - Substitua a regra .back-button antiga por esta */
+
+.back-button {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  /* Remove o posicionamento absoluto e adiciona margem */
+  margin-bottom: 20px;
+  align-self: flex-start; /* Alinha o botão à esquerda dentro do container */
+}
+
+.back-button:hover {
+  background-color: #5a6268;
+}

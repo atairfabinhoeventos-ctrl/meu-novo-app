@@ -1,7 +1,7 @@
 // src/pages/WaiterClosing10Page.jsx (Com layout de formulário corrigido)
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
 import '../App.css';

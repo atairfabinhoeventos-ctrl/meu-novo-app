@@ -1,4 +1,4 @@
-// src/pages/EventSelectionPage.jsx (Mostrando apenas eventos ativos)
+// src/pages/EventSelectionPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -10,10 +10,9 @@ function EventSelectionPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Carrega a lista de objetos de evento do localStorage
+    // Carrega a lista completa de objetos de evento do localStorage
     const allEvents = JSON.parse(localStorage.getItem('master_events')) || [];
     
-    // --- LÓGICA DE FILTRO ADICIONADA AQUI ---
     // Filtra para mostrar apenas os eventos que têm a propriedade 'active: true'
     const filteredEvents = allEvents.filter(event => event.active);
     
@@ -26,7 +25,9 @@ function EventSelectionPage() {
   }, []);
 
   const handleSelectEvent = (event) => {
-    localStorage.setItem('activeEvent', event.name); // Salva apenas o nome do evento
+    // Salva apenas o nome do evento no localStorage para ser usado em outras telas
+    localStorage.setItem('activeEvent', event.name); 
+    // Dispara um evento para que o Header atualize a informação em tempo real
     window.dispatchEvent(new Event('storage'));
     navigate('/financial-selection');
   };
@@ -38,7 +39,11 @@ function EventSelectionPage() {
   return (
     <div className="app-container">
       <div className="login-form" style={{ maxWidth: '600px' }}>
+        {/* --- BOTÃO VOLTAR ADICIONADO AQUI --- */}
+        <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
+        
         <h1>Selecione um Evento Ativo</h1>
+        
         {activeEvents.length > 0 ? (
           activeEvents.map(event => (
             <button 
@@ -51,7 +56,9 @@ function EventSelectionPage() {
             </button>
           ))
         ) : (
-          <p>Nenhum evento ativo disponível. Vá para "Atualizar Dados" para gerenciar.</p>
+          <p style={{ textAlign: 'center', marginTop: '20px' }}>
+            Nenhum evento ativo disponível. Vá para "Atualizar Dados" para gerenciar.
+          </p>
         )}
       </div>
     </div>

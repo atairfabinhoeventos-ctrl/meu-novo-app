@@ -1,7 +1,7 @@
 // src/pages/MobileCashierClosingPage.jsx (Com salvamento local)
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 // import axios from 'axios'; // Não precisamos mais do axios aqui
 // import { API_URL } from '../config'; // Nem da API_URL
 import { saveMobileCashierClosing } from '../services/apiService'; // <<< NOVA IMPORTAÇÃO
