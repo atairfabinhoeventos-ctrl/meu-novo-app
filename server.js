@@ -69,6 +69,77 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
+
+// --- NOVA ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
+app.post('/api/update-base', async (req, res) => {
+  const { waiters, events } = req.body;
+
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    let addedWaitersCount = 0;
+    let addedEventsCount = 0;
+
+    // Processar Garçons
+    if (waiters && waiters.length > 0) {
+      // 1. Buscar CPFs existentes
+      const response = await googleSheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId_sync,
+        range: 'Garcons!A2:A',
+      });
+      const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
+      
+      // 2. Filtrar apenas os novos garçons
+      const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
+      
+      // 3. Adicionar novos garçons à planilha
+      if (newWaiters.length > 0) {
+        const values = newWaiters.map(w => [w.cpf, w.name]);
+        await googleSheets.spreadsheets.values.append({
+          spreadsheetId: spreadsheetId_sync,
+          range: 'Garcons!A:B',
+          valueInputOption: 'USER_ENTERED',
+          resource: { values },
+        });
+        addedWaitersCount = newWaiters.length;
+      }
+    }
+
+    // Processar Eventos
+    if (events && events.length > 0) {
+      // 1. Buscar nomes de eventos existentes
+      const response = await googleSheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId_sync,
+        range: 'Eventos!A2:A',
+      });
+      const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
+
+      // 2. Filtrar apenas os novos eventos
+      const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
+
+      // 3. Adicionar novos eventos à planilha
+      if (newEvents.length > 0) {
+        const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']); // Coluna B (local) vazia
+        await googleSheets.spreadsheets.values.append({
+          spreadsheetId: spreadsheetId_sync,
+          range: 'Eventos!A:C',
+          valueInputOption: 'USER_ENTERED',
+          resource: { values },
+        });
+        addedEventsCount = newEvents.length;
+      }
+    }
+    
+    res.status(200).json({ 
+      message: `Base de cadastro online atualizada com sucesso!\n- ${addedWaitersCount} novo(s) garçom(ns) adicionado(s).\n- ${addedEventsCount} novo(s) evento(s) adicionado(s).`
+    });
+
+  } catch (error) {
+    console.error('Erro ao atualizar base de cadastro online:', error);
+    res.status(500).json({ message: 'Erro interno do servidor ao atualizar a base de cadastro.' });
+  }
+});
+
+
 // --- ROTA PARA ENVIAR DADOS PARA A NUVEM COM VERIFICAÇÃO ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
