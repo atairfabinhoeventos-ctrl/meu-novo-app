@@ -1,38 +1,43 @@
-// src/pages/MobileCashierClosingPage.jsx (Com salvamento local)
+// src/pages/MobileCashierClosingPage.jsx (VERSÃO FINAL COM LAYOUT PADRONIZADO)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-// import axios from 'axios'; // Não precisamos mais do axios aqui
-// import { API_URL } from '../config'; // Nem da API_URL
-import { saveMobileCashierClosing } from '../services/apiService'; // <<< NOVA IMPORTAÇÃO
+import { saveMobileCashierClosing } from '../services/apiService';
+import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
+import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
-import './WaiterClosingPage.css';
+import './MobileCashierClosingPage.css'; // <-- Importando o CSS correto
 
-// ... (todas as funções de formatação e o início do componente continuam iguais)
-function formatCurrencyInput(value) {
-  if (!value) return '';
-  const cleanValue = String(value).replace(/\D/g, '');
-  if (cleanValue === '') return '';
-  const numberValue = parseInt(cleanValue, 10);
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numberValue / 100);
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => { setDebouncedValue(value); }, delay);
+    return () => { clearTimeout(handler); };
+  }, [value, delay]);
+  return debouncedValue;
 }
-function formatCurrencyResult(value) {
-    if (isNaN(value)) return 'R$ 0,00';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-const formatCpf = (text) => {
-  const cleanText = text.replace(/\D/g, '');
-  if (cleanText.length <= 3) return cleanText;
-  if (cleanText.length <= 6) return `${cleanText.slice(0, 3)}.${cleanText.slice(3)}`;
-  if (cleanText.length <= 9) return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6)}`;
-  return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6, 9)}-${cleanText.slice(9, 11)}`;
-};
 
 function MobileCashierClosingPage() {
     const navigate = useNavigate();
+    
+    const formRefs = {
+      cpf: useRef(null),
+      numeroMaquina: useRef(null),
+      valorTotalVenda: useRef(null),
+      credito: useRef(null),
+      debito: useRef(null),
+      pix: useRef(null),
+      cashless: useRef(null),
+      dinheiroFisico: useRef(null),
+      valorTroco: useRef(null),
+      valorEstorno: useRef(null),
+      saveButton: useRef(null),
+    };
+
+    const [alertMessage, setAlertMessage] = useState('');
     const [personnelList, setPersonnelList] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(null);
-    const [cpfInput, setCpfInput] = useState('');
+    const [searchInput, setSearchInput] = useState('');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [numeroMaquina, setNumeroMaquina] = useState('');
     const [temTroco, setTemTroco] = useState(false);
@@ -54,50 +59,71 @@ function MobileCashierClosingPage() {
     const [registerModalVisible, setRegisterModalVisible] = useState(false);
     const [newCashierName, setNewCashierName] = useState('');
 
+    const debouncedValorTotal = useDebounce(valorTotalVenda, 500);
+    const debouncedValorTroco = useDebounce(valorTroco, 500);
+    const debouncedCredito = useDebounce(credito, 500);
+    const debouncedDebito = useDebounce(debito, 500);
+    const debouncedPix = useDebounce(pix, 500);
+    const debouncedCashless = useDebounce(cashless, 500);
+    const debouncedDinheiroFisico = useDebounce(dinheiroFisico, 500);
+    const debouncedValorEstorno = useDebounce(valorEstorno, 500);
+
+    const parseCurrency = (value) => {
+      const stringValue = String(value);
+      const cleanValue = stringValue.replace(/\D/g, '');
+      if (cleanValue === '') return 0;
+      if (!stringValue.includes(',') && !stringValue.includes('.')) { return parseInt(cleanValue, 10); }
+      return parseInt(cleanValue, 10) / 100;
+    };
+
     useEffect(() => {
         const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setPersonnelList(localPersonnel);
     }, []);
 
     useEffect(() => {
-        const cleanCpf = cpfInput.replace(/\D/g, '');
-        if (cleanCpf.length > 0 && !selectedCashier) {
-            const results = personnelList.filter(p => p.cpf?.toString().replace(/\D/g, '').startsWith(cleanCpf));
+        const query = searchInput.trim().toLowerCase();
+        if (query.length > 0 && !selectedCashier) {
+            const results = personnelList.filter(person => {
+                const personName = person.name.toLowerCase();
+                const personCpf = person.cpf.replace(/\D/g, '');
+                const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
+                if (isNumericQuery) { return personCpf.startsWith(query.replace(/\D/g, '')); } 
+                else { return personName.includes(query); }
+            });
             setFilteredPersonnel(results);
-            setShowRegisterButton(cleanCpf.length === 11 && results.length === 0);
-        } else {
-            setFilteredPersonnel([]);
-            setShowRegisterButton(false);
-        }
-    }, [cpfInput, personnelList, selectedCashier]);
+            const cleanQueryCpf = query.replace(/\D/g, '');
+            const isPotentialCpf = /^\d{11}$/.test(cleanQueryCpf);
+            if (isPotentialCpf && results.length === 0) { setShowRegisterButton(true); } 
+            else { setShowRegisterButton(false); }
+        } else { setFilteredPersonnel([]); setShowRegisterButton(false); }
+    }, [searchInput, personnelList, selectedCashier]);
 
     useEffect(() => {
-        const numValorTotalVenda = (parseInt(String(valorTotalVenda).replace(/\D/g, '') || '0', 10)) / 100;
-        const numValorTroco = (parseInt(String(valorTroco).replace(/\D/g, '') || '0', 10)) / 100;
-        const numCredito = (parseInt(String(credito).replace(/\D/g, '') || '0', 10)) / 100;
-        const numDebito = (parseInt(String(debito).replace(/\D/g, '') || '0', 10)) / 100;
-        const numPix = (parseInt(String(pix).replace(/\D/g, '') || '0', 10)) / 100;
-        const numCashless = (parseInt(String(cashless).replace(/\D/g, '') || '0', 10)) / 100;
-        const numDinheiroFisico = (parseInt(String(dinheiroFisico).replace(/\D/g, '') || '0', 10)) / 100;
-        const numValorEstorno = (parseInt(String(valorEstorno).replace(/\D/g, '') || '0', 10)) / 100;
+        const numValorTotalVenda = parseCurrency(debouncedValorTotal);
+        const numValorTroco = parseCurrency(debouncedValorTroco);
+        const numCredito = parseCurrency(debouncedCredito);
+        const numDebito = parseCurrency(debouncedDebito);
+        const numPix = parseCurrency(debouncedPix);
+        const numCashless = parseCurrency(debouncedCashless);
+        const numDinheiroFisico = parseCurrency(debouncedDinheiroFisico);
+        const numValorEstorno = parseCurrency(debouncedValorEstorno);
         const acertoCalculado = (numValorTotalVenda + (temTroco ? numValorTroco : 0)) - (numCredito + numDebito + numPix + numCashless) - (temEstorno ? numValorEstorno : 0);
         setValorAcerto(acertoCalculado);
         const dif = numDinheiroFisico - acertoCalculado;
         setDiferenca(dif);
-    }, [valorTotalVenda, valorTroco, credito, debito, pix, cashless, dinheiroFisico, temTroco, valorEstorno, temEstorno]);
-
+    }, [debouncedValorTotal, debouncedValorTroco, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedDinheiroFisico, temTroco, debouncedValorEstorno, temEstorno]);
+    
     const handleSelectCashier = (cashier) => {
         setSelectedCashier(cashier);
-        setCpfInput(cashier.cpf);
+        setSearchInput(cashier.name);
         setFilteredPersonnel([]);
     };
 
     const handleRegisterNewCashier = () => {
-        if (!newCashierName.trim()) {
-            alert('Por favor, insira o nome do novo caixa.');
-            return;
-        }
-        const newCashier = { cpf: formatCpf(cpfInput), name: newCashierName.trim() };
+        const cleanCpf = searchInput.replace(/\D/g, '');
+        if (!newCashierName.trim()) { setAlertMessage('Por favor, insira o nome do novo funcionário.'); return; }
+        const newCashier = { cpf: formatCpf(cleanCpf), name: newCashierName.trim() };
         let currentPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
         currentPersonnel.push(newCashier);
         localStorage.setItem('master_waiters', JSON.stringify(currentPersonnel));
@@ -105,63 +131,52 @@ function MobileCashierClosingPage() {
         handleSelectCashier(newCashier);
         setRegisterModalVisible(false);
         setNewCashierName('');
-        alert(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
+        setAlertMessage(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
     };
-
+    
     const handleOpenConfirmation = () => {
         if (!selectedCashier || !numeroMaquina) {
-            alert('Por favor, selecione um caixa e preencha o número da máquina.');
+            setAlertMessage('Por favor, selecione um funcionário e preencha o número da máquina.');
             return;
         }
         setDataToConfirm({
             cashierName: selectedCashier.name,
             valorAcerto,
-            dinheiroFisico: (parseInt(String(dinheiroFisico).replace(/\D/g, '') || '0', 10)) / 100,
+            dinheiroFisico: parseCurrency(dinheiroFisico),
             diferenca,
         });
         setModalVisible(true);
     };
 
-    // --- FUNÇÃO DE SALVAMENTO ALTERADA ---
     const handleFinalSave = async () => {
         setIsSaving(true);
         try {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
-            
             const closingData = {
                 eventName, operatorName,
                 cpf: selectedCashier.cpf, cashierName: selectedCashier.name,
                 numeroMaquina, temTroco, temEstorno,
-                valorTroco: (parseInt(String(valorTroco).replace(/\D/g, '') || '0', 10)) / 100,
-                valorEstorno: (parseInt(String(valorEstorno).replace(/\D/g, '') || '0', 10)) / 100,
-                valorTotalVenda: (parseInt(String(valorTotalVenda).replace(/\D/g, '') || '0', 10)) / 100,
-                credito: (parseInt(String(credito).replace(/\D/g, '') || '0', 10)) / 100,
-                debito: (parseInt(String(debito).replace(/\D/g, '') || '0', 10)) / 100,
-                pix: (parseInt(String(pix).replace(/\D/g, '') || '0', 10)) / 100,
-                cashless: (parseInt(String(cashless).replace(/\D/g, '') || '0', 10)) / 100,
-                dinheiroFisico: (parseInt(String(dinheiroFisico).replace(/\D/g, '') || '0', 10)) / 100,
+                valorTroco: parseCurrency(valorTroco),
+                valorEstorno: parseCurrency(valorEstorno),
+                valorTotalVenda: parseCurrency(valorTotalVenda),
+                credito: parseCurrency(credito),
+                debito: parseCurrency(debito),
+                pix: parseCurrency(pix),
+                cashless: parseCurrency(cashless),
+                dinheiroFisico: parseCurrency(dinheiroFisico),
                 valorAcerto, diferenca,
             };
-            
-            // Troca a chamada direta ao backend pela função de salvamento local
             const response = await saveMobileCashierClosing(closingData);
-            
-            alert(`Fechamento salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
-            navigate('/financial-selection');
-
+            setAlertMessage(`Fechamento salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
+            setTimeout(() => navigate('/financial-selection'), 2000);
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
-            alert('Ocorreu um erro ao salvar o fechamento localmente.');
+            setAlertMessage('Ocorreu um erro ao salvar o fechamento localmente.');
         } finally {
             setIsSaving(false);
             setModalVisible(false);
         }
-    };
-
-    // O resto do arquivo (funções de formatação e JSX) continua o mesmo...
-    const cleanAndSetNumeric = (setter) => (e) => {
-        setter(e.target.value.replace(/\D/g, ''));
     };
 
     const getDiferencaColor = (diff) => {
@@ -170,84 +185,101 @@ function MobileCashierClosingPage() {
         return 'blue';
     };
 
+    const handleKeyDown = (e, nextField) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (formRefs[nextField] && formRefs[nextField].current) {
+          formRefs[nextField].current.focus();
+        }
+      }
+    };
+
     return (
         <div className="app-container">
+            <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
             <div className="login-form form-scrollable" style={{ maxWidth: '800px' }}>
+                <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>Fechamento Caixa Móvel</h1>
                 
                 <div className="form-section">
-                    <div className="input-group" style={{ position: 'relative' }}>
-                        <label>CPF do Caixa</label>
-                        <input 
-                            placeholder="Digite o CPF para buscar" 
-                            value={formatCpf(cpfInput)} 
-                            onChange={(e) => { setCpfInput(e.target.value); setSelectedCashier(null); }} 
-                        />
-                        {filteredPersonnel.length > 0 && (
-                            <div className="suggestions-list">
-                                {filteredPersonnel.map(item => (
-                                    <div key={item.cpf} className="suggestion-item" onClick={() => handleSelectCashier(item)}>
-                                        {item.name} - {item.cpf}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                    <div className="form-row">
+                        <div className="input-group">
+                            <label>Buscar Funcionário (Nome ou CPF)</label>
+                            <input 
+                                ref={formRefs.cpf}
+                                onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')}
+                                placeholder="Digite o nome ou CPF" 
+                                value={searchInput} 
+                                onChange={(e) => { setSearchInput(e.target.value); setSelectedCashier(null); }} 
+                            />
+                            {filteredPersonnel.length > 0 && (
+                                <div className="suggestions-list">
+                                    {filteredPersonnel.map(item => (
+                                        <div key={item.cpf} className="suggestion-item" onClick={() => handleSelectCashier(item)}>
+                                            {item.name} - {item.cpf}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="input-group">
+                            <label>Funcionário Selecionado</label>
+                            <input type="text" value={selectedCashier ? `${selectedCashier.name} - ${selectedCashier.cpf}` : ''} readOnly placeholder="Selecione um funcionário" />
+                        </div>
                     </div>
-
-                    {showRegisterButton && (
-                        <button 
-                            className="login-button" 
-                            style={{marginTop: '10px', backgroundColor: '#5bc0de'}} 
-                            onClick={() => setRegisterModalVisible(true)}
-                        >
-                            CPF não encontrado. Cadastrar novo funcionário?
-                        </button>
-                    )}
-
-                    {selectedCashier && <p className="selected-name">Caixa Selecionado: <strong>{selectedCashier.name}</strong></p>}
-                    <div className="input-group">
-                        <label>Número da Máquina</label>
-                        <input value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} />
+                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo funcionário?</button>)}
+                    <div className="form-row">
+                        <div className="input-group">
+                            <label>Número da Máquina</label>
+                            <input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotalVenda')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} />
+                        </div>
                     </div>
                 </div>
 
-                <div className="form-section form-row">
+                <div className="form-section">
+                    <div className="form-row">
+                        <div className="input-group">
+                            <label>Valor Total da Venda</label>
+                            <input ref={formRefs.valorTotalVenda} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTotalVenda)} onChange={(e) => setValorTotalVenda(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="form-row">
+                        <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => setCredito(e.target.value)} /></div>
+                        <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => setDebito(e.target.value)} /></div>
+                    </div>
+                     <div className="form-row">
+                        <div className="input-group"><label>PIX</label><input ref={formRefs.pix} onKeyDown={(e) => handleKeyDown(e, 'cashless')} value={formatCurrencyInput(pix)} onChange={(e) => setPix(e.target.value)} /></div>
+                        <div className="input-group"><label>Cashless</label><input ref={formRefs.cashless} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(cashless)} onChange={(e) => setCashless(e.target.value)} /></div>
+                    </div>
+                </div>
+
+                <div className="form-row" style={{alignItems: 'center', marginBottom: '20px', borderTop: '1px solid #eee', paddingTop: '20px'}}>
                     <div className="switch-container">
                         <label>Recebeu Troco?</label>
                         <label className="switch"><input type="checkbox" checked={temTroco} onChange={() => setTemTroco(!temTroco)} /><span className="slider round"></span></label>
                     </div>
-                    {temTroco && <div className="input-group"><label>Valor do Troco</label><input value={formatCurrencyInput(valorTroco)} onChange={cleanAndSetNumeric(setValorTroco)} /></div>}
-                </div>
-                <div className="form-section form-row">
-                     <div className="switch-container">
+                    {temTroco && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorTroco)} onChange={(e) => setValorTroco(e.target.value)} /></div>}
+                    
+                    <div className="switch-container" style={{marginLeft: 'auto'}}>
                         <label>Houve Estorno?</label>
                         <label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label>
                     </div>
-                    {temEstorno && <div className="input-group"><label>Valor do Estorno</label><input value={formatCurrencyInput(valorEstorno)} onChange={cleanAndSetNumeric(setValorEstorno)} /></div>}
+                    {temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => setValorEstorno(e.target.value)} /></div>}
                 </div>
-                <div className="form-section">
-                    <div className="input-group"><label>Valor Total da Venda</label><input value={formatCurrencyInput(valorTotalVenda)} onChange={cleanAndSetNumeric(setValorTotalVenda)} /></div>
-                    <div className="form-row">
-                        <div className="input-group"><label>Crédito</label><input value={formatCurrencyInput(credito)} onChange={cleanAndSetNumeric(setCredito)} /></div>
-                        <div className="input-group"><label>Débito</label><input value={formatCurrencyInput(debito)} onChange={cleanAndSetNumeric(setDebito)} /></div>
-                    </div>
-                     <div className="form-row">
-                        <div className="input-group"><label>PIX</label><input value={formatCurrencyInput(pix)} onChange={cleanAndSetNumeric(setPix)} /></div>
-                        <div className="input-group"><label>Cashless</label><input value={formatCurrencyInput(cashless)} onChange={cleanAndSetNumeric(setCashless)} /></div>
-                    </div>
-                </div>
+
                 <div className="results-container">
                     <p className="total-text">Dinheiro a ser apresentado: <strong>{formatCurrencyResult(valorAcerto)}</strong></p>
                     <div className="input-group">
                         <label>Total em Dinheiro Físico (Contado)</label>
-                        <input value={formatCurrencyInput(dinheiroFisico)} onChange={cleanAndSetNumeric(setDinheiroFisico)} />
+                        <input ref={formRefs.dinheiroFisico} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} value={formatCurrencyInput(dinheiroFisico)} onChange={(e) => setDinheiroFisico(e.target.value)} />
                     </div>
                     <p className="total-text">Diferença: <strong style={{ color: getDiferencaColor(diferenca) }}>{formatCurrencyResult(diferenca)}</strong></p>
-                    <button className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
+                    <button ref={formRefs.saveButton} className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
                         {isSaving ? 'Salvando...' : 'SALVAR E FINALIZAR'}
                     </button>
                 </div>
             </div>
+            
             {modalVisible && (
                 <div className="modal-overlay">
                     <div className="modal-content">
@@ -277,7 +309,7 @@ function MobileCashierClosingPage() {
                         <h2>Cadastrar Novo Funcionário</h2>
                         <div className="input-group">
                             <label>CPF</label>
-                            <input type="text" value={formatCpf(cpfInput)} readOnly />
+                            <input type="text" value={formatCpf(searchInput)} readOnly />
                         </div>
                         <div className="input-group">
                             <label>Nome do Funcionário</label>

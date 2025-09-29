@@ -1,39 +1,46 @@
-// src/pages/WaiterClosing10Page.jsx (Com layout de formulário corrigido)
+// src/pages/WaiterClosing10Page.jsx (VERSÃO COMPLETA COM MELHORIAS)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
-import { API_URL } from '../config';
+import { saveWaiterClosing } from '../services/apiService'; // Reutiliza a mesma função de salvar
+import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
+import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
-import './WaiterClosingPage.css'; // <<< REUTILIZANDO O MESMO CSS CORRIGIDO
+import './WaiterClosingPage.css'; // Reutiliza o mesmo CSS
 
-// ... (Funções de formatação no topo continuam as mesmas)
-function formatCurrencyInput(value) {
-  if (!value) return '';
-  const cleanValue = String(value).replace(/\D/g, '');
-  if (cleanValue === '') return '';
-  const numberValue = parseInt(cleanValue, 10);
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numberValue / 100);
+// Hook de "Debounce" para otimizar os cálculos
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => { setDebouncedValue(value); }, delay);
+    return () => { clearTimeout(handler); };
+  }, [value, delay]);
+  return debouncedValue;
 }
-function formatCurrencyResult(value) {
-    if (isNaN(value)) return 'R$ 0,00';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-const formatCpf = (text) => {
-  const cleanText = text.replace(/\D/g, '');
-  if (cleanText.length <= 3) return cleanText;
-  if (cleanText.length <= 6) return `${cleanText.slice(0, 3)}.${cleanText.slice(3)}`;
-  if (cleanText.length <= 9) return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6)}`;
-  return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6, 9)}-${cleanText.slice(9, 11)}`;
-};
 
 function WaiterClosing10Page() {
-    // ... (Toda a lógica de states e useEffects continua a mesma)
     const navigate = useNavigate();
+    const location = useLocation(); 
+
+    const formRefs = {
+      cpf: useRef(null),
+      numeroMaquina: useRef(null),
+      valorTotal: useRef(null),
+      valorEstorno: useRef(null),
+      credito: useRef(null),
+      debito: useRef(null),
+      pix: useRef(null),
+      cashless: useRef(null),
+      saveButton: useRef(null),
+    };
+
+    const [alertMessage, setAlertMessage] = useState('');
     const [waiters, setWaiters] = useState([]);
     const [selectedWaiter, setSelectedWaiter] = useState(null);
-    const [cpfInput, setCpfInput] = useState('');
+    const [searchInput, setSearchInput] = useState('');
     const [filteredWaiters, setFilteredWaiters] = useState([]);
+    const [protocol, setProtocol] = useState(null);
+    const [timestamp, setTimestamp] = useState(null);
     const [numeroMaquina, setNumeroMaquina] = useState('');
     const [temEstorno, setTemEstorno] = useState(false);
     const [valorEstorno, setValorEstorno] = useState('');
@@ -45,75 +52,125 @@ function WaiterClosing10Page() {
     const [comissao10, setComissao10] = useState(0);
     const [comissao4, setComissao4] = useState(0);
     const [comissaoTotal, setComissaoTotal] = useState(0);
-    const [valorAcerto, setValorAcerto] = useState(0);
-    const [acertoLabel, setAcertoLabel] = useState('Aguardando valores...');
     const [valorTotalAcerto, setValorTotalAcerto] = useState(0);
+    const [diferencaPagarReceber, setDiferencaPagarReceber] = useState(0);
+    const [diferencaLabel, setDiferencaLabel] = useState('Aguardando valores...');
     const [modalVisible, setModalVisible] = useState(false);
+    const [modalState, setModalState] = useState('confirm');
     const [dataToConfirm, setDataToConfirm] = useState(null);
-    const [isSaving, setIsSaving] = useState(false);
     const [showRegisterButton, setShowRegisterButton] = useState(false);
     const [registerModalVisible, setRegisterModalVisible] = useState(false);
     const [newWaiterName, setNewWaiterName] = useState('');
 
+    const debouncedValorTotal = useDebounce(valorTotal, 500);
+    const debouncedCredito = useDebounce(credito, 500);
+    const debouncedDebito = useDebounce(debito, 500);
+    const debouncedPix = useDebounce(pix, 500);
+    const debouncedCashless = useDebounce(cashless, 500);
+    const debouncedValorEstorno = useDebounce(valorEstorno, 500);
+
+    const parseCurrency = (value) => {
+      const stringValue = String(value);
+      const cleanValue = stringValue.replace(/\D/g, '');
+      if (cleanValue === '') return 0;
+      if (!stringValue.includes(',') && !stringValue.includes('.')) {
+        return parseInt(cleanValue, 10);
+      }
+      return parseInt(cleanValue, 10) / 100;
+    };
+
     useEffect(() => {
         const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setWaiters(localWaiters);
+        const closingToEdit = location.state?.closingToEdit;
+        if (closingToEdit) {
+            setProtocol(closingToEdit.protocol);
+            setTimestamp(closingToEdit.timestamp);
+            const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
+            setSelectedWaiter(waiter);
+            setSearchInput(waiter.name);
+            setNumeroMaquina(closingToEdit.numeroMaquina || '');
+            setTemEstorno(closingToEdit.temEstorno);
+            setValorEstorno(String(closingToEdit.valorEstorno).replace('.', ','));
+            setValorTotal(String(closingToEdit.valorTotal).replace('.', ','));
+            setCredito(String(closingToEdit.credito).replace('.', ','));
+            setDebito(String(closingToEdit.debito).replace('.', ','));
+            setPix(String(closingToEdit.pix).replace('.', ','));
+            setCashless(String(closingToEdit.cashless).replace('.', ','));
+        }
     }, []);
 
     useEffect(() => {
-        const cleanCpf = cpfInput.replace(/\D/g, '');
-        if (cleanCpf.length > 0 && !selectedWaiter) {
-            const results = waiters.filter(w => w.cpf?.toString().replace(/\D/g, '').startsWith(cleanCpf));
+        const query = searchInput.trim().toLowerCase();
+        if (query.length > 0 && !selectedWaiter) {
+            const results = waiters.filter(waiter => {
+                const waiterName = waiter.name.toLowerCase();
+                const waiterCpf = waiter.cpf.replace(/\D/g, '');
+                const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
+                if (isNumericQuery) { return waiterCpf.startsWith(query.replace(/\D/g, '')); } 
+                else { return waiterName.includes(query); }
+            });
             setFilteredWaiters(results);
-            if (cleanCpf.length === 11 && results.length === 0) {
-                setShowRegisterButton(true);
-            } else {
-                setShowRegisterButton(false);
-            }
-        } else {
-            setFilteredWaiters([]);
-            setShowRegisterButton(false);
-        }
-    }, [cpfInput, waiters, selectedWaiter]);
+            const cleanQueryCpf = query.replace(/\D/g, '');
+            const isPotentialCpf = /^\d{11}$/.test(cleanQueryCpf);
+            if (isPotentialCpf && results.length === 0) { setShowRegisterButton(true); } 
+            else { setShowRegisterButton(false); }
+        } else { setFilteredWaiters([]); setShowRegisterButton(false); }
+    }, [searchInput, waiters, selectedWaiter]);
     
     useEffect(() => {
-        const numValorTotal = (parseInt(String(valorTotal).replace(/\D/g, '') || '0', 10)) / 100;
-        const numValorEstorno = (parseInt(String(valorEstorno).replace(/\D/g, '') || '0', 10)) / 100;
-        const numCashless = (parseInt(String(cashless).replace(/\D/g, '') || '0', 10)) / 100;
-        const numCredito = (parseInt(String(credito).replace(/\D/g, '') || '0', 10)) / 100;
-        const numDebito = (parseInt(String(debito).replace(/\D/g, '') || '0', 10)) / 100;
-        const numPix = (parseInt(String(pix).replace(/\D/g, '') || '0', 10)) / 100;
+        const numValorTotal = parseCurrency(debouncedValorTotal);
+        const numCredito = parseCurrency(debouncedCredito);
+        const numDebito = parseCurrency(debouncedDebito);
+        const numPix = parseCurrency(debouncedPix);
+        const numCashless = parseCurrency(debouncedCashless);
+        const numValorEstorno = parseCurrency(debouncedValorEstorno);
         const valorEfetivoVenda = numValorTotal - (temEstorno ? numValorEstorno : 0);
         const baseComissao10 = valorEfetivoVenda - numCashless;
         const c10 = baseComissao10 * 0.10;
-        setComissao10(c10);
         const c4 = numCashless * 0.04;
-        setComissao4(c4);
         const cTotal = c10 + c4;
+        setComissao10(c10);
+        setComissao4(c4);
         setComissaoTotal(cTotal);
-        setValorTotalAcerto(valorEfetivoVenda - cTotal);
+        const totalAcerto = valorEfetivoVenda - cTotal;
+        setValorTotalAcerto(totalAcerto);
         const dinheiroDevido = valorEfetivoVenda - (numCredito + numDebito + numPix + numCashless);
         const diferenca = dinheiroDevido - cTotal;
         if (diferenca < 0) {
-          setAcertoLabel('Pagar ao Garçom');
-          setValorAcerto(diferenca * -1);
+          setDiferencaLabel('Pagar ao Garçom');
+          setDiferencaPagarReceber(diferenca * -1);
         } else {
-          setAcertoLabel('Receber do Garçom');
-          setValorAcerto(diferenca);
+          setDiferencaLabel('Receber do Garçom');
+          setDiferencaPagarReceber(diferenca);
         }
-    }, [valorTotal, credito, debito, pix, cashless, valorEstorno, temEstorno]);
+    }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedValorEstorno, temEstorno]);
+
+    const handlePaymentChange = (setter, value, fieldName) => {
+      const numValorTotal = parseCurrency(valorTotal);
+      if (numValorTotal > 0) {
+        const values = { credito, debito, pix, cashless };
+        values[fieldName] = value; 
+        const somaPagamentos = parseCurrency(values.credito) + parseCurrency(values.debito) + parseCurrency(values.pix) + parseCurrency(values.cashless);
+        if (somaPagamentos > numValorTotal) {
+          setAlertMessage('Erro de Digitação: A soma dos pagamentos não pode ser maior que a Venda Total.');
+          setter(''); 
+          return;
+        }
+      }
+      setter(value);
+    };
 
     const handleSelectWaiter = (waiter) => {
         setSelectedWaiter(waiter);
-        setCpfInput(waiter.cpf);
+        setSearchInput(waiter.name);
         setFilteredWaiters([]);
     };
+
     const handleRegisterNewWaiter = () => {
-        if (!newWaiterName.trim()) {
-            alert('Por favor, insira o nome do novo garçom.');
-            return;
-        }
-        const newWaiter = { cpf: formatCpf(cpfInput), name: newWaiterName.trim() };
+        const cleanCpf = searchInput.replace(/\D/g, '');
+        if (!newWaiterName.trim()) { setAlertMessage('Por favor, insira o nome do novo garçom.'); return; }
+        const newWaiter = { cpf: formatCpf(cleanCpf), name: newWaiterName.trim() };
         let currentWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         currentWaiters.push(newWaiter);
         localStorage.setItem('master_waiters', JSON.stringify(currentWaiters));
@@ -121,102 +178,77 @@ function WaiterClosing10Page() {
         handleSelectWaiter(newWaiter);
         setRegisterModalVisible(false);
         setNewWaiterName('');
-        alert(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
+        setAlertMessage(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
     };
+    
     const handleOpenConfirmation = () => {
-        if (!selectedWaiter || !numeroMaquina) {
-            alert('Por favor, selecione um garçom e preencha o número da máquina.');
-            return;
-        }
+        if (!selectedWaiter) { setAlertMessage('Por favor, selecione um garçom válido da lista.'); return; }
         const eventName = localStorage.getItem('activeEvent') || 'N/A';
-        const data = {
-            eventName,
-            waiterName: selectedWaiter.name,
-            numeroMaquina,
-            valorTotal: (parseInt(String(valorTotal).replace(/\D/g, '') || '0', 10)) / 100,
-            comissaoTotal,
-            valorTotalAcerto,
-            acertoLabel,
-            valorAcerto,
+        const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
+        const closingData = {
+            timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, cpf: selectedWaiter.cpf, waiterName: selectedWaiter.name,
+            numeroMaquina, valorTotal: parseCurrency(valorTotal), credito: parseCurrency(credito),
+            debito: parseCurrency(debito), pix: parseCurrency(pix), cashless: parseCurrency(cashless),
+            temEstorno, valorEstorno: parseCurrency(valorEstorno), comissaoTotal, valorTotalAcerto, diferencaLabel, diferencaPagarReceber,
         };
-        setDataToConfirm(data);
-        setModalVisible(true);
+        setDataToConfirm(closingData); setModalState('confirm'); setModalVisible(true); 
     };
-    const handleFinalSave = async () => {
-        setIsSaving(true);
+
+    const handleConfirmAndSave = async () => {
+        setModalState('saving');
         try {
-            const eventName = localStorage.getItem('activeEvent');
-            const operatorName = localStorage.getItem('loggedInUserName');
-            const closingData = {
-                eventName, operatorName,
-                cpf: selectedWaiter.cpf, waiterName: selectedWaiter.name,
-                numeroMaquina, temEstorno, valorEstorno: (parseInt(String(valorEstorno).replace(/\D/g, '') || '0', 10)) / 100,
-                valorTotal: (parseInt(String(valorTotal).replace(/\D/g, '') || '0', 10)) / 100,
-                credito: (parseInt(String(credito).replace(/\D/g, '') || '0', 10)) / 100,
-                debito: (parseInt(String(debito).replace(/\D/g, '') || '0', 10)) / 100,
-                pix: (parseInt(String(pix).replace(/\D/g, '') || '0', 10)) / 100,
-                cashless: (parseInt(String(cashless).replace(/\D/g, '') || '0', 10)) / 100,
-                comissaoTotal, acertoLabel, valorAcerto,
-            };
-            const response = await axios.post(`${API_URL}/api/closings/waiter10`, closingData);
-            alert(`Fechamento salvo com sucesso!\nProtocolo: ${response.data.protocol}`);
-            navigate('/financial-selection');
+            const response = await saveWaiterClosing(dataToConfirm); // Reutiliza a mesma função
+            setDataToConfirm(prevData => ({...prevData, protocol: response.data.protocol}));
+            setModalState('success');
         } catch (error) {
-            alert('Ocorreu um erro ao salvar o fechamento.');
-        } finally {
-            setIsSaving(false);
+            setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
             setModalVisible(false);
         }
     };
-    const cleanAndSetNumeric = (setter) => (e) => {
-        setter(e.target.value.replace(/\D/g, ''));
+    
+    const resetForm = () => {
+        setProtocol(null); setTimestamp(null); setSelectedWaiter(null); setSearchInput('');
+        setNumeroMaquina(''); setTemEstorno(false); setValorEstorno('');
+        setValorTotal(''); setCredito(''); setDebito(''); setPix(''); setCashless('');
     };
 
+    const handleRegisterNew = () => { setModalVisible(false); resetForm(); };
+    const handleBackToMenu = () => { navigate('/financial-selection'); };
+    
+    const handleKeyDown = (e, nextField) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (formRefs[nextField] && formRefs[nextField].current) {
+          formRefs[nextField].current.focus();
+        }
+      }
+    };
+    
     return (
         <div className="app-container">
+            <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
+
             <div className="login-form form-scrollable" style={{ maxWidth: '800px' }}>
-                <h1>Fechamento Garçom 10%</h1>
+                <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
+                <h1>{protocol ? 'Editar Fechamento' : 'Fechamento Garçom 10%'}</h1>
                 
-                {/* --- ESTRUTURA DO FORMULÁRIO REVISADA --- */}
                 <div className="form-section" style={{ display: 'block' }}>
                     <div className="form-row">
                         <div className="input-group">
-                            <label>CPF do Garçom</label>
-                            <input 
-                                placeholder="Digite o CPF para buscar" 
-                                value={formatCpf(cpfInput)} 
-                                onChange={(e) => { setCpfInput(e.target.value); setSelectedWaiter(null); }} 
-                            />
-                            {filteredWaiters.length > 0 && (
-                                <div className="suggestions-list">
-                                    {filteredWaiters.map(item => (
-                                        <div key={item.cpf} className="suggestion-item" onClick={() => handleSelectWaiter(item)}>
-                                            {item.name} - {item.cpf}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <label>Buscar Garçom (Nome ou CPF)</label>
+                            <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')} placeholder="Digite o nome ou CPF do garçom" value={searchInput} onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }}  disabled={!!protocol} />
+                            {filteredWaiters.length > 0 && ( <div className="suggestions-list">{filteredWaiters.map(item => (<div key={item.cpf} className="suggestion-item" onClick={() => handleSelectWaiter(item)}>{item.name} - {item.cpf}</div>))}</div>)}
                         </div>
                         <div className="input-group">
-                            <label>Nome do Garçom</label>
-                            <input type="text" value={selectedWaiter ? selectedWaiter.name : ''} readOnly placeholder="Selecione um CPF"/>
+                            <label>Garçom Selecionado</label>
+                            <input type="text" value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} readOnly placeholder="Selecione um garçom da lista" />
                         </div>
                     </div>
-
-                    {showRegisterButton && (
-                        <button 
-                            className="login-button" 
-                            style={{marginTop: '10px', backgroundColor: '#5bc0de'}} 
-                            onClick={() => setRegisterModalVisible(true)}
-                        >
-                            CPF não encontrado. Cadastrar novo garçom?
-                        </button>
-                    )}
-
+                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo garçom?</button>)}
                     <div className="form-row">
                         <div className="input-group">
                             <label>Número da Máquina</label>
-                            <input value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} />
+                            <input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} />
                         </div>
                         <div className="switch-container">
                             <label>Houve Estorno Manual?</label>
@@ -226,10 +258,10 @@ function WaiterClosing10Page() {
                             </label>
                         </div>
                     </div>
-                     {temEstorno && (
+                     {temEstorno && ( 
                         <div className="input-group" style={{marginTop: '15px'}}>
                             <label>Valor do Estorno</label>
-                            <input value={formatCurrencyInput(valorEstorno)} onChange={cleanAndSetNumeric(setValorEstorno)} />
+                            <input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => setValorEstorno(e.target.value)} />
                         </div>
                     )}
                 </div>
@@ -237,79 +269,40 @@ function WaiterClosing10Page() {
                 <div className="form-section" style={{ display: 'block' }}>
                     <div className="input-group">
                       <label>Valor Total da Venda</label>
-                      <input value={formatCurrencyInput(valorTotal)} onChange={cleanAndSetNumeric(setValorTotal)} />
+                      <input ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTotal)} onChange={(e) => setValorTotal(e.target.value)} />
                     </div>
                     <div className="form-row">
-                        <div className="input-group"><label>Crédito</label><input value={formatCurrencyInput(credito)} onChange={cleanAndSetNumeric(setCredito)} /></div>
-                        <div className="input-group"><label>Débito</label><input value={formatCurrencyInput(debito)} onChange={cleanAndSetNumeric(setDebito)} /></div>
+                        <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => handlePaymentChange(setCredito, e.target.value, 'credito')} /></div>
+                        <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => handlePaymentChange(setDebito, e.target.value, 'debito')} /></div>
                     </div>
                     <div className="form-row">
-                        <div className="input-group"><label>PIX</label><input value={formatCurrencyInput(pix)} onChange={cleanAndSetNumeric(setPix)} /></div>
-                        <div className="input-group"><label>Cashless</label><input value={formatCurrencyInput(cashless)} onChange={cleanAndSetNumeric(setCashless)} /></div>
+                        <div className="input-group"><label>PIX</label><input ref={formRefs.pix} onKeyDown={(e) => handleKeyDown(e, 'cashless')} value={formatCurrencyInput(pix)} onChange={(e) => handlePaymentChange(setPix, e.target.value, 'pix')} /></div>
+                        <div className="input-group"><label>Cashless</label><input ref={formRefs.cashless} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} value={formatCurrencyInput(cashless)} onChange={(e) => handlePaymentChange(setCashless, e.target.value, 'cashless')} /></div>
                     </div>
                 </div>
-                {/* ------------------------------------ */}
-
+                
                 <div className="results-container">
                     <p>Comissão (10%): <strong>{formatCurrencyResult(comissao10)}</strong></p>
                     <p>Comissão (4%): <strong>{formatCurrencyResult(comissao4)}</strong></p><hr/>
                     <p className="total-text">Comissão Total: <strong>{formatCurrencyResult(comissaoTotal)}</strong></p>
-                    <p className="total-text">{acertoLabel} 
-                        <strong className="final-value" style={{ color: acertoLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}> {formatCurrencyResult(valorAcerto)}</strong>
+                    <p className="total-text">{diferencaLabel}: 
+                        <strong className="final-value" style={{ color: diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}> {formatCurrencyResult(diferencaPagarReceber)}</strong>
                     </p>
-                    <button className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
-                        {isSaving ? 'Salvando...' : 'SALVAR E FINALIZAR'}
-                    </button>
+                    <button ref={formRefs.saveButton} className="login-button" onClick={handleOpenConfirmation}>SALVAR E FINALIZAR</button>
                 </div>
             </div>
 
-            {/* Modais continuam iguais */}
-            {modalVisible && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <h2>Deseja Confirmar o Fechamento?</h2>
-                        {dataToConfirm && (
-                            <>
-                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
-                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
-                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
-                                <hr />
-                                <p>Valor Total da Venda: <strong>{formatCurrencyResult(dataToConfirm.valorTotal)}</strong></p>
-                                <p>Valor Total Comissão: <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
-                                <p>Valor Total de Acerto: <strong>{formatCurrencyResult(dataToConfirm.valorTotalAcerto)}</strong></p>
-                                <hr />
-                                <p className="total-text">{dataToConfirm.acertoLabel}: 
-                                    <strong style={{ color: dataToConfirm.acertoLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>
-                                        {formatCurrencyResult(dataToConfirm.valorAcerto)}
-                                    </strong>
-                                </p>
-                            </>
-                        )}
-                        <div className="modal-buttons">
-                            <button className="cancel-button" onClick={() => setModalVisible(false)}>Não</button>
-                            <button className="login-button" onClick={handleFinalSave} disabled={isSaving}>
-                                {isSaving ? "Salvando..." : "Sim, Salvar"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
             {registerModalVisible && (
                 <div className="modal-overlay">
                     <div className="modal-content">
                         <h2>Cadastrar Novo Garçom</h2>
                         <div className="input-group">
                             <label>CPF</label>
-                            <input type="text" value={formatCpf(cpfInput)} readOnly />
+                            <input type="text" value={formatCpf(searchInput)} readOnly />
                         </div>
                         <div className="input-group">
                             <label>Nome do Garçom</label>
-                            <input 
-                                type="text" 
-                                value={newWaiterName} 
-                                onChange={(e) => setNewWaiterName(e.target.value)} 
-                                placeholder="Digite o nome completo" 
-                            />
+                            <input type="text" value={newWaiterName} onChange={(e) => setNewWaiterName(e.target.value)} placeholder="Digite o nome completo" />
                         </div>
                         <div className="modal-buttons">
                             <button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button>
@@ -318,7 +311,56 @@ function WaiterClosing10Page() {
                     </div>
                 </div>
             )}
+            
+            {modalVisible && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        {modalState === 'confirm' && ( <>
+                            <h2>Deseja Confirmar o Fechamento?</h2>
+                            {dataToConfirm && ( <>
+                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
+                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
+                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
+                                <hr />
+                                <p>Valor Total da Venda: <strong>{formatCurrencyResult(dataToConfirm.valorTotal)}</strong></p>
+                                <p>Valor Total Comissão: <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
+                                <p>Valor Total de Acerto: <strong>{formatCurrencyResult(dataToConfirm.valorTotalAcerto)}</strong></p>
+                                <hr />
+                                <p className="total-text">{dataToConfirm.diferencaLabel}: 
+                                    <strong style={{ color: dataToConfirm.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>
+                                        {formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}
+                                    </strong>
+                                </p>
+                            </>)}
+                            <div className="modal-buttons">
+                                <button className="cancel-button" onClick={() => setModalVisible(false)}>Não</button>
+                                <button className="login-button" onClick={handleConfirmAndSave}>Sim, Salvar</button>
+                            </div>
+                        </>)}
 
+                        {modalState === 'saving' && ( <>
+                            <div className="spinner"></div>
+                            <p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p>
+                        </>)}
+
+                        {modalState === 'success' && ( <>
+                            <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
+                            <h2>Fechamento Salvo com Sucesso!</h2>
+                            <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
+                            <div className="modal-buttons">
+                                <button className="modal-button primary" onClick={handleRegisterNew}>
+                                    <span className="button-icon">➕</span>
+                                    <span>Registrar Novo Fechamento</span>
+                                </button>
+                                <button className="modal-button secondary" onClick={handleBackToMenu}>
+                                    <span className="button-icon">📋</span>
+                                    <span>Voltar ao Menu Principal</span>
+                                </button>
+                            </div>
+                        </>)}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

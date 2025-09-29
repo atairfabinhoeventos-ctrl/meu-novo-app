@@ -137,3 +137,37 @@ input:checked + .slider:before {
   cursor: not-allowed;
 }
 
+/* Adicione no final de src/pages/DataUpdatePage.css */
+
+.action-buttons-container {
+  display: flex;
+  gap: 15px; /* Espaço entre os botões */
+  margin-top: 15px;
+}
+
+.update-button, .update-base-button {
+  flex: 1; /* Faz os botões dividirem o espaço igualmente */
+  padding: 15px 25px;
+  border-radius: 5px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  color: white;
+  transition: background-color 0.2s;
+  width: auto; /* Sobrescreve o width: 100% anterior */
+}
+
+/* Cor do novo botão */
+.update-base-button {
+  background-color: #218838; /* Verde mais escuro */
+}
+
+.update-base-button:hover:not(:disabled) {
+  background-color: #1e7e34;
+}
+
+.update-base-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}

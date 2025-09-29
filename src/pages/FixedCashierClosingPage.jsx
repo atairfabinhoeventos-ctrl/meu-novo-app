@@ -1,92 +1,112 @@
-// src/pages/FixedCashierClosingPage.jsx (Com salvamento local)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO FINAL COM LAYOUT PADRONIZADO E MELHORIAS)
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-// import axios from 'axios'; // Não precisamos mais
-// import { API_URL } from '../config'; // Nem da API_URL
-import { saveFixedCashierClosing } from '../services/apiService'; // <<< NOVA IMPORTAÇÃO
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { saveFixedCashierClosing } from '../services/apiService';
+import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
+import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
 import './FixedCashierClosingPage.css';
 
-// ... (o início do arquivo, com as funções de formatação e o componente CaixaFormItem, continua o mesmo)
-function formatCurrencyInput(value) {
-    if (!value) return '';
-    const cleanValue = String(value).replace(/\D/g, '');
-    if (cleanValue === '') return '';
-    const numberValue = parseInt(cleanValue, 10);
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numberValue / 100);
-}
-function formatCurrencyResult(value) {
-    if (isNaN(value)) return 'R$ 0,00';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// Hook de "Debounce" para otimizar os cálculos
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => { setDebouncedValue(value); }, delay);
+    return () => { clearTimeout(handler); };
+  }, [value, delay]);
+  return debouncedValue;
 }
 
-const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList }) => {
+// Componente para cada item de Caixa no grupo
+const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs }) => {
+    const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
-    const onCpfChange = (text) => {
-        handleInputChange(item.id, 'cpf', text);
-        const cleanCpf = text.replace(/\D/g, '');
-        if (cleanCpf.length > 0 && !item.name) {
-            setFilteredPersonnel(personnelList.filter(p => p.cpf?.toString().startsWith(cleanCpf)));
+    const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
+
+    useEffect(() => {
+        const query = searchInput.trim().toLowerCase();
+        if (query.length > 0 && !selectedCashier) {
+            const results = personnelList.filter(person => {
+                const personName = person.name.toLowerCase();
+                const personCpf = person.cpf.replace(/\D/g, '');
+                const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
+                if (isNumericQuery) { return personCpf.startsWith(query.replace(/\D/g, '')); } 
+                else { return personName.includes(query); }
+            });
+            setFilteredPersonnel(results);
         } else {
             setFilteredPersonnel([]);
         }
-    };
-    const onSelectCashier = (person) => {
+    }, [searchInput, personnelList, selectedCashier]);
+
+    const onSelect = (person) => {
         handleSelectCashier(item.id, person);
+        setSelectedCashier(person);
+        setSearchInput(person.name);
         setFilteredPersonnel([]);
     };
-    const cleanAndSet = (field, value) => {
-        handleInputChange(item.id, field, value.replace(/\D/g, ''));
+    
+    const onSearchChange = (value) => {
+        setSearchInput(value);
+        setSelectedCashier(null);
+        handleInputChange(item.id, 'cpf', '');
+        handleInputChange(item.id, 'name', '');
     };
+    
+    const cleanAndSet = (field, value) => {
+        handleInputChange(item.id, field, value);
+    };
+
     return (
         <div className="caixa-item-container">
             <h3 className="caixa-title">Caixa {index + 1}</h3>
             <div className="form-row">
-                <div className="input-group" style={{ position: 'relative', flex: 1 }}>
-                    <label>CPF do Caixa</label>
-                    <input placeholder="Digite o CPF" value={item.cpf} onChange={(e) => onCpfChange(e.target.value)} />
+                <div className="input-group" style={{ position: 'relative' }}>
+                    <label>Buscar Funcionário (Nome ou CPF)</label>
+                    <input ref={formRefs.current[`cpf_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `numeroMaquina_${item.id}`)} placeholder="Digite o nome ou CPF" value={searchInput} onChange={(e) => onSearchChange(e.target.value)} />
                     {filteredPersonnel.length > 0 && (
                         <div className="suggestions-list">
-                            {filteredPersonnel.map(p => <div key={p.cpf} className="suggestion-item" onClick={() => onSelectCashier(p)}>{p.name} - {p.cpf}</div>)}
+                            {filteredPersonnel.map(p => <div key={p.cpf} className="suggestion-item" onClick={() => onSelect(p)}>{p.name} - {p.cpf}</div>)}
                         </div>
                     )}
                 </div>
-                <div className="input-group" style={{ flex: 2 }}>
-                    <label>Nome do Caixa</label>
-                    <input value={item.name} readOnly placeholder="Selecione um CPF"/>
-                </div>
-                <div className="input-group" style={{ flex: 1 }}>
+                <div className="input-group">
                     <label>Nº da Máquina</label>
-                    <input value={item.numeroMaquina} onChange={(e) => handleInputChange(item.id, 'numeroMaquina', e.target.value.toUpperCase())}/>
+                    <input ref={formRefs.current[`numeroMaquina_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `valorTotalVenda_${item.id}`)} value={item.numeroMaquina} onChange={(e) => handleInputChange(item.id, 'numeroMaquina', e.target.value.toUpperCase())}/>
                 </div>
             </div>
+            
             <div className="form-section">
-                <div className="input-group"><label>Valor Total da Venda</label><input value={formatCurrencyInput(item.valorTotalVenda)} onChange={(e) => cleanAndSet('valorTotalVenda', e.target.value)} /></div>
                 <div className="form-row">
-                    <div className="input-group"><label>Crédito</label><input value={formatCurrencyInput(item.credito)} onChange={(e) => cleanAndSet('credito', e.target.value)} /></div>
-                    <div className="input-group"><label>Débito</label><input value={formatCurrencyInput(item.debito)} onChange={(e) => cleanAndSet('debito', e.target.value)} /></div>
+                    <div className="input-group">
+                        <label>Valor Total da Venda</label>
+                        <input ref={formRefs.current[`valorTotalVenda_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `credito_${item.id}`)} value={formatCurrencyInput(item.valorTotalVenda)} onChange={(e) => cleanAndSet('valorTotalVenda', e.target.value)} />
+                    </div>
                 </div>
                 <div className="form-row">
-                    <div className="input-group"><label>PIX</label><input value={formatCurrencyInput(item.pix)} onChange={(e) => cleanAndSet('pix', e.target.value)} /></div>
-                    <div className="input-group"><label>Cashless</label><input value={formatCurrencyInput(item.cashless)} onChange={(e) => cleanAndSet('cashless', e.target.value)} /></div>
+                    <div className="input-group"><label>Crédito</label><input ref={formRefs.current[`credito_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `debito_${item.id}`)} value={formatCurrencyInput(item.credito)} onChange={(e) => cleanAndSet('credito', e.target.value)} /></div>
+                    <div className="input-group"><label>Débito</label><input ref={formRefs.current[`debito_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `pix_${item.id}`)} value={formatCurrencyInput(item.debito)} onChange={(e) => cleanAndSet('debito', e.target.value)} /></div>
+                </div>
+                <div className="form-row">
+                    <div className="input-group"><label>PIX</label><input ref={formRefs.current[`pix_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `cashless_${item.id}`)} value={formatCurrencyInput(item.pix)} onChange={(e) => cleanAndSet('pix', e.target.value)} /></div>
+                    <div className="input-group"><label>Cashless</label><input ref={formRefs.current[`cashless_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `dinheiroFisico_${item.id}`)} value={formatCurrencyInput(item.cashless)} onChange={(e) => cleanAndSet('cashless', e.target.value)} /></div>
                 </div>
                  <div className="input-group">
                     <label>Dinheiro Físico (Contado)</label>
-                    <input value={formatCurrencyInput(item.dinheiroFisico)} onChange={(e) => cleanAndSet('dinheiroFisico', e.target.value)} />
+                    <input ref={formRefs.current[`dinheiroFisico_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, item.temEstorno ? `valorEstorno_${item.id}` : `addCaixaButton`)} value={formatCurrencyInput(item.dinheiroFisico)} onChange={(e) => cleanAndSet('dinheiroFisico', e.target.value)} />
                 </div>
             </div>
-             <div className="form-section form-row">
+             <div className="form-row" style={{ alignItems: 'center' }}>
                 <div className="switch-container">
                     <label>Houve Estorno?</label>
                     <label className="switch"><input type="checkbox" checked={item.temEstorno} onChange={(e) => handleInputChange(item.id, 'temEstorno', e.target.checked)} /><span className="slider round"></span></label>
                 </div>
-                {item.temEstorno && <div className="input-group"><label>Valor do Estorno</label><input value={formatCurrencyInput(item.valorEstorno)} onChange={(e) => cleanAndSet('valorEstorno', e.target.value)} /></div>}
+                {item.temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.current[`valorEstorno_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `addCaixaButton`)} value={formatCurrencyInput(item.valorEstorno)} onChange={(e) => cleanAndSet('valorEstorno', e.target.value)} /></div>}
             </div>
         </div>
     );
 };
-
 
 function FixedCashierClosingPage() {
     const navigate = useNavigate();
@@ -96,11 +116,46 @@ function FixedCashierClosingPage() {
     const [dataToConfirm, setDataToConfirm] = useState(null);
     const [valorTroco, setValorTroco] = useState('');
     const [caixasDoGrupo, setCaixasDoGrupo] = useState([{ id: 1, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
+    const [alertMessage, setAlertMessage] = useState('');
+    const [finalDiferenca, setFinalDiferenca] = useState(0);
+    
+    const formRefs = useRef({});
+
+    const debouncedCaixas = useDebounce(caixasDoGrupo, 500);
+    const debouncedValorTroco = useDebounce(valorTroco, 500);
+    
+    const parseCurrency = (value) => {
+      const stringValue = String(value);
+      const cleanValue = stringValue.replace(/\D/g, '');
+      if (cleanValue === '') return 0;
+      if (!stringValue.includes(',') && !stringValue.includes('.')) { return parseInt(cleanValue, 10); }
+      return parseInt(cleanValue, 10) / 100;
+    };
 
     useEffect(() => {
         const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setPersonnelList(localPersonnel);
     }, []);
+
+    useEffect(() => {
+        const numValorTrocoGrupo = parseCurrency(debouncedValorTroco);
+        let totalDinheiroFisico = 0;
+        let totalAcerto = 0;
+
+        debouncedCaixas.forEach(caixa => {
+            const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda);
+            const numValorEstorno = parseCurrency(caixa.valorEstorno);
+            const numCredito = parseCurrency(caixa.credito);
+            const numDebito = parseCurrency(caixa.debito);
+            const numPix = parseCurrency(caixa.pix);
+            const numCashless = parseCurrency(caixa.cashless);
+            
+            totalDinheiroFisico += parseCurrency(caixa.dinheiroFisico);
+            totalAcerto += (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
+        });
+
+        setFinalDiferenca(totalDinheiroFisico - (totalAcerto + numValorTrocoGrupo));
+    }, [debouncedCaixas, debouncedValorTroco]);
 
     const handleInputChange = (caixaId, field, value) => {
         setCaixasDoGrupo(prev => prev.map(caixa => caixa.id === caixaId ? { ...caixa, [field]: value } : caixa));
@@ -111,7 +166,23 @@ function FixedCashierClosingPage() {
         handleInputChange(caixaId, 'name', cashier.name);
     };
 
-    // --- FUNÇÃO DE SALVAMENTO ALTERADA ---
+    const handleAddCaixa = () => {
+        const newId = caixasDoGrupo.length > 0 ? Math.max(...caixasDoGrupo.map(c => c.id)) + 1 : 1;
+        setCaixasDoGrupo([...caixasDoGrupo, { id: newId, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
+    };
+
+    const handleOpenConfirmation = () => {
+        if (caixasDoGrupo.some(caixa => !caixa.name || !caixa.numeroMaquina)) {
+            setAlertMessage('Por favor, preencha o nome e o número da máquina para todos os caixas.');
+            return;
+        }
+        setDataToConfirm({
+            totalDiferenca: finalDiferenca,
+            cashierNames: caixasDoGrupo.map(c => c.name),
+        });
+        setModalVisible(true);
+    };
+
     const handleFinalSave = async () => {
         setIsSaving(true);
         try {
@@ -120,107 +191,105 @@ function FixedCashierClosingPage() {
             
             const closingData = {
                 eventName, operatorName,
-                valorTroco: (parseInt(String(valorTroco).replace(/\D/g, '') || '0', 10)) / 100,
+                valorTroco: parseCurrency(valorTroco),
                 caixas: caixasDoGrupo.map(caixa => ({
                     cpf: caixa.cpf, cashierName: caixa.name, numeroMaquina: caixa.numeroMaquina,
                     temEstorno: caixa.temEstorno,
-                    valorEstorno: (parseInt(String(caixa.valorEstorno).replace(/\D/g, '') || '0', 10)) / 100,
-                    valorTotalVenda: (parseInt(String(caixa.valorTotalVenda).replace(/\D/g, '') || '0', 10)) / 100,
-                    credito: (parseInt(String(caixa.credito).replace(/\D/g, '') || '0', 10)) / 100,
-                    debito: (parseInt(String(caixa.debito).replace(/\D/g, '') || '0', 10)) / 100,
-                    pix: (parseInt(String(caixa.pix).replace(/\D/g, '') || '0', 10)) / 100,
-                    cashless: (parseInt(String(caixa.cashless).replace(/\D/g, '') || '0', 10)) / 100,
-                    dinheiroFisico: (parseInt(String(caixa.dinheiroFisico).replace(/\D/g, '') || '0', 10)) / 100,
+                    valorEstorno: parseCurrency(caixa.valorEstorno),
+                    valorTotalVenda: parseCurrency(caixa.valorTotalVenda),
+                    credito: parseCurrency(caixa.credito),
+                    debito: parseCurrency(caixa.debito),
+                    pix: parseCurrency(caixa.pix),
+                    cashless: parseCurrency(caixa.cashless),
+                    dinheiroFisico: parseCurrency(caixa.dinheiroFisico),
                 }))
             };
     
-            // Troca a chamada ao backend pela função de salvamento local
             const response = await saveFixedCashierClosing(closingData);
-
-            alert(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
-            navigate('/financial-selection');
-
+            setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
+            setTimeout(() => navigate('/financial-selection'), 2000);
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
-            alert('Ocorreu um erro ao salvar o fechamento de grupo localmente.');
+            setAlertMessage('Ocorreu um erro ao salvar o fechamento de grupo localmente.');
         } finally {
             setIsSaving(false);
             setModalVisible(false);
         }
     };
     
-    // O resto do arquivo (cálculos e JSX) continua o mesmo...
-    const handleAddCaixa = () => {
-        const newId = caixasDoGrupo.length > 0 ? Math.max(...caixasDoGrupo.map(c => c.id)) + 1 : 1;
-        setCaixasDoGrupo([...caixasDoGrupo, { id: newId, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
-    };
-    const getFinalDiferenca = () => {
-        const numValorTrocoGrupo = (parseInt(String(valorTroco).replace(/\D/g, '') || '0', 10)) / 100;
-        let totalDinheiroFisico = 0;
-        let totalAcerto = 0;
-        caixasDoGrupo.forEach(caixa => {
-            const numValorTotalVenda = (parseInt(String(caixa.valorTotalVenda).replace(/\D/g, '') || '0', 10)) / 100;
-            const numValorEstorno = (parseInt(String(caixa.valorEstorno).replace(/\D/g, '') || '0', 10)) / 100;
-            const numCredito = (parseInt(String(caixa.credito).replace(/\D/g, '') || '0', 10)) / 100;
-            const numDebito = (parseInt(String(caixa.debito).replace(/\D/g, '') || '0', 10)) / 100;
-            const numPix = (parseInt(String(caixa.pix).replace(/\D/g, '') || '0', 10)) / 100;
-            const numCashless = (parseInt(String(caixa.cashless).replace(/\D/g, '') || '0', 10)) / 100;
-            totalDinheiroFisico += (parseInt(String(caixa.dinheiroFisico).replace(/\D/g, '') || '0', 10)) / 100;
-            totalAcerto += (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
-        });
-        return totalDinheiroFisico - (totalAcerto + numValorTrocoGrupo);
-    };
-    const handleOpenConfirmation = () => {
-        if (caixasDoGrupo.some(caixa => !caixa.name || !caixa.numeroMaquina)) {
-            alert('Por favor, preencha o nome e o número da máquina para todos os caixas.');
-            return;
-        }
-        setDataToConfirm({
-            totalDiferenca: getFinalDiferenca(),
-            cashierNames: caixasDoGrupo.map(c => c.name),
-        });
-        setModalVisible(true);
-    };
     const getDiferencaColor = (diff) => {
         if (diff < 0) return 'red';
         if (diff > 0) return 'green';
         return 'blue';
     };
+
+    const handleKeyDown = (e, nextField) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const nextRef = formRefs.current[nextField];
+        if (nextRef && nextRef.current) {
+          nextRef.current.focus();
+        }
+      }
+    };
+
     return (
         <div className="app-container">
+            <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
             <div className="login-form form-scrollable" style={{ maxWidth: '1000px' }}>
+                <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>Fechamento Caixa Fixo (Grupo)</h1>
+
                 <div className="form-section form-row">
                     <div className="switch-container">
                         <label>Recebeu Troco (para o grupo)?</label>
                         <label className="switch"><input type="checkbox" checked={valorTroco !== ''} onChange={(e) => setValorTroco(e.target.checked ? '0' : '')} /><span className="slider round"></span></label>
                     </div>
-                    {valorTroco !== '' && <div className="input-group"><label>Valor do Troco</label><input value={formatCurrencyInput(valorTroco)} onChange={(e) => setValorTroco(e.target.value.replace(/\D/g, ''))} /></div>}
+                    {valorTroco !== '' && <div className="input-group"><label>Valor do Troco</label><input value={formatCurrencyInput(valorTroco)} onChange={(e) => setValorTroco(e.target.value)} /></div>}
                 </div>
-                {caixasDoGrupo.map((caixa, index) => (
-                    <CaixaFormItem 
-                        key={caixa.id} 
-                        item={caixa} 
-                        index={index} 
-                        handleInputChange={handleInputChange} 
-                        handleSelectCashier={handleSelectCashier} 
-                        personnelList={personnelList} 
-                    />
-                ))}
+
+                {caixasDoGrupo.map((caixa, index) => {
+                    formRefs.current[`cpf_${caixa.id}`] = formRefs.current[`cpf_${caixa.id}`] || React.createRef();
+                    formRefs.current[`numeroMaquina_${caixa.id}`] = formRefs.current[`numeroMaquina_${caixa.id}`] || React.createRef();
+                    formRefs.current[`valorTotalVenda_${caixa.id}`] = formRefs.current[`valorTotalVenda_${caixa.id}`] || React.createRef();
+                    formRefs.current[`credito_${caixa.id}`] = formRefs.current[`credito_${caixa.id}`] || React.createRef();
+                    formRefs.current[`debito_${caixa.id}`] = formRefs.current[`debito_${caixa.id}`] || React.createRef();
+                    formRefs.current[`pix_${caixa.id}`] = formRefs.current[`pix_${caixa.id}`] || React.createRef();
+                    formRefs.current[`cashless_${caixa.id}`] = formRefs.current[`cashless_${caixa.id}`] || React.createRef();
+                    formRefs.current[`dinheiroFisico_${caixa.id}`] = formRefs.current[`dinheiroFisico_${caixa.id}`] || React.createRef();
+                    formRefs.current[`valorEstorno_${caixa.id}`] = formRefs.current[`valorEstorno_${caixa.id}`] || React.createRef();
+                    formRefs.current.addCaixaButton = formRefs.current.addCaixaButton || React.createRef();
+                    formRefs.current.saveButton = formRefs.current.saveButton || React.createRef();
+
+                    return (
+                        <CaixaFormItem 
+                            key={caixa.id} 
+                            item={caixa} 
+                            index={index} 
+                            handleInputChange={handleInputChange} 
+                            handleSelectCashier={handleSelectCashier} 
+                            personnelList={personnelList}
+                            handleKeyDown={handleKeyDown}
+                            formRefs={formRefs}
+                        />
+                    );
+                })}
+
                 <div className="footer-actions">
-                     <button className="add-button" onClick={handleAddCaixa}>Adicionar Novo Caixa</button>
+                     <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} className="add-button" onClick={handleAddCaixa}>Adicionar Novo Caixa</button>
                     <div className="results-container">
                         <p className="total-text">Diferença Final do Grupo: 
-                            <strong style={{ color: getDiferencaColor(getFinalDiferenca()), marginLeft: '10px' }}>
-                                {formatCurrencyResult(getFinalDiferenca())}
+                            <strong style={{ color: getDiferencaColor(finalDiferenca), marginLeft: '10px' }}>
+                                {formatCurrencyResult(finalDiferenca)}
                             </strong>
                         </p>
-                        <button className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
+                        <button ref={formRefs.current.saveButton} className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
                             {isSaving ? 'Salvando...' : 'SALVAR GRUPO'}
                         </button>
                     </div>
                 </div>
             </div>
+
             {modalVisible && (
                 <div className="modal-overlay">
                     <div className="modal-content">
