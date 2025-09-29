@@ -6,7 +6,8 @@
   "main": "src/main.js",
   "homepage": "./",
   "scripts": {
-    "start": "concurrently \"npm:server:dev\" \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
+    "start": "node server.js",
+    "dev": "concurrently \"npm:server:dev\" \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
     "app:dev:vite": "vite",
     "app:dev:electron": "wait-on tcp:5173 && electron .",
     "server:dev": "nodemon server.js",
