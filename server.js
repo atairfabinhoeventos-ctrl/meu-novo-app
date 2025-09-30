@@ -300,6 +300,68 @@ app.post('/api/online-history', async (req, res) => {
   }
 });
 
+// --- ROTA AJUSTADA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
+app.post('/api/export-online-data', async (req, res) => {
+  const { password, eventName } = req.body; // ALTERADO: Recebe eventName
+
+  // 1. Validação de segurança e de entrada
+  if (!eventName) {
+    return res.status(400).json({ message: 'O nome do evento é obrigatório.' });
+  }
+  if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Senha incorreta.' });
+  }
+
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    
+    // 2. Definir as abas específicas do evento
+    const waiterSheetName = `Garçons - ${eventName}`;
+    const cashierSheetName = `Caixas - ${eventName}`;
+    
+    // 3. Buscar os dados das duas abas em paralelo
+    const responses = await googleSheets.spreadsheets.values.batchGet({
+        spreadsheetId: spreadsheetId_cloud_sync,
+        ranges: [waiterSheetName, cashierSheetName],
+    });
+
+    const valueRanges = responses.data.valueRanges || [];
+    let consolidatedWaiters = [];
+    let consolidatedCashiers = [];
+
+    // 4. Processar os dados de cada aba
+    valueRanges.forEach(rangeResult => {
+        const sheetName = rangeResult.range.split('!')[0];
+        const rows = rangeResult.values;
+        
+        if (!rows || rows.length <= 1) return;
+
+        const header = rows[0].map(h => String(h).trim());
+        const data = rows.slice(1);
+
+        if (sheetName === waiterSheetName) {
+            data.forEach(row => {
+                const rowData = {};
+                header.forEach((key, index) => rowData[key] = row[index]);
+                consolidatedWaiters.push(rowData);
+            });
+        } else if (sheetName === cashierSheetName) {
+            data.forEach(row => {
+                const rowData = {};
+                header.forEach((key, index) => rowData[key] = row[index]);
+                consolidatedCashiers.push(rowData);
+            });
+        }
+    });
+
+    res.status(200).json({ waiters: consolidatedWaiters, cashiers: consolidatedCashiers });
+
+  } catch (error) {
+    console.error('Erro ao exportar dados da nuvem por evento:', error);
+    res.status(500).json({ message: 'Erro interno do servidor ao processar os dados da planilha.' });
+  }
+});
+
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
