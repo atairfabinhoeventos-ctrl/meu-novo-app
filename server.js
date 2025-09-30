@@ -1,4 +1,5 @@
 // backend/server.js (VERSÃO FINAL E ROBUSTA PARA NUVEM E LOCAL)
+console.log
 
 require('dotenv').config();
 
@@ -203,6 +204,74 @@ app.post('/api/cloud-sync', async (req, res) => {
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao salvar na nuvem.' });
+  }
+});
+
+// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE ---
+app.post('/api/online-history', async (req, res) => {
+  const { eventName, password } = req.body;
+
+  // 1. Validação de segurança
+  if (!eventName || !password) {
+    return res.status(400).json({ message: 'Nome do evento e senha são obrigatórios.' });
+  }
+  if (password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Senha incorreta.' });
+  }
+
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    const sheetName = `Garçons - ${eventName}`;
+
+    // 2. Buscar os dados da planilha
+    const response = await googleSheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId_cloud_sync, // Usando a ID da planilha de nuvem
+      range: sheetName,
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length <= 1) { // Menor ou igual a 1 para ignorar o cabeçalho
+      return res.status(404).json({ message: 'Nenhum fechamento encontrado para este evento na nuvem.' });
+    }
+
+    // 3. Transformar os dados em objetos
+    const header = rows[0].map(h => h.trim());
+    const data = rows.slice(1).map(row => {
+      const closingObject = {};
+      header.forEach((key, index) => {
+        // Mapeia nomes das colunas para chaves de objeto que o frontend entende
+        switch (key) {
+          case 'NOME GARÇOM': closingObject.waiterName = row[index]; break;
+          case 'PROTOCOLO': closingObject.protocol = row[index]; break;
+          case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index]); break;
+          case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(row[index]); break;
+          case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(row[index]); break;
+          case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(row[index]); break;
+          case 'CRÉDITO': closingObject.credito = parseFloat(row[index]); break;
+          case 'DÉBITO': closingObject.debito = parseFloat(row[index]); break;
+          case 'PIX': closingObject.pix = parseFloat(row[index]); break;
+          case 'CASHLESS': closingObject.cashless = parseFloat(row[index]); break;
+          case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
+          case 'OPERADOR': closingObject.operatorName = row[index]; break;
+          case 'DATA': closingObject.timestamp = new Date(row[index]).toISOString(); break;
+        }
+      });
+      // Adiciona labels que o frontend espera
+      closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
+      closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+      
+      return closingObject;
+    });
+
+    res.status(200).json(data);
+
+  } catch (error) {
+    console.error('Erro ao buscar histórico online:', error);
+    // Verifica se o erro é de "planilha não encontrada"
+    if (error.code === 400 && error.errors[0]?.message.includes('Unable to parse range')) {
+        return res.status(404).json({ message: `A aba para o evento "${eventName}" não foi encontrada na planilha online.` });
+    }
+    res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
   }
 });
 
