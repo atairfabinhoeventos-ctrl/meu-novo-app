@@ -254,7 +254,10 @@ app.post('/api/online-history', async (req, res) => {
           case 'CASHLESS': closingObject.cashless = parseFloat(row[index]); break;
           case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
           case 'OPERADOR': closingObject.operatorName = row[index]; break;
-          case 'DATA': closingObject.timestamp = new Date(row[index]).toISOString(); break;
+          case 'DATA':
+  // Adiciona uma verificação para evitar erro com datas vazias ou inválidas
+  closingObject.timestamp = row[index] ? new Date(row[index]).toISOString() : new Date(0).toISOString();
+  break;
         }
       });
       // Adiciona labels que o frontend espera
