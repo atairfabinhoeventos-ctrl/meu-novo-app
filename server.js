@@ -1,5 +1,6 @@
 // backend/server.js (VERSÃO FINAL E ROBUSTA PARA NUVEM E LOCAL)
-console.log
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com histórico online) ---");
+
 
 require('dotenv').config();
 
