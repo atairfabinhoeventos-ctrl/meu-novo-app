@@ -1,0 +1,109 @@
+/* src/pages/ExportDataPage.css - VERSÃO COMPLETA E ESCOPADA */
+
+.export-page-wrapper .export-card {
+  background-color: #fff;
+  padding: 30px 40px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  max-width: 900px;
+  width: 100%;
+}
+
+.export-page-wrapper .export-card h1 {
+  color: #1E63B8;
+  margin-bottom: 15px;
+}
+
+.export-page-wrapper .export-card > p {
+  font-size: 1.1em;
+  color: #555;
+  margin-bottom: 30px;
+}
+
+.export-page-wrapper .export-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-top: 20px;
+}
+
+.export-page-wrapper .option-card {
+  padding: 25px;
+  border-radius: 10px;
+  border: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.3s ease;
+}
+
+.export-page-wrapper .option-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  border-color: #1E63B8;
+}
+
+.export-page-wrapper .option-card h2 {
+  margin-top: 0;
+  font-size: 1.4em;
+  color: #333;
+}
+
+.export-page-wrapper .option-card p {
+  color: #666;
+  flex-grow: 1;
+  margin-bottom: 20px;
+}
+
+.export-page-wrapper .export-button {
+  padding: 12px 25px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s ease;
+}
+
+.export-page-wrapper .export-button.cloud-btn {
+  background-color: #1E63B8;
+  color: white;
+  box-shadow: 0 4px 10px rgba(30, 99, 184, 0.3);
+}
+
+.export-page-wrapper .export-button.cloud-btn:hover {
+  background-color: #164f92;
+}
+
+.export-page-wrapper .export-button.local-btn {
+  background-color: #28a745;
+  color: white;
+  box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+}
+
+.export-page-wrapper .export-button.local-btn:hover {
+  background-color: #218838;
+}
+
+
+.export-page-wrapper .modal-content .error-message {
+  color: #dc3545;
+  font-weight: bold;
+  text-align: center;
+  margin-top: 15px;
+}
+
+@media (max-width: 768px) {
+  .export-page-wrapper .export-options {
+    grid-template-columns: 1fr;
+  }
+}
+.export-container {
+  display: flex;
+  justify-content: center;
+  align-items: center; /* ALTERADO: Alinha verticalmente ao centro */
+  min-height: 90vh;
+  padding: 40px;
+  background-color: #f5f7fa;
+}

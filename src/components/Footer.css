@@ -1,11 +1,16 @@
 .app-footer {
-  padding: 15px;
-  background-color: #0D1B2A; /* Mesma cor do cabeçalho */
+  padding: 15px 30px;
+  background-color: #0D1B2A;
   color: white;
-  text-align: center;
   font-size: 14px;
+  box-sizing: border-box;
 }
 
-.app-footer p {
-  margin: 0;
+.footer-content {
+  display: flex;
+  justify-content: center; /* ALTERADO: Centraliza o conteúdo horizontalmente */
+  align-items: center;
+  gap: 20px; /* ADICIONADO: Adiciona um espaço entre os itens */
+  max-width: 1600px;
+  margin: 0 auto;
 }

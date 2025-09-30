@@ -17,9 +17,8 @@ function DashboardPage() {
     <div className="dashboard-container">
       <h1 className="dashboard-title">Painel de Controle SisFO</h1>
       <div className="dashboard-grid">
-        <Card to="/event-selection" icon="💰" title="Módulo Financeiro" description="Acesse para realizar fechamentos de garçons, caixas e consultar históricos de eventos." className="finance-card" />
-        <Card to="/cloud-sync" icon="☁️" title="Enviar para Nuvem" description="Envie os fechamentos salvos localmente para a planilha consolidada online." className="cloud-card" />
-        <Card to="/export-data" icon="📤" title="Exportar Dados Locais" description="Gere uma planilha consolidada com todos os fechamentos que foram salvos localmente." className="export-card" />
+        <Card to="/financial-selection" icon="💰" title="Módulo Financeiro" description="Acesse para realizar fechamentos de garçons, caixas e consultar históricos de eventos." className="finance-card" />        <Card to="/cloud-sync" icon="☁️" title="Enviar para Nuvem" description="Envie os fechamentos salvos localmente para a planilha consolidada online." className="cloud-card" />
+        <Card to="/export-data" icon="📤" title="Exportar Dados" description="Gere planilhas a partir dos dados salvos localmente ou dos registros consolidados na nuvem." className="export-card" />
         <Card to="/update-data" icon="🔄" title="Atualizar Dados" description="Cadastre novos garçons e eventos no sistema através de uma planilha." className="update-card" />
       </div>
     </div>

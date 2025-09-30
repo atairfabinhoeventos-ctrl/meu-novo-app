@@ -1,10 +1,11 @@
-// src/pages/WaiterClosingPage.jsx (VERSÃO FINAL COM CORREÇÃO DE TRAVAMENTO)
+// src/pages/WaiterClosingPage.jsx (VERSÃO ATUALIZADA COM LOADING SPINNER)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveWaiterClosing } from '../services/apiService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
-import AlertModal from '../components/AlertModal.jsx'; // <-- Importa nosso novo alerta
+import AlertModal from '../components/AlertModal.jsx';
+import LoadingSpinner from '../components/LoadingSpinner'; // 1. Importa o LoadingSpinner
 import '../App.css';
 import './WaiterClosingPage.css';
 
@@ -35,7 +36,8 @@ function WaiterClosingPage() {
       saveButton: useRef(null),
     };
 
-    const [alertMessage, setAlertMessage] = useState(''); // <-- Novo estado para o alerta
+    const [isLoading, setIsLoading] = useState(true); // 2. Adiciona o estado de carregamento
+    const [alertMessage, setAlertMessage] = useState('');
     const [waiters, setWaiters] = useState([]);
     const [selectedWaiter, setSelectedWaiter] = useState(null);
     const [searchInput, setSearchInput] = useState('');
@@ -81,6 +83,16 @@ function WaiterClosingPage() {
       return parseInt(cleanValue, 10) / 100;
     };
 
+    // 3. Adiciona o useEffect para controlar o tempo do spinner
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setIsLoading(false);
+        }, 500); // Meio segundo de duração para o spinner
+
+        return () => clearTimeout(timer);
+    }, []);
+
+
     useEffect(() => {
         const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setWaiters(localWaiters);
@@ -101,7 +113,7 @@ function WaiterClosingPage() {
             setPix(String(closingToEdit.pix).replace('.', ','));
             setCashless(String(closingToEdit.cashless).replace('.', ','));
         }
-    }, []);
+    }, [location.state]); // Dependência ajustada para location.state
 
     useEffect(() => {
         const query = searchInput.trim().toLowerCase();
@@ -154,7 +166,6 @@ function WaiterClosingPage() {
         values[fieldName] = value; 
         const somaPagamentos = parseCurrency(values.credito) + parseCurrency(values.debito) + parseCurrency(values.pix) + parseCurrency(values.cashless);
         if (somaPagamentos > numValorTotal) {
-          // --- MUDANÇA: Usa o novo modal em vez do alert ---
           setAlertMessage('Erro de Digitação: A soma dos pagamentos não pode ser maior que a Venda Total.');
           setter(''); 
           return;
@@ -188,6 +199,7 @@ function WaiterClosingPage() {
         const eventName = localStorage.getItem('activeEvent') || 'N/A';
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
         const closingData = {
+            type: 'waiter', // Adicionado para facilitar a filtragem futura
             timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, cpf: selectedWaiter.cpf, waiterName: selectedWaiter.name,
             numeroCamiseta, numeroMaquina, valorTotal: parseCurrency(valorTotal), credito: parseCurrency(credito),
             debito: parseCurrency(debito), pix: parseCurrency(pix), cashless: parseCurrency(cashless),
@@ -226,9 +238,13 @@ function WaiterClosingPage() {
       }
     };
     
+    // 4. Adiciona a condição de carregamento no início do retorno
+    if (isLoading) {
+        return <LoadingSpinner message="Carregando formulário..." />;
+    }
+
     return (
         <div className="app-container">
-            {/* --- MUDANÇA: Novo modal de alerta é adicionado aqui --- */}
             <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
 
             <div className="login-form form-scrollable" style={{ maxWidth: '800px' }}>

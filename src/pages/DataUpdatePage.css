@@ -1,4 +1,4 @@
-/* src/pages/DataUpdatePage.css (Com cores da flag alteradas) */
+/* src/pages/DataUpdatePage.css */
 .update-container {
   padding: 40px;
   max-width: 1200px;
@@ -94,29 +94,23 @@ td[colSpan="2"] { text-align: center; color: #888; padding: 20px; }
 .slider.round { border-radius: 34px; }
 .slider.round:before { border-radius: 50%; }
 
-/* --- CORES ALTERADAS AQUI --- */
 input:checked + .slider {
-  background-color: #28a745; /* Verde para Ativo */
+  background-color: #28a745;
 }
 .slider {
-  background-color: #dc3545; /* Vermelho para Inativo */
+  background-color: #dc3545;
 }
 input:checked + .slider:before {
   transform: translateX(26px);
 }
-/* Adicione no final de src/pages/DataUpdatePage.css */
 
 .online-sync-section {
   text-align: center;
   margin-bottom: 30px;
 }
 
-.update-card {
-  border-left-color: #fd7e14; /* Laranja */
-}
-
 .sync-button {
-  background-color: #fd7e14; /* Laranja */
+  background-color: #fd7e14;
   color: white;
   border: none;
   padding: 15px 30px;
@@ -137,16 +131,14 @@ input:checked + .slider:before {
   cursor: not-allowed;
 }
 
-/* Adicione no final de src/pages/DataUpdatePage.css */
-
 .action-buttons-container {
   display: flex;
-  gap: 15px; /* Espaço entre os botões */
+  gap: 15px;
   margin-top: 15px;
 }
 
 .update-button, .update-base-button {
-  flex: 1; /* Faz os botões dividirem o espaço igualmente */
+  flex: 1;
   padding: 15px 25px;
   border-radius: 5px;
   font-size: 1rem;
@@ -155,12 +147,11 @@ input:checked + .slider:before {
   border: none;
   color: white;
   transition: background-color 0.2s;
-  width: auto; /* Sobrescreve o width: 100% anterior */
+  width: auto;
 }
 
-/* Cor do novo botão */
 .update-base-button {
-  background-color: #218838; /* Verde mais escuro */
+  background-color: #218838;
 }
 
 .update-base-button:hover:not(:disabled) {
@@ -170,4 +161,23 @@ input:checked + .slider:before {
 .update-base-button:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
+}
+
+/* NOVO ESTILO PARA O BOTÃO VOLTAR */
+.back-to-setup-button {
+  margin-top: 30px;
+  padding: 12px 25px;
+  font-size: 1em;
+  font-weight: bold;
+  color: #1E63B8;
+  background-color: transparent;
+  border: 2px solid #1E63B8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-to-setup-button:hover {
+  background-color: #1E63B8;
+  color: white;
 }

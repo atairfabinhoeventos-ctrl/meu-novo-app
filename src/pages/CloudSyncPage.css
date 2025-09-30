@@ -12,3 +12,64 @@
 }
 .cloud-sync-card button:disabled { background-color: #ccc; cursor: not-allowed; }
 .feedback-message { margin-top: 20px; font-weight: bold; }
+
+/* Adicione este estilo ao final do seu arquivo CloudSyncPage.css */
+
+.active-event-display {
+  background-color: #e6f0ff; /* Um fundo azul bem claro */
+  border: 2px dashed #1E63B8; /* Borda tracejada com a cor principal */
+  border-radius: 8px;
+  padding: 15px 20px;
+  margin: 15px 0 25px 0; /* Espaçamento vertical e horizontal */
+  font-size: 1.4em; /* Fonte maior */
+  font-weight: bold; /* Negrito */
+  color: #164f92; /* Azul escuro para o texto */
+  text-align: center;
+  word-wrap: break-word; /* Garante que nomes de eventos longos quebrem a linha */
+}
+
+/* Pop-up de Carregamento Global */
+.loading-container {
+  background-color: rgba(0, 0, 0, 0.7); /* Fundo mais escuro */
+  padding: 30px 40px;
+  border-radius: 10px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.loading-container p {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-top: 20px;
+}
+
+.loading-spinner {
+  border: 6px solid rgba(255, 255, 255, 0.2);
+  border-top: 6px solid #fff;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto; /* Centraliza o spinner */
+}
+
+/* Também recorte o modal-overlay se ele não for global ainda */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+/* E a animação de spin */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

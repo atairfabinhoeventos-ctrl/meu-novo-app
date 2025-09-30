@@ -1,0 +1,90 @@
+/* Container principal do layout */
+.layout-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f5f7fa; /* Fundo geral das páginas */
+}
+
+/* ----------------- CABEÇALHO ----------------- */
+.app-header {
+  background-color: #ffffff;
+  padding: 10px 30px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1600px; /* Aumentado para telas maiores */
+  margin: 0 auto;
+}
+
+/* Área clicável do logo */
+.header-logo-link {
+  display: inline-block;
+  padding: 8px; /* Aumenta a área de clique */
+  border-radius: 10px;
+  transition: background-color 0.2s ease-in-out;
+  text-decoration: none;
+}
+
+.header-logo-link:hover {
+  background-color: #f0f5ff; /* Fundo sutil ao passar o mouse */
+}
+
+/* Imagem do logo */
+.header-logo {
+  height: 50px;
+  width: auto;
+  display: block; /* Remove espaços extras */
+}
+
+/* Informações do operador e evento */
+.header-info {
+  display: flex;
+  gap: 20px;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.info-item {
+  background-color: #f4f7f9;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e0e5eb;
+}
+
+/* ----------------- CONTEÚDO PRINCIPAL ----------------- */
+.app-content {
+  flex-grow: 1; /* Faz o conteúdo ocupar todo o espaço vertical */
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 20px 30px; /* Garante padding consistente */
+  box-sizing: border-box;
+}
+
+/* ----------------- RODAPÉ ----------------- */
+.app-footer {
+  background-color: #2c3e50; /* Azul escuro */
+  color: #bdc3c7; /* Cinza claro */
+  padding: 15px 30px;
+  font-size: 0.85em;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.footer-content {
+  display: flex;
+  justify-content: space-between; /* Alinha os itens nas pontas */
+  align-items: center;
+  max-width: 1600px;
+  margin: 0 auto;
+}

@@ -301,10 +301,10 @@ app.post('/api/online-history', async (req, res) => {
 });
 
 // --- ROTA AJUSTADA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
+// --- ROTA ROBUSTA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
 app.post('/api/export-online-data', async (req, res) => {
-  const { password, eventName } = req.body; // ALTERADO: Recebe eventName
+  const { password, eventName } = req.body;
 
-  // 1. Validação de segurança e de entrada
   if (!eventName) {
     return res.status(400).json({ message: 'O nome do evento é obrigatório.' });
   }
@@ -315,44 +315,49 @@ app.post('/api/export-online-data', async (req, res) => {
   try {
     const googleSheets = await getGoogleSheetsClient();
     
-    // 2. Definir as abas específicas do evento
     const waiterSheetName = `Garçons - ${eventName}`;
     const cashierSheetName = `Caixas - ${eventName}`;
     
-    // 3. Buscar os dados das duas abas em paralelo
-    const responses = await googleSheets.spreadsheets.values.batchGet({
-        spreadsheetId: spreadsheetId_cloud_sync,
-        ranges: [waiterSheetName, cashierSheetName],
-    });
+    // Tenta buscar os dados das duas abas em paralelo, sem quebrar se uma falhar
+    const [waiterResult, cashierResult] = await Promise.allSettled([
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+    ]);
 
-    const valueRanges = responses.data.valueRanges || [];
     let consolidatedWaiters = [];
     let consolidatedCashiers = [];
 
-    // 4. Processar os dados de cada aba
-    valueRanges.forEach(rangeResult => {
-        const sheetName = rangeResult.range.split('!')[0];
-        const rows = rangeResult.values;
-        
-        if (!rows || rows.length <= 1) return;
-
-        const header = rows[0].map(h => String(h).trim());
-        const data = rows.slice(1);
-
-        if (sheetName === waiterSheetName) {
+    // Processa os dados de Garçons APENAS SE a busca teve sucesso
+    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
+        const rows = waiterResult.value.data.values;
+        if (rows.length > 1) {
+            const header = rows[0].map(h => String(h).trim());
+            const data = rows.slice(1);
             data.forEach(row => {
-                const rowData = {};
+                const rowData = { eventName };
                 header.forEach((key, index) => rowData[key] = row[index]);
                 consolidatedWaiters.push(rowData);
             });
-        } else if (sheetName === cashierSheetName) {
+        }
+    }
+
+    // Processa os dados de Caixas APENAS SE a busca teve sucesso
+    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
+        const rows = cashierResult.value.data.values;
+        if (rows.length > 1) {
+            const header = rows[0].map(h => String(h).trim());
+            const data = rows.slice(1);
             data.forEach(row => {
-                const rowData = {};
+                const rowData = { eventName };
                 header.forEach((key, index) => rowData[key] = row[index]);
                 consolidatedCashiers.push(rowData);
             });
         }
-    });
+    }
+
+    if (consolidatedWaiters.length === 0 && consolidatedCashiers.length === 0) {
+        return res.status(404).json({ message: 'Nenhum dado de garçom ou caixa foi encontrado para este evento na nuvem.' });
+    }
 
     res.status(200).json({ waiters: consolidatedWaiters, cashiers: consolidatedCashiers });
 

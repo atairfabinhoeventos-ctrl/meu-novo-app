@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // 1. IMPORTE useEffect e useRef
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import axios from 'axios';
@@ -12,7 +12,21 @@ function ExportDataPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
 
+  // 2. CRIE UMA REFERÊNCIA PARA O CAMPO DE SENHA
+  const passwordInputRef = useRef(null);
+
   const activeEvent = localStorage.getItem('activeEvent') || 'Nenhum Evento Ativo';
+
+  // 3. USE O useEffect PARA FOCAR NO CAMPO APÓS O MODAL ABRIR
+  useEffect(() => {
+    if (isPasswordModalOpen) {
+      // Usamos um pequeno timeout para garantir que a animação do modal não conflite com o foco
+      setTimeout(() => {
+        passwordInputRef.current?.focus();
+      }, 100); // 100ms de atraso
+    }
+  }, [isPasswordModalOpen]);
+
 
   const startOnlineExport = () => {
     setError('');
@@ -27,7 +41,6 @@ function ExportDataPage() {
     setIsPasswordModalOpen(false);
 
     try {
-      // ALTERADO: Envia o nome do evento ativo para o backend
       const response = await axios.post(`${API_URL}/api/export-online-data`, { 
         password,
         eventName: activeEvent 
@@ -46,7 +59,6 @@ function ExportDataPage() {
      setLoadingMessage('Gerando planilha Excel...');
      const workbook = new ExcelJS.Workbook();
      
-    // --- Aba de Garçons ---
     const waiterSheet = workbook.addWorksheet('Garçons');
     if (waitersData.length > 0) {
         const waiterHeaders = Object.keys(waitersData[0]);
@@ -54,7 +66,6 @@ function ExportDataPage() {
         waiterSheet.addRows(waitersData);
     }
     
-    // --- Aba de Caixas ---
     const cashierSheet = workbook.addWorksheet('Caixas');
     if (cashiersData.length > 0) {
         const cashierHeaders = Object.keys(cashiersData[0]);
@@ -80,8 +91,6 @@ function ExportDataPage() {
     setLoadingMessage('Gerando planilha com dados locais...');
     try {
       const allClosings = JSON.parse(localStorage.getItem('localClosings')) || [];
-      
-      // ALTERADO: Filtra os fechamentos apenas para o evento ativo
       const eventClosings = allClosings.filter(c => c.eventName === activeEvent);
       
       if (eventClosings.length === 0) {
@@ -91,8 +100,7 @@ function ExportDataPage() {
       }
       
       const workbook = new ExcelJS.Workbook();
-      // ... (A lógica de geração da planilha continua a mesma, mas agora usa 'eventClosings')
-      // Exemplo para aba de garçons:
+      
       const waiterSheet = workbook.addWorksheet('Garçons');
       waiterSheet.columns = [
         { header: 'Protocolo', key: 'protocol', width: 25 }, { header: 'Data', key: 'timestamp', width: 20 },
@@ -110,7 +118,6 @@ function ExportDataPage() {
           acerto: c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber,
         });
       });
-      // ... (Adicionar lógica semelhante para a aba de Caixas)
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -126,7 +133,7 @@ function ExportDataPage() {
   };
 
   return (
-    <div className="export-container">
+    <div className="export-container export-page-wrapper">
       <div className="export-card">
         <h1>📤 Central de Exportação</h1>
         <p className="menu-subtitle" style={{textAlign: 'center', marginBottom: '30px'}}>
@@ -158,9 +165,15 @@ function ExportDataPage() {
             <h2>Acesso à Nuvem</h2>
             <p>Digite a senha para buscar os dados online.</p>
             <div className="input-group">
-              <input type="password" placeholder="Senha de acesso" value={password}
+              <input 
+                ref={passwordInputRef} // 4. ADICIONE A REFERÊNCIA
+                type="password" 
+                placeholder="Senha de acesso" 
+                value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()} autoFocus />
+                onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+                // autoFocus foi REMOVIDO
+              />
             </div>
             {error && <p className="error-message">{error}</p>}
             <div className="modal-buttons">

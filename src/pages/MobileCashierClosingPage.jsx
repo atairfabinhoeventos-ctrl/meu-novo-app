@@ -1,12 +1,13 @@
-// src/pages/MobileCashierClosingPage.jsx (VERSÃO FINAL COM LAYOUT PADRONIZADO)
+// src/pages/MobileCashierClosingPage.jsx (VERSÃO ATUALIZADA COM LOADING SPINNER)
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
+import LoadingSpinner from '../components/LoadingSpinner'; // 1. Importa o LoadingSpinner
 import '../App.css';
-import './MobileCashierClosingPage.css'; // <-- Importando o CSS correto
+import './MobileCashierClosingPage.css';
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -34,6 +35,7 @@ function MobileCashierClosingPage() {
       saveButton: useRef(null),
     };
 
+    const [isLoading, setIsLoading] = useState(true); // 2. Adiciona o estado de carregamento
     const [alertMessage, setAlertMessage] = useState('');
     const [personnelList, setPersonnelList] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(null);
@@ -75,6 +77,15 @@ function MobileCashierClosingPage() {
       if (!stringValue.includes(',') && !stringValue.includes('.')) { return parseInt(cleanValue, 10); }
       return parseInt(cleanValue, 10) / 100;
     };
+
+    // 3. Adiciona o useEffect para controlar o tempo do spinner
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setIsLoading(false);
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
@@ -154,6 +165,7 @@ function MobileCashierClosingPage() {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
             const closingData = {
+                type: 'cashier', // Adicionado para facilitar a filtragem futura
                 eventName, operatorName,
                 cpf: selectedCashier.cpf, cashierName: selectedCashier.name,
                 numeroMaquina, temTroco, temEstorno,
@@ -193,6 +205,11 @@ function MobileCashierClosingPage() {
         }
       }
     };
+
+    // 4. Adiciona a condição de carregamento no início do retorno
+    if (isLoading) {
+        return <LoadingSpinner message="Carregando formulário..." />;
+    }
 
     return (
         <div className="app-container">

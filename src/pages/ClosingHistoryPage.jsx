@@ -16,18 +16,21 @@ function ClosingHistoryPage() {
   const [localClosings, setLocalClosings] = useState([]);
   const [onlineClosings, setOnlineClosings] = useState([]);
   const [filteredClosings, setFilteredClosings] = useState([]);
-  const [viewMode, setViewMode] = useState('local'); // 'local' ou 'online'
+  const [viewMode, setViewMode] = useState('local');
   
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedClosing, setSelectedClosing] = useState(null);
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [onlineError, setOnlineError] = useState('');
-  const [isLoadingOnline, setIsLoadingOnline] = useState(false);
+  
+  // NOVO: Estados para o pop-up de carregamento e para guardar a última senha usada
+  const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+  const [lastUsedPassword, setLastUsedPassword] = useState('');
 
   useEffect(() => {
     const loadLocalClosings = () => {
@@ -62,50 +65,75 @@ function ClosingHistoryPage() {
   
   const handleViewDetails = (closing) => {
     setSelectedClosing(closing);
-    setIsModalOpen(true);
+    setIsDetailsModalOpen(true);
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
+  const closeDetailsModal = () => {
+    setIsDetailsModalOpen(false);
     setSelectedClosing(null);
   };
 
-  const handleOnlineSearch = async () => {
-    setIsLoadingOnline(true);
+  // ALTERADO: Função centralizada para buscar dados online
+  const fetchOnlineData = async (passwordToUse) => {
+    setIsPasswordModalOpen(false); // Fecha o pop-up de senha
+    setIsGlobalLoading(true); // Abre o pop-up de carregamento
     setOnlineError('');
     try {
       const activeEvent = localStorage.getItem('activeEvent');
       const response = await axios.post(`${API_URL}/api/online-history`, {
         eventName: activeEvent,
-        password: password,
+        password: passwordToUse,
       });
-      setOnlineClosings(response.data);
+      
+      const sortedData = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setOnlineClosings(sortedData);
+      setLastUsedPassword(passwordToUse); // Salva a senha para o botão de atualizar
       setViewMode('online');
-      setIsPasswordModalOpen(false);
       setPassword('');
     } catch (error) {
       const message = error.response?.data?.message || 'Falha ao buscar dados. Tente novamente.';
       setOnlineError(message);
+      setIsPasswordModalOpen(true); // Reabre o pop-up de senha em caso de erro
     } finally {
-      setIsLoadingOnline(false);
+      setIsGlobalLoading(false); // Fecha o pop-up de carregamento
+    }
+  };
+  
+  // NOVO: Função para o botão de refresh
+  const handleRefresh = () => {
+    if (lastUsedPassword) {
+      fetchOnlineData(lastUsedPassword);
+    }
+  };
+
+  const handlePasswordKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      fetchOnlineData(password);
     }
   };
 
   return (
-    <div className="app-container" style={{justifyContent: 'flex-start', alignItems: 'center'}}>
-      <div className="login-form form-scrollable" style={{maxWidth: '1000px'}}>
+      <div className="app-container history-page-wrapper" style={{justifyContent: 'flex-start', alignItems: 'center'}}>      <div className="login-form form-scrollable" style={{maxWidth: '1000px'}}>
         <h1>Histórico de Fechamentos</h1>
         <p className="menu-subtitle" style={{textAlign: 'center', marginBottom: '20px'}}>
             Exibindo registros para o evento: <strong>{localStorage.getItem('activeEvent')}</strong>
         </p>
 
-        <div className="view-toggle">
-            <button className={`toggle-button ${viewMode === 'local' ? 'active' : ''}`} onClick={() => setViewMode('local')}>
-                Dados Locais
-            </button>
-            <button className={`toggle-button ${viewMode === 'online' ? 'active' : ''}`} onClick={() => onlineClosings.length > 0 ? setViewMode('online') : setIsPasswordModalOpen(true)}>
-                Consultar Online
-            </button>
+        <div className="view-toggle-container">
+            <div className="view-toggle">
+                <button className={`toggle-button ${viewMode === 'local' ? 'active' : ''}`} onClick={() => setViewMode('local')}>
+                    Dados Locais
+                </button>
+                <button className={`toggle-button ${viewMode === 'online' ? 'active' : ''}`} onClick={() => onlineClosings.length > 0 ? setViewMode('online') : setIsPasswordModalOpen(true)}>
+                    Consultar Online
+                </button>
+            </div>
+            {/* NOVO: Botão de Atualizar */}
+            {viewMode === 'online' && (
+                <button className="refresh-button" onClick={handleRefresh} title="Atualizar dados online">
+                    🔄
+                </button>
+            )}
         </div>
 
         <div className="input-group">
@@ -118,15 +146,13 @@ function ClosingHistoryPage() {
             />
         </div>
         
-        {isLoading ? (
-            <p>Carregando...</p>
-        ) : filteredClosings.length === 0 ? (
-            <p className="empty-message">Nenhum fechamento encontrado com os critérios de busca.</p>
-        ) : (
+        {isLoading ? ( <p>Carregando...</p> ) : 
+         filteredClosings.length === 0 ? ( <p className="empty-message">Nenhum fechamento encontrado.</p> ) : 
+         (
             <div className="history-list">
                 {filteredClosings.map((closing) => (
                     <div key={closing.protocol} className="history-card">
-                        <div className="card-header">
+                       <div className="card-header">
                             <span className="protocol">{closing.protocol}</span>
                             <span className="date">{new Date(closing.timestamp).toLocaleString('pt-BR')}</span>
                         </div>
@@ -149,9 +175,8 @@ function ClosingHistoryPage() {
         )}
       </div>
 
-      {/* ===== INÍCIO DO CÓDIGO CORRIGIDO ===== */}
-      {isModalOpen && selectedClosing && (
-        <div className="modal-overlay" onClick={closeModal}>
+      {isDetailsModalOpen && selectedClosing && (
+         <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
             <h2>Detalhes do Fechamento</h2>
             <p><strong>Protocolo:</strong> {selectedClosing.protocol}</p>
@@ -177,12 +202,11 @@ function ClosingHistoryPage() {
                 </strong>
             </p>
             <div className="modal-buttons" style={{marginTop: '20px'}}>
-              <button className="cancel-button" onClick={closeModal}>Fechar</button>
+              <button className="cancel-button" onClick={closeDetailsModal}>Fechar</button>
             </div>
           </div>
         </div>
       )}
-      {/* ===== FIM DO CÓDIGO CORRIGIDO ===== */}
 
       {isPasswordModalOpen && (
         <div className="modal-overlay">
@@ -195,16 +219,27 @@ function ClosingHistoryPage() {
                     placeholder="Senha de acesso"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={handlePasswordKeyDown} // ALTERADO: Adiciona evento de Enter
                     autoFocus
                 />
             </div>
             {onlineError && <p className="error-message" style={{textAlign: 'center'}}>{onlineError}</p>}
             <div className="modal-buttons">
                 <button className="cancel-button" onClick={() => setIsPasswordModalOpen(false)}>Cancelar</button>
-                <button className="confirm-button" onClick={handleOnlineSearch} disabled={isLoadingOnline}>
-                    {isLoadingOnline ? 'Consultando...' : 'Confirmar'}
+                <button className="confirm-button" onClick={() => fetchOnlineData(password)}>
+                  Confirmar
                 </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOVO: Pop-up de Carregamento Global */}
+      {isGlobalLoading && (
+        <div className="modal-overlay">
+          <div className="loading-container">
+            <div className="loading-spinner"></div>
+            <p>Buscando dados na nuvem...</p>
           </div>
         </div>
       )}
