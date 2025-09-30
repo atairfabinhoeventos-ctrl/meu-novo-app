@@ -255,8 +255,29 @@ app.post('/api/online-history', async (req, res) => {
           case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
           case 'OPERADOR': closingObject.operatorName = row[index]; break;
           case 'DATA':
-  // Adiciona uma verificação para evitar erro com datas vazias ou inválidas
-  closingObject.timestamp = row[index] ? new Date(row[index]).toISOString() : new Date(0).toISOString();
+  const dateString = row[index];
+  let finalDate = new Date(0); // Uma data padrão (01/01/1970)
+
+  if (dateString && typeof dateString === 'string') {
+    // Separa a data e a hora, ex: "25/09/2025" e "16:36:12"
+    const [datePart, timePart] = dateString.split(' ');
+    
+    if (datePart && timePart) {
+      // Separa dia, mês e ano
+      const [day, month, year] = datePart.split('/');
+      
+      // Monta a data no formato ISO (YYYY-MM-DDTHH:MM:SS), que o JS entende
+      const isoDateString = `${year}-${month}-${day}T${timePart}`;
+      const parsedDate = new Date(isoDateString);
+      
+      // Apenas usa a data se ela for válida
+      if (!isNaN(parsedDate)) {
+        finalDate = parsedDate;
+      }
+    }
+  }
+  
+  closingObject.timestamp = finalDate.toISOString();
   break;
         }
       });
