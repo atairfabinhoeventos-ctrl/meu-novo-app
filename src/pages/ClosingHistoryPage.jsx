@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { generateWaiterReceiptPDF } from '../services/pdfService'; // 1. IMPORTA A FUNÇÃO DE GERAR PDF
 import './ClosingHistoryPage.css';
 import '../App.css';
 
@@ -28,7 +29,6 @@ function ClosingHistoryPage() {
   const [password, setPassword] = useState('');
   const [onlineError, setOnlineError] = useState('');
   
-  // NOVO: Estados para o pop-up de carregamento e para guardar a última senha usada
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [lastUsedPassword, setLastUsedPassword] = useState('');
 
@@ -73,10 +73,9 @@ function ClosingHistoryPage() {
     setSelectedClosing(null);
   };
 
-  // ALTERADO: Função centralizada para buscar dados online
   const fetchOnlineData = async (passwordToUse) => {
-    setIsPasswordModalOpen(false); // Fecha o pop-up de senha
-    setIsGlobalLoading(true); // Abre o pop-up de carregamento
+    setIsPasswordModalOpen(false);
+    setIsGlobalLoading(true);
     setOnlineError('');
     try {
       const activeEvent = localStorage.getItem('activeEvent');
@@ -87,19 +86,18 @@ function ClosingHistoryPage() {
       
       const sortedData = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setOnlineClosings(sortedData);
-      setLastUsedPassword(passwordToUse); // Salva a senha para o botão de atualizar
+      setLastUsedPassword(passwordToUse);
       setViewMode('online');
       setPassword('');
     } catch (error) {
       const message = error.response?.data?.message || 'Falha ao buscar dados. Tente novamente.';
       setOnlineError(message);
-      setIsPasswordModalOpen(true); // Reabre o pop-up de senha em caso de erro
+      setIsPasswordModalOpen(true);
     } finally {
-      setIsGlobalLoading(false); // Fecha o pop-up de carregamento
+      setIsGlobalLoading(false);
     }
   };
   
-  // NOVO: Função para o botão de refresh
   const handleRefresh = () => {
     if (lastUsedPassword) {
       fetchOnlineData(lastUsedPassword);
@@ -113,9 +111,10 @@ function ClosingHistoryPage() {
   };
 
   return (
-      <div className="app-container history-page-wrapper" style={{justifyContent: 'flex-start', alignItems: 'center'}}>      <div className="login-form form-scrollable" style={{maxWidth: '1000px'}}>
+    <div className="app-container history-page-wrapper">
+      <div className="login-form form-scrollable" style={{maxWidth: '1000px'}}>
         <h1>Histórico de Fechamentos</h1>
-        <p className="menu-subtitle" style={{textAlign: 'center', marginBottom: '20px'}}>
+        <p className="menu-subtitle">
             Exibindo registros para o evento: <strong>{localStorage.getItem('activeEvent')}</strong>
         </p>
 
@@ -128,7 +127,6 @@ function ClosingHistoryPage() {
                     Consultar Online
                 </button>
             </div>
-            {/* NOVO: Botão de Atualizar */}
             {viewMode === 'online' && (
                 <button className="refresh-button" onClick={handleRefresh} title="Atualizar dados online">
                     🔄
@@ -203,6 +201,13 @@ function ClosingHistoryPage() {
             </p>
             <div className="modal-buttons" style={{marginTop: '20px'}}>
               <button className="cancel-button" onClick={closeDetailsModal}>Fechar</button>
+              {/* 2. ADICIONADO: O botão de imprimir a segunda via */}
+              <button 
+                className="confirm-button" 
+                onClick={() => generateWaiterReceiptPDF(selectedClosing)}
+              >
+                Imprimir 2ª Via
+              </button>
             </div>
           </div>
         </div>
@@ -219,7 +224,7 @@ function ClosingHistoryPage() {
                     placeholder="Senha de acesso"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={handlePasswordKeyDown} // ALTERADO: Adiciona evento de Enter
+                    onKeyDown={handlePasswordKeyDown}
                     autoFocus
                 />
             </div>
@@ -234,7 +239,6 @@ function ClosingHistoryPage() {
         </div>
       )}
 
-      {/* NOVO: Pop-up de Carregamento Global */}
       {isGlobalLoading && (
         <div className="modal-overlay">
           <div className="loading-container">

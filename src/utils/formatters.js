@@ -1,39 +1,44 @@
-// src/utils/formatters.js (VERSÃO FINAL E CORRIGIDA)
-
-/**
- * Formata um valor de input para moeda BRL com a lógica de "número cheio".
- * Esta função é apenas para EXIBIÇÃO.
- */
+// Função para formatar o valor para EXIBIÇÃO no input com máscara
 export const formatCurrencyInput = (value) => {
-  if (value === null || value === undefined) return '';
+  if (!value) return '';
 
-  const stringValue = String(value);
-  const cleanValue = stringValue.replace(/\D/g, '');
+  // 1. Pega apenas os dígitos
+  const digitsOnly = String(value).replace(/\D/g, '');
+  if (digitsOnly === '') return '';
 
-  if (cleanValue === '') return '';
+  // 2. Transforma em número para remover zeros à esquerda (ex: "0050" vira 50)
+  const numberValue = parseInt(digitsOnly, 10);
+  const valueAsString = String(numberValue);
 
-  // Converte para número, sempre dividindo por 100 para ter 2 casas decimais.
-  // Ex: '125000' -> 1250.00 | '125050' -> 1250.50
-  const numberValue = parseInt(cleanValue, 10) / 100;
-
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numberValue);
+  // 3. Adiciona zeros à esquerda para garantir que sempre haja casas decimais
+  const paddedValue = valueAsString.padStart(3, '0');
+  
+  // 4. Separa a parte inteira dos centavos
+  const integerPart = paddedValue.slice(0, -2);
+  const decimalPart = paddedValue.slice(-2);
+  
+  // 5. Adiciona os pontos de milhar na parte inteira
+  const formattedIntegerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  
+  return `${formattedIntegerPart},${decimalPart}`;
 };
 
-/**
- * Formata um número para exibir como resultado de moeda BRL.
- */
+// Função para formatar o resultado final (com R$)
 export const formatCurrencyResult = (value) => {
-    if (isNaN(value)) return 'R$ 0,00';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const num = Number(value);
+  if (isNaN(num)) return 'R$ 0,00';
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-/**
- * Formata um texto para o padrão de CPF.
- */
-export const formatCpf = (text) => {
-  const cleanText = text.replace(/\D/g, '');
-  if (cleanText.length <= 3) return cleanText;
-  if (cleanText.length <= 6) return `${cleanText.slice(0, 3)}.${cleanText.slice(3)}`;
-  if (cleanText.length <= 9) return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6)}`;
-  return `${cleanText.slice(0, 3)}.${cleanText.slice(3, 6)}.${cleanText.slice(6, 9)}-${cleanText.slice(9, 11)}`;
+// Função para formatar CPF
+export const formatCpf = (cpf) => {
+  const cleaned = cpf.replace(/\D/g, '');
+  if (cleaned.length <= 11) {
+    return cleaned
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})/, '$1-$2')
+      .substring(0, 14);
+  }
+  return cpf;
 };

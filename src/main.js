@@ -1,12 +1,8 @@
-// src/main.js (Com Aceleração de Hardware Desativada)
-
-const { app, BrowserWindow, protocol } = require('electron');
+const { app, BrowserWindow, protocol, ipcMain, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
-// --- CORREÇÃO ADICIONADA AQUI ---
-// Esta linha desativa a aceleração de hardware e resolve problemas de "congelamento" da tela.
 app.disableHardwareAcceleration();
-// ------------------------------------
 
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -22,9 +18,11 @@ const createWindow = () => {
     height: 800,
     autoHideMenuBar: true,
     webPreferences: {
+      // ===== INÍCIO DA CORREÇÃO =====
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false,
+      contextIsolation: true,  // Habilitado para segurança e para o preload funcionar
+      nodeIntegration: false,  // Desabilitado por segurança quando contextIsolation é true
+      // ===== FIM DA CORREÇÃO =====
       webSecurity: true, 
     },
   });
@@ -60,4 +58,26 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+ipcMain.handle('save-pdf', async (event, pdfData, defaultPath) => {
+  const { filePath } = await dialog.showSaveDialog({
+    title: 'Salvar Recibo em PDF',
+    defaultPath: defaultPath,
+    filters: [
+      { name: 'Arquivos PDF', extensions: ['pdf'] }
+    ]
+  });
+
+  if (filePath) {
+    try {
+      fs.writeFileSync(filePath, pdfData);
+      return { success: true, path: filePath };
+    } catch (error) {
+      console.error('Falha ao salvar o PDF:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  return { success: false, error: 'Salvamento cancelado pelo usuário.' };
 });

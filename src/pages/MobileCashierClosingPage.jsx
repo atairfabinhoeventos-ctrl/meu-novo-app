@@ -1,11 +1,9 @@
-// src/pages/MobileCashierClosingPage.jsx (VERSÃO ATUALIZADA COM LOADING SPINNER)
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
-import LoadingSpinner from '../components/LoadingSpinner'; // 1. Importa o LoadingSpinner
+import LoadingSpinner from '../components/LoadingSpinner';
 import '../App.css';
 import './MobileCashierClosingPage.css';
 
@@ -22,20 +20,13 @@ function MobileCashierClosingPage() {
     const navigate = useNavigate();
     
     const formRefs = {
-      cpf: useRef(null),
-      numeroMaquina: useRef(null),
-      valorTotalVenda: useRef(null),
-      credito: useRef(null),
-      debito: useRef(null),
-      pix: useRef(null),
-      cashless: useRef(null),
-      dinheiroFisico: useRef(null),
-      valorTroco: useRef(null),
-      valorEstorno: useRef(null),
-      saveButton: useRef(null),
+      cpf: useRef(null), numeroMaquina: useRef(null), valorTotalVenda: useRef(null),
+      credito: useRef(null), debito: useRef(null), pix: useRef(null),
+      cashless: useRef(null), dinheiroFisico: useRef(null), valorTroco: useRef(null),
+      valorEstorno: useRef(null), saveButton: useRef(null),
     };
 
-    const [isLoading, setIsLoading] = useState(true); // 2. Adiciona o estado de carregamento
+    const [isLoading, setIsLoading] = useState(true);
     const [alertMessage, setAlertMessage] = useState('');
     const [personnelList, setPersonnelList] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(null);
@@ -70,20 +61,15 @@ function MobileCashierClosingPage() {
     const debouncedDinheiroFisico = useDebounce(dinheiroFisico, 500);
     const debouncedValorEstorno = useDebounce(valorEstorno, 500);
 
-    const parseCurrency = (value) => {
-      const stringValue = String(value);
-      const cleanValue = stringValue.replace(/\D/g, '');
-      if (cleanValue === '') return 0;
-      if (!stringValue.includes(',') && !stringValue.includes('.')) { return parseInt(cleanValue, 10); }
-      return parseInt(cleanValue, 10) / 100;
+    // Funções de ajuda para a lógica de máscara de moeda
+    const getNumericValue = (digits) => (parseInt(digits || '0', 10)) / 100;
+    const handleCurrencyChange = (setter, rawValue) => {
+        const digitsOnly = String(rawValue).replace(/\D/g, '');
+        setter(digitsOnly);
     };
 
-    // 3. Adiciona o useEffect para controlar o tempo do spinner
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 500);
-
+        const timer = setTimeout(() => { setIsLoading(false); }, 500);
         return () => clearTimeout(timer);
     }, []);
 
@@ -111,14 +97,14 @@ function MobileCashierClosingPage() {
     }, [searchInput, personnelList, selectedCashier]);
 
     useEffect(() => {
-        const numValorTotalVenda = parseCurrency(debouncedValorTotal);
-        const numValorTroco = parseCurrency(debouncedValorTroco);
-        const numCredito = parseCurrency(debouncedCredito);
-        const numDebito = parseCurrency(debouncedDebito);
-        const numPix = parseCurrency(debouncedPix);
-        const numCashless = parseCurrency(debouncedCashless);
-        const numDinheiroFisico = parseCurrency(debouncedDinheiroFisico);
-        const numValorEstorno = parseCurrency(debouncedValorEstorno);
+        const numValorTotalVenda = getNumericValue(debouncedValorTotal);
+        const numValorTroco = getNumericValue(debouncedValorTroco);
+        const numCredito = getNumericValue(debouncedCredito);
+        const numDebito = getNumericValue(debouncedDebito);
+        const numPix = getNumericValue(debouncedPix);
+        const numCashless = getNumericValue(debouncedCashless);
+        const numDinheiroFisico = getNumericValue(debouncedDinheiroFisico);
+        const numValorEstorno = getNumericValue(debouncedValorEstorno);
         const acertoCalculado = (numValorTotalVenda + (temTroco ? numValorTroco : 0)) - (numCredito + numDebito + numPix + numCashless) - (temEstorno ? numValorEstorno : 0);
         setValorAcerto(acertoCalculado);
         const dif = numDinheiroFisico - acertoCalculado;
@@ -153,7 +139,7 @@ function MobileCashierClosingPage() {
         setDataToConfirm({
             cashierName: selectedCashier.name,
             valorAcerto,
-            dinheiroFisico: parseCurrency(dinheiroFisico),
+            dinheiroFisico: getNumericValue(dinheiroFisico),
             diferenca,
         });
         setModalVisible(true);
@@ -165,18 +151,17 @@ function MobileCashierClosingPage() {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
             const closingData = {
-                type: 'cashier', // Adicionado para facilitar a filtragem futura
-                eventName, operatorName,
+                type: 'cashier', eventName, operatorName,
                 cpf: selectedCashier.cpf, cashierName: selectedCashier.name,
                 numeroMaquina, temTroco, temEstorno,
-                valorTroco: parseCurrency(valorTroco),
-                valorEstorno: parseCurrency(valorEstorno),
-                valorTotalVenda: parseCurrency(valorTotalVenda),
-                credito: parseCurrency(credito),
-                debito: parseCurrency(debito),
-                pix: parseCurrency(pix),
-                cashless: parseCurrency(cashless),
-                dinheiroFisico: parseCurrency(dinheiroFisico),
+                valorTroco: getNumericValue(valorTroco),
+                valorEstorno: getNumericValue(valorEstorno),
+                valorTotalVenda: getNumericValue(valorTotalVenda),
+                credito: getNumericValue(credito),
+                debito: getNumericValue(debito),
+                pix: getNumericValue(pix),
+                cashless: getNumericValue(cashless),
+                dinheiroFisico: getNumericValue(dinheiroFisico),
                 valorAcerto, diferenca,
             };
             const response = await saveMobileCashierClosing(closingData);
@@ -206,7 +191,6 @@ function MobileCashierClosingPage() {
       }
     };
 
-    // 4. Adiciona a condição de carregamento no início do retorno
     if (isLoading) {
         return <LoadingSpinner message="Carregando formulário..." />;
     }
@@ -257,16 +241,20 @@ function MobileCashierClosingPage() {
                     <div className="form-row">
                         <div className="input-group">
                             <label>Valor Total da Venda</label>
-                            <input ref={formRefs.valorTotalVenda} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTotalVenda)} onChange={(e) => setValorTotalVenda(e.target.value)} />
+                            <input 
+                                ref={formRefs.valorTotalVenda} onKeyDown={(e) => handleKeyDown(e, 'credito')} 
+                                value={formatCurrencyInput(valorTotalVenda)} 
+                                onChange={(e) => handleCurrencyChange(setValorTotalVenda, e.target.value)}
+                                placeholder="0,00" inputMode="numeric" />
                         </div>
                     </div>
                     <div className="form-row">
-                        <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => setCredito(e.target.value)} /></div>
-                        <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => setDebito(e.target.value)} /></div>
+                        <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => handleCurrencyChange(setCredito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
+                        <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => handleCurrencyChange(setDebito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                     </div>
                      <div className="form-row">
-                        <div className="input-group"><label>PIX</label><input ref={formRefs.pix} onKeyDown={(e) => handleKeyDown(e, 'cashless')} value={formatCurrencyInput(pix)} onChange={(e) => setPix(e.target.value)} /></div>
-                        <div className="input-group"><label>Cashless</label><input ref={formRefs.cashless} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(cashless)} onChange={(e) => setCashless(e.target.value)} /></div>
+                        <div className="input-group"><label>PIX</label><input ref={formRefs.pix} onKeyDown={(e) => handleKeyDown(e, 'cashless')} value={formatCurrencyInput(pix)} onChange={(e) => handleCurrencyChange(setPix, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
+                        <div className="input-group"><label>Cashless</label><input ref={formRefs.cashless} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(cashless)} onChange={(e) => handleCurrencyChange(setCashless, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                     </div>
                 </div>
 
@@ -275,20 +263,24 @@ function MobileCashierClosingPage() {
                         <label>Recebeu Troco?</label>
                         <label className="switch"><input type="checkbox" checked={temTroco} onChange={() => setTemTroco(!temTroco)} /><span className="slider round"></span></label>
                     </div>
-                    {temTroco && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorTroco)} onChange={(e) => setValorTroco(e.target.value)} /></div>}
+                    {temTroco && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorTroco)} onChange={(e) => handleCurrencyChange(setValorTroco, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
                     
                     <div className="switch-container" style={{marginLeft: 'auto'}}>
                         <label>Houve Estorno?</label>
                         <label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label>
                     </div>
-                    {temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => setValorEstorno(e.target.value)} /></div>}
+                    {temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
                 </div>
 
                 <div className="results-container">
                     <p className="total-text">Dinheiro a ser apresentado: <strong>{formatCurrencyResult(valorAcerto)}</strong></p>
                     <div className="input-group">
                         <label>Total em Dinheiro Físico (Contado)</label>
-                        <input ref={formRefs.dinheiroFisico} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} value={formatCurrencyInput(dinheiroFisico)} onChange={(e) => setDinheiroFisico(e.target.value)} />
+                        <input 
+                            ref={formRefs.dinheiroFisico} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} 
+                            value={formatCurrencyInput(dinheiroFisico)} 
+                            onChange={(e) => handleCurrencyChange(setDinheiroFisico, e.target.value)} 
+                            placeholder="0,00" inputMode="numeric" />
                     </div>
                     <p className="total-text">Diferença: <strong style={{ color: getDiferencaColor(diferenca) }}>{formatCurrencyResult(diferenca)}</strong></p>
                     <button ref={formRefs.saveButton} className="login-button" onClick={handleOpenConfirmation} disabled={isSaving}>
