@@ -4,6 +4,7 @@
   display: flex;
   gap: 20px;
   align-items: flex-end;
+  width: 100%; /* CORREÇÃO APLICADA AQUI */
 }
 
 .form-row .input-group {
@@ -65,8 +66,8 @@ input:checked + .slider:before { transform: translateX(22px); }
 .suggestion-item { padding: 12px 15px; cursor: pointer; }
 .suggestion-item:hover { background-color: #f0f4f8; }
 
-/* ADICIONE ESTE NOVO ESTILO AO FINAL DO SEU ARQUIVO CSS */
 
+/* ESTILOS ADICIONADOS PARA O NOVO LAYOUT */
 .switch-and-input-group {
   display: flex;
   align-items: flex-end;
