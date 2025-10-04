@@ -64,3 +64,22 @@ input:checked + .slider:before { transform: translateX(22px); }
 }
 .suggestion-item { padding: 12px 15px; cursor: pointer; }
 .suggestion-item:hover { background-color: #f0f4f8; }
+
+/* ADICIONE ESTE NOVO ESTILO AO FINAL DO SEU ARQUIVO CSS */
+
+.switch-and-input-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 15px;
+  flex: 1; /* Faz com que o grupo ocupe o espaço disponível */
+}
+
+.switch-and-input-group .input-group {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.switch-and-input-group .switch-container {
+  margin-bottom: 0;
+  flex-shrink: 0; /* Impede que o container do switch encolha */
+}

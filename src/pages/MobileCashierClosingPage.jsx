@@ -61,7 +61,6 @@ function MobileCashierClosingPage() {
     const debouncedDinheiroFisico = useDebounce(dinheiroFisico, 500);
     const debouncedValorEstorno = useDebounce(valorEstorno, 500);
 
-    // Funções de ajuda para a lógica de máscara de moeda
     const getNumericValue = (digits) => (parseInt(digits || '0', 10)) / 100;
     const handleCurrencyChange = (setter, rawValue) => {
         const digitsOnly = String(rawValue).replace(/\D/g, '');
@@ -227,14 +226,12 @@ function MobileCashierClosingPage() {
                             <label>Funcionário Selecionado</label>
                             <input type="text" value={selectedCashier ? `${selectedCashier.name} - ${selectedCashier.cpf}` : ''} readOnly placeholder="Selecione um funcionário" />
                         </div>
-                    </div>
-                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo funcionário?</button>)}
-                    <div className="form-row">
                         <div className="input-group">
                             <label>Número da Máquina</label>
                             <input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotalVenda')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} />
                         </div>
                     </div>
+                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo funcionário?</button>)}
                 </div>
 
                 <div className="form-section">
@@ -247,29 +244,34 @@ function MobileCashierClosingPage() {
                                 onChange={(e) => handleCurrencyChange(setValorTotalVenda, e.target.value)}
                                 placeholder="0,00" inputMode="numeric" />
                         </div>
+                        <div className="switch-and-input-group">
+                            <div className="switch-container">
+                                <label>Recebeu Troco?</label>
+                                <label className="switch"><input type="checkbox" checked={temTroco} onChange={() => setTemTroco(!temTroco)} /><span className="slider round"></span></label>
+                            </div>
+                            {temTroco && <div className="input-group"><label>Valor do Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTroco)} onChange={(e) => handleCurrencyChange(setValorTroco, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
+                        </div>
                     </div>
+
                     <div className="form-row">
                         <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => handleCurrencyChange(setCredito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                         <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => handleCurrencyChange(setDebito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                     </div>
+                    
                      <div className="form-row">
                         <div className="input-group"><label>PIX</label><input ref={formRefs.pix} onKeyDown={(e) => handleKeyDown(e, 'cashless')} value={formatCurrencyInput(pix)} onChange={(e) => handleCurrencyChange(setPix, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                         <div className="input-group"><label>Cashless</label><input ref={formRefs.cashless} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(cashless)} onChange={(e) => handleCurrencyChange(setCashless, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                     </div>
-                </div>
 
-                <div className="form-row" style={{alignItems: 'center', marginBottom: '20px', borderTop: '1px solid #eee', paddingTop: '20px'}}>
-                    <div className="switch-container">
-                        <label>Recebeu Troco?</label>
-                        <label className="switch"><input type="checkbox" checked={temTroco} onChange={() => setTemTroco(!temTroco)} /><span className="slider round"></span></label>
+                    <div className="form-row" style={{marginTop: '15px'}}>
+                        <div className="switch-and-input-group">
+                             <div className="switch-container">
+                                <label>Houve Estorno?</label>
+                                <label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label>
+                            </div>
+                            {temEstorno && <div className="input-group"><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
+                        </div>
                     </div>
-                    {temTroco && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorTroco)} onChange={(e) => handleCurrencyChange(setValorTroco, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
-                    
-                    <div className="switch-container" style={{marginLeft: 'auto'}}>
-                        <label>Houve Estorno?</label>
-                        <label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label>
-                    </div>
-                    {temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'dinheiroFisico')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>}
                 </div>
 
                 <div className="results-container">

@@ -1,21 +1,32 @@
-import React, { useState, useEffect } from 'react'; // 1. Importe o useEffect
+import React, { useState, useEffect, useRef } from 'react'; // Passo 1: Importe o useRef
 import { useNavigate } from 'react-router-dom';
 import './OperatorScreen.css';
-import LoadingSpinner from '../components/LoadingSpinner'; // 2. Importe o novo componente
+import LoadingSpinner from '../components/LoadingSpinner';
 
 function OperatorScreen() {
   const navigate = useNavigate();
   const [operatorName, setOperatorName] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // 3. Crie um estado de carregamento
+  const [isLoading, setIsLoading] = useState(true);
+  const inputRef = useRef(null); // Passo 2: Crie a referência
 
-  // 4. Use o useEffect para esconder o carregamento após um curto período
+  // Este useEffect controla a duração do spinner
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 800); // 800 milissegundos de duração
+    }, 800);
 
-    return () => clearTimeout(timer); // Limpa o timer se o componente for desmontado
+    return () => clearTimeout(timer);
   }, []);
+
+  // Passo 4: Este novo useEffect foca no input quando o spinner some
+  useEffect(() => {
+    if (!isLoading) {
+      // Verifica se o input já existe na tela antes de tentar focar
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }
+  }, [isLoading]); // A dependência é `isLoading`
 
   const handleStart = (e) => {
     e.preventDefault();
@@ -26,8 +37,7 @@ function OperatorScreen() {
     localStorage.setItem('loggedInUserName', operatorName.trim());
     navigate('/setup');
   };
-
-  // 5. Renderize o LoadingSpinner ou a tela de login dependendo do estado
+  
   if (isLoading) {
     return <LoadingSpinner message="Iniciando sistema..." />;
   }
@@ -48,6 +58,7 @@ function OperatorScreen() {
             <div className="input-group">
               <label htmlFor="operatorName">Seu Nome:</label>
               <input
+                ref={inputRef} // Passo 3: Anexe a referência aqui
                 id="operatorName"
                 type="text"
                 value={operatorName}
