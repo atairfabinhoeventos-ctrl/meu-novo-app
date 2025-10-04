@@ -174,8 +174,85 @@ function DataUpdatePage() {
     reader.readAsBinaryString(selectedFile);
   };
 
-  const handleUpdateOnlineBase = async () => {
-    // A lógica desta função continua a mesma
+// COLOQUE ESTE CÓDIGO NO LUGAR DA FUNÇÃO handleUpdateOnlineBase EXISTENTE
+
+const handleUpdateOnlineBase = async () => {
+    // 1. Validação inicial
+    if (!selectedFile) {
+      alert('Por favor, selecione um arquivo de planilha primeiro.');
+      return;
+    }
+
+    // 2. Ativa o estado de "carregando"
+    setIsUpdatingOnline(true);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = e.target.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+
+        let waitersToUpdate = [];
+        let eventsToUpdate = [];
+
+        // 3. Extrai dados dos Garçons da planilha
+        if (workbook.Sheets['Garcons']) {
+          const waitersSheet = workbook.Sheets['Garcons'];
+          const newWaiters = XLSX.utils.sheet_to_json(waitersSheet);
+          newWaiters.forEach(waiter => {
+            const cleanCpf = String(waiter.CPF || '').trim();
+            if (cleanCpf) {
+              waitersToUpdate.push({
+                cpf: cleanCpf,
+                name: String(waiter.NOME || '').trim()
+              });
+            }
+          });
+        }
+
+        // 4. Extrai dados dos Eventos da planilha
+        if (workbook.Sheets['Eventos']) {
+          const eventsSheet = workbook.Sheets['Eventos'];
+          const newEvents = XLSX.utils.sheet_to_json(eventsSheet);
+          newEvents.forEach(event => {
+            const eventName = String(event['NOME DO EVENTO'] || '').trim();
+            if (eventName) {
+              eventsToUpdate.push({
+                name: eventName,
+                active: String(event.STATUS || 'ATIVO').toUpperCase() === 'ATIVO'
+              });
+            }
+          });
+        }
+        
+        // 5. Valida se encontrou algum dado para enviar
+        if (waitersToUpdate.length === 0 && eventsToUpdate.length === 0) {
+            alert('Nenhum dado de garçom ou evento válido foi encontrado na planilha para enviar.');
+            setIsUpdatingOnline(false); // Desativa o loading
+            return;
+        }
+
+        // 6. Envia os dados extraídos para o backend
+        const response = await axios.post(`${API_URL}/api/update-base`, {
+          waiters: waitersToUpdate,
+          events: eventsToUpdate,
+        });
+
+        // 7. Exibe a mensagem de sucesso do backend e limpa o formulário
+        alert(response.data.message);
+        setFileName('');
+        setSelectedFile(null);
+
+      } catch (error) {
+        console.error("Erro ao atualizar base online:", error);
+        const errorMessage = error.response ? error.response.data.message : 'Ocorreu um erro ao se comunicar com o servidor.';
+        alert(`Falha na atualização: ${errorMessage}`);
+      } finally {
+        // 8. Garante que o estado de "carregando" seja desativado
+        setIsUpdatingOnline(false);
+      }
+    };
+    reader.readAsBinaryString(selectedFile);
   };
 
   const handleToggleEventStatus = (eventName) => {
