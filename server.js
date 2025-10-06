@@ -193,7 +193,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (VERSÃO CORRIGIDA E UNIFICADA) ---
+// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (VERSÃO FINALMENTE CORRIGIDA) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
@@ -216,6 +216,7 @@ app.post('/api/online-history', async (req, res) => {
 
     let allClosings = [];
 
+    // Processa dados de Garçons
     if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
       const rows = waiterResult.value.data.values;
       if (rows.length > 1) {
@@ -223,29 +224,31 @@ app.post('/api/online-history', async (req, res) => {
         const data = rows.slice(1).map(row => {
           const closingObject = { type: 'waiter' };
           header.forEach((key, index) => {
+            const value = row[index];
             switch (key) {
-              case 'NOME GARÇOM': closingObject.waiterName = row[index]; break;
-              case 'PROTOCOLO': closingObject.protocol = row[index]; break;
-              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index] || 0); break;
-              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(row[index] || 0); break;
-              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(row[index] || 0); break;
-              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(row[index] || 0); break;
-              case 'CRÉDITO': closingObject.credito = parseFloat(row[index] || 0); break;
-              case 'DÉBITO': closingObject.debito = parseFloat(row[index] || 0); break;
-              case 'PIX': closingObject.pix = parseFloat(row[index] || 0); break;
-              case 'CASHLESS': closingObject.cashless = parseFloat(row[index] || 0); break;
-              case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
-              case 'OPERADOR': closingObject.operatorName = row[index]; break;
+              case 'NOME GARÇOM': closingObject.waiterName = value; break;
+              case 'PROTOCOLO': closingObject.protocol = value; break;
+              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(value || 0); break;
+              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value || 0); break;
+              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(value || 0); break;
+              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(value || 0); break;
+              case 'CRÉDITO': closingObject.credito = parseFloat(value || 0); break;
+              case 'DÉBITO': closingObject.debito = parseFloat(value || 0); break;
+              case 'PIX': closingObject.pix = parseFloat(value || 0); break;
+              case 'CASHLESS': closingObject.cashless = parseFloat(value || 0); break;
+              case 'Nº MÁQUINA': closingObject.numeroMaquina = value; break;
+              case 'OPERADOR': closingObject.operatorName = value; break;
               case 'DATA':
-                  const dateString = row[index];
                   let finalDate = new Date(0);
-                  if (dateString && typeof dateString === 'string') {
-                      const [datePart, timePart] = dateString.split(' ');
+                  if (value && typeof value === 'string') {
+                      const [datePart, timePart] = value.split(' ');
                       if (datePart && timePart) {
                           const [day, month, year] = datePart.split('/');
-                          const isoDateString = `${year}-${month}-${day}T${timePart}`;
-                          const parsedDate = new Date(isoDateString);
-                          if (!isNaN(parsedDate)) finalDate = parsedDate;
+                          if (day && month && year) {
+                            const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+                            const parsedDate = new Date(isoDateString);
+                            if (!isNaN(parsedDate)) finalDate = parsedDate;
+                          }
                       }
                   }
                   closingObject.timestamp = finalDate.toISOString();
@@ -260,6 +263,7 @@ app.post('/api/online-history', async (req, res) => {
       }
     }
 
+    // Processa dados de Caixas (COM MAPEAMENTO CORRETO)
     if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
         const rows = cashierResult.value.data.values;
         if (rows.length > 1) {
@@ -267,31 +271,36 @@ app.post('/api/online-history', async (req, res) => {
             const data = rows.slice(1).map(row => {
                 const closingObject = { type: 'cashier' };
                 header.forEach((key, index) => {
+                    const value = row[index];
                     switch(key) {
-                        case 'NOME DO CAIXA': closingObject.waiterName = row[index]; break;
-                        case 'PROTOCOLO': closingObject.protocol = row[index]; break;
-                        case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index] || 0); break;
-                        case 'DIFERENÇA': closingObject.diferencaPagarReceber = parseFloat(row[index] || 0); break;
-                        case 'OPERADOR': closingObject.operatorName = row[index]; break;
-                        case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
+                        case 'NOME DO CAIXA': closingObject.cashierName = value; break;
+                        case 'PROTOCOLO': closingObject.protocol = value; break;
+                        case 'VALOR VENDA TOTAL': closingObject.valorTotalVenda = parseFloat(value || 0); break;
+                        case 'CRÉDITO': closingObject.credito = parseFloat(value || 0); break;
+                        case 'DÉBITO': closingObject.debito = parseFloat(value || 0); break;
+                        case 'PIX': closingObject.pix = parseFloat(value || 0); break;
+                        case 'CASHLESS': closingObject.cashless = parseFloat(value || 0); break;
+                        case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value || 0); closingObject.temEstorno = !!(parseFloat(value || 0) > 0); break;
+                        case 'DIFERENÇA': closingObject.diferenca = parseFloat(value || 0); break;
+                        case 'OPERADOR': closingObject.operatorName = value; break;
+                        case 'Nº MÁQUINA': closingObject.numeroMaquina = value; break;
                         case 'DATA':
-                            const dateString = row[index];
                             let finalDate = new Date(0);
-                             if (dateString && typeof dateString === 'string') {
-                                const [datePart, timePart] = dateString.split(' ');
+                             if (value && typeof value === 'string') {
+                                const [datePart, timePart] = value.split(' ');
                                 if (datePart && timePart) {
                                     const [day, month, year] = datePart.split('/');
-                                    const isoDateString = `${year}-${month}-${day}T${timePart}`;
-                                    const parsedDate = new Date(isoDateString);
-                                    if (!isNaN(parsedDate)) finalDate = parsedDate;
+                                    if (day && month && year) {
+                                      const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+                                      const parsedDate = new Date(isoDateString);
+                                      if (!isNaN(parsedDate)) finalDate = parsedDate;
+                                    }
                                 }
                             }
                             closingObject.timestamp = finalDate.toISOString();
                             break;
                     }
                 });
-                closingObject.diferencaLabel = closingObject.diferencaPagarReceber < 0 ? 'Faltou no Caixa' : 'Sobrou no Caixa';
-                closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
                 return closingObject;
             });
             allClosings.push(...data);
@@ -309,7 +318,6 @@ app.post('/api/online-history', async (req, res) => {
     res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
   }
 });
-
 
 // --- ROTA ROBUSTA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
 app.post('/api/export-online-data', async (req, res) => {
