@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'; // 1. IMPORTE useEffect e useRef
+import React, { useState, useEffect, useRef } from 'react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import axios from 'axios';
@@ -12,18 +12,15 @@ function ExportDataPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
 
-  // 2. CRIE UMA REFERÊNCIA PARA O CAMPO DE SENHA
   const passwordInputRef = useRef(null);
 
   const activeEvent = localStorage.getItem('activeEvent') || 'Nenhum Evento Ativo';
 
-  // 3. USE O useEffect PARA FOCAR NO CAMPO APÓS O MODAL ABRIR
   useEffect(() => {
     if (isPasswordModalOpen) {
-      // Usamos um pequeno timeout para garantir que a animação do modal não conflite com o foco
       setTimeout(() => {
         passwordInputRef.current?.focus();
-      }, 100); // 100ms de atraso
+      }, 100);
     }
   }, [isPasswordModalOpen]);
 
@@ -59,6 +56,7 @@ function ExportDataPage() {
      setLoadingMessage('Gerando planilha Excel...');
      const workbook = new ExcelJS.Workbook();
      
+    // A lógica para a aba de Garçons permanece a mesma
     const waiterSheet = workbook.addWorksheet('Garçons');
     if (waitersData.length > 0) {
         const waiterHeaders = Object.keys(waitersData[0]);
@@ -66,12 +64,31 @@ function ExportDataPage() {
         waiterSheet.addRows(waitersData);
     }
     
+    // --- INÍCIO DA ALTERAÇÃO PARA A ABA DE CAIXAS ---
     const cashierSheet = workbook.addWorksheet('Caixas');
     if (cashiersData.length > 0) {
-        const cashierHeaders = Object.keys(cashiersData[0]);
-        cashierSheet.columns = cashierHeaders.map(key => ({ header: key, key, width: 25 }));
+        // 1. A linha que gerava cabeçalhos automáticos foi removida.
+        // 2. Definimos a estrutura exata das colunas (ordem e títulos) que você pediu.
+        const cashierColumns = [
+          { header: 'Nome do evento', key: 'eventName', width: 30 },
+          { header: 'Nome do caixa', key: 'NOME DO CAIXA', width: 30 },
+          { header: 'Protocolo', key: 'PROTOCOLO', width: 25 },
+          { header: 'Valor venda total', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Troco', key: 'TROCO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Devolução/Estorno', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Crédito', key: 'CRÉDITO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Débito', key: 'DÉBITO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Pix', key: 'PIX', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Cashless', key: 'CASHLESS', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Dinheiro', key: 'DINHEIRO FÍSICO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Diferença', key: 'DIFERENÇA', width: 20, style: { numFmt: '"R$"#,##0.00' } },
+          { header: 'Número da máquina', key: 'Nº MÁQUINA', width: 20 },
+        ];
+
+        cashierSheet.columns = cashierColumns;
         cashierSheet.addRows(cashiersData);
     }
+    // --- FIM DA ALTERAÇÃO ---
 
     [waiterSheet, cashierSheet].forEach(sheet => {
         if (sheet.rowCount > 0) {
@@ -166,13 +183,12 @@ function ExportDataPage() {
             <p>Digite a senha para buscar os dados online.</p>
             <div className="input-group">
               <input 
-                ref={passwordInputRef} // 4. ADICIONE A REFERÊNCIA
+                ref={passwordInputRef}
                 type="password" 
                 placeholder="Senha de acesso" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-                // autoFocus foi REMOVIDO
               />
             </div>
             {error && <p className="error-message">{error}</p>}

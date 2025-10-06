@@ -1,10 +1,26 @@
-/* src/pages/MobileCashierClosingPage.css */
+/* src/pages/MobileCashierClosingPage.css (VERSÃO CORRIGIDA E ASSERTIVA) */
+
+/* NOVO E MAIS IMPORTANTE: Define o comportamento do container principal */
+.form-section {
+  display: flex;
+  flex-direction: column; /* Esta é a linha chave: força o empilhamento vertical */
+  align-items: center;   /* Centraliza as linhas de campos no container */
+  gap: 20px;             /* Espaçamento entre as linhas de campos */
+  width: 100%;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.form-section:last-of-type {
+  border-bottom: none;
+}
+
 
 .form-row {
   display: flex;
   gap: 20px;
   align-items: flex-end;
-  width: 100%; /* CORREÇÃO APLICADA AQUI */
+  width: 100%; /* Mantém a garantia de que cada linha ocupe a largura total */
 }
 
 .form-row .input-group {
@@ -72,7 +88,7 @@ input:checked + .slider:before { transform: translateX(22px); }
   display: flex;
   align-items: flex-end;
   gap: 15px;
-  flex: 1; /* Faz com que o grupo ocupe o espaço disponível */
+  flex: 1; 
 }
 
 .switch-and-input-group .input-group {
@@ -82,5 +98,5 @@ input:checked + .slider:before { transform: translateX(22px); }
 
 .switch-and-input-group .switch-container {
   margin-bottom: 0;
-  flex-shrink: 0; /* Impede que o container do switch encolha */
+  flex-shrink: 0; 
 }

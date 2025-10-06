@@ -1,7 +1,6 @@
 // backend/server.js (VERSÃO FINAL E ROBUSTA PARA NUVEM E LOCAL)
 console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com histórico online) ---");
 
-
 require('dotenv').config();
 
 const express = require('express');
@@ -17,8 +16,6 @@ app.use(cors({ origin: '*' }));
 async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
-      // Tenta usar a variável de ambiente primeiro (para o Render)
-      // Se não existir, usa o arquivo local (para desenvolvimento)
       credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
       keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(__dirname, 'credentials.json'),
       scopes: 'https://www.googleapis.com/auth/spreadsheets',
@@ -71,7 +68,6 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
-
 // --- NOVA ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
@@ -81,19 +77,14 @@ app.post('/api/update-base', async (req, res) => {
     let addedWaitersCount = 0;
     let addedEventsCount = 0;
 
-    // Processar Garçons
     if (waiters && waiters.length > 0) {
-      // 1. Buscar CPFs existentes
       const response = await googleSheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId_sync,
         range: 'Garcons!A2:A',
       });
       const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
-      
-      // 2. Filtrar apenas os novos garçons
       const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
       
-      // 3. Adicionar novos garçons à planilha
       if (newWaiters.length > 0) {
         const values = newWaiters.map(w => [w.cpf, w.name]);
         await googleSheets.spreadsheets.values.append({
@@ -106,21 +97,16 @@ app.post('/api/update-base', async (req, res) => {
       }
     }
 
-    // Processar Eventos
     if (events && events.length > 0) {
-      // 1. Buscar nomes de eventos existentes
       const response = await googleSheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId_sync,
         range: 'Eventos!A2:A',
       });
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
-
-      // 2. Filtrar apenas os novos eventos
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
 
-      // 3. Adicionar novos eventos à planilha
       if (newEvents.length > 0) {
-        const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']); // Coluna B (local) vazia
+        const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
         await googleSheets.spreadsheets.values.append({
           spreadsheetId: spreadsheetId_sync,
           range: 'Eventos!A:C',
@@ -140,7 +126,6 @@ app.post('/api/update-base', async (req, res) => {
     res.status(500).json({ message: 'Erro interno do servidor ao atualizar a base de cadastro.' });
   }
 });
-
 
 // --- ROTA PARA ENVIAR DADOS PARA A NUVEM COM VERIFICAÇÃO ---
 app.post('/api/cloud-sync', async (req, res) => {
@@ -208,11 +193,10 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE ---
+// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (VERSÃO CORRIGIDA E UNIFICADA) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
-  // 1. Validação de segurança
   if (!eventName || !password) {
     return res.status(400).json({ message: 'Nome do evento e senha são obrigatórios.' });
   }
@@ -222,85 +206,111 @@ app.post('/api/online-history', async (req, res) => {
 
   try {
     const googleSheets = await getGoogleSheetsClient();
-    const sheetName = `Garçons - ${eventName}`;
+    const waiterSheetName = `Garçons - ${eventName}`;
+    const cashierSheetName = `Caixas - ${eventName}`;
 
-    // 2. Buscar os dados da planilha
-    const response = await googleSheets.spreadsheets.values.get({
-      spreadsheetId: spreadsheetId_cloud_sync, // Usando a ID da planilha de nuvem
-      range: sheetName,
-    });
+    const [waiterResult, cashierResult] = await Promise.allSettled([
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+    ]);
 
-    const rows = response.data.values;
-    if (!rows || rows.length <= 1) { // Menor ou igual a 1 para ignorar o cabeçalho
-      return res.status(404).json({ message: 'Nenhum fechamento encontrado para este evento na nuvem.' });
-    }
+    let allClosings = [];
 
-    // 3. Transformar os dados em objetos
-    const header = rows[0].map(h => h.trim());
-    const data = rows.slice(1).map(row => {
-      const closingObject = {};
-      header.forEach((key, index) => {
-        // Mapeia nomes das colunas para chaves de objeto que o frontend entende
-        switch (key) {
-          case 'NOME GARÇOM': closingObject.waiterName = row[index]; break;
-          case 'PROTOCOLO': closingObject.protocol = row[index]; break;
-          case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index]); break;
-          case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(row[index]); break;
-          case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(row[index]); break;
-          case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(row[index]); break;
-          case 'CRÉDITO': closingObject.credito = parseFloat(row[index]); break;
-          case 'DÉBITO': closingObject.debito = parseFloat(row[index]); break;
-          case 'PIX': closingObject.pix = parseFloat(row[index]); break;
-          case 'CASHLESS': closingObject.cashless = parseFloat(row[index]); break;
-          case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
-          case 'OPERADOR': closingObject.operatorName = row[index]; break;
-          case 'DATA':
-  const dateString = row[index];
-  let finalDate = new Date(0); // Uma data padrão (01/01/1970)
-
-  if (dateString && typeof dateString === 'string') {
-    // Separa a data e a hora, ex: "25/09/2025" e "16:36:12"
-    const [datePart, timePart] = dateString.split(' ');
-    
-    if (datePart && timePart) {
-      // Separa dia, mês e ano
-      const [day, month, year] = datePart.split('/');
-      
-      // Monta a data no formato ISO (YYYY-MM-DDTHH:MM:SS), que o JS entende
-      const isoDateString = `${year}-${month}-${day}T${timePart}`;
-      const parsedDate = new Date(isoDateString);
-      
-      // Apenas usa a data se ela for válida
-      if (!isNaN(parsedDate)) {
-        finalDate = parsedDate;
+    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
+      const rows = waiterResult.value.data.values;
+      if (rows.length > 1) {
+        const header = rows[0].map(h => String(h).trim());
+        const data = rows.slice(1).map(row => {
+          const closingObject = { type: 'waiter' };
+          header.forEach((key, index) => {
+            switch (key) {
+              case 'NOME GARÇOM': closingObject.waiterName = row[index]; break;
+              case 'PROTOCOLO': closingObject.protocol = row[index]; break;
+              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index] || 0); break;
+              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(row[index] || 0); break;
+              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(row[index] || 0); break;
+              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(row[index] || 0); break;
+              case 'CRÉDITO': closingObject.credito = parseFloat(row[index] || 0); break;
+              case 'DÉBITO': closingObject.debito = parseFloat(row[index] || 0); break;
+              case 'PIX': closingObject.pix = parseFloat(row[index] || 0); break;
+              case 'CASHLESS': closingObject.cashless = parseFloat(row[index] || 0); break;
+              case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
+              case 'OPERADOR': closingObject.operatorName = row[index]; break;
+              case 'DATA':
+                  const dateString = row[index];
+                  let finalDate = new Date(0);
+                  if (dateString && typeof dateString === 'string') {
+                      const [datePart, timePart] = dateString.split(' ');
+                      if (datePart && timePart) {
+                          const [day, month, year] = datePart.split('/');
+                          const isoDateString = `${year}-${month}-${day}T${timePart}`;
+                          const parsedDate = new Date(isoDateString);
+                          if (!isNaN(parsedDate)) finalDate = parsedDate;
+                      }
+                  }
+                  closingObject.timestamp = finalDate.toISOString();
+                  break;
+            }
+          });
+          closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
+          closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+          return closingObject;
+        });
+        allClosings.push(...data);
       }
     }
-  }
-  
-  closingObject.timestamp = finalDate.toISOString();
-  break;
-        }
-      });
-      // Adiciona labels que o frontend espera
-      closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
-      closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
-      
-      return closingObject;
-    });
 
-    res.status(200).json(data);
+    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
+        const rows = cashierResult.value.data.values;
+        if (rows.length > 1) {
+            const header = rows[0].map(h => String(h).trim());
+            const data = rows.slice(1).map(row => {
+                const closingObject = { type: 'cashier' };
+                header.forEach((key, index) => {
+                    switch(key) {
+                        case 'NOME DO CAIXA': closingObject.waiterName = row[index]; break;
+                        case 'PROTOCOLO': closingObject.protocol = row[index]; break;
+                        case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(row[index] || 0); break;
+                        case 'DIFERENÇA': closingObject.diferencaPagarReceber = parseFloat(row[index] || 0); break;
+                        case 'OPERADOR': closingObject.operatorName = row[index]; break;
+                        case 'Nº MÁQUINA': closingObject.numeroMaquina = row[index]; break;
+                        case 'DATA':
+                            const dateString = row[index];
+                            let finalDate = new Date(0);
+                             if (dateString && typeof dateString === 'string') {
+                                const [datePart, timePart] = dateString.split(' ');
+                                if (datePart && timePart) {
+                                    const [day, month, year] = datePart.split('/');
+                                    const isoDateString = `${year}-${month}-${day}T${timePart}`;
+                                    const parsedDate = new Date(isoDateString);
+                                    if (!isNaN(parsedDate)) finalDate = parsedDate;
+                                }
+                            }
+                            closingObject.timestamp = finalDate.toISOString();
+                            break;
+                    }
+                });
+                closingObject.diferencaLabel = closingObject.diferencaPagarReceber < 0 ? 'Faltou no Caixa' : 'Sobrou no Caixa';
+                closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+                return closingObject;
+            });
+            allClosings.push(...data);
+        }
+    }
+
+    if (allClosings.length === 0) {
+      return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
+    }
+
+    res.status(200).json(allClosings);
 
   } catch (error) {
-    console.error('Erro ao buscar histórico online:', error);
-    // Verifica se o erro é de "planilha não encontrada"
-    if (error.code === 400 && error.errors[0]?.message.includes('Unable to parse range')) {
-        return res.status(404).json({ message: `A aba para o evento "${eventName}" não foi encontrada na planilha online.` });
-    }
+    console.error('Erro ao buscar histórico online (versão unificada):', error);
     res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
   }
 });
 
-// --- ROTA AJUSTADA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
+
 // --- ROTA ROBUSTA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
@@ -318,7 +328,6 @@ app.post('/api/export-online-data', async (req, res) => {
     const waiterSheetName = `Garçons - ${eventName}`;
     const cashierSheetName = `Caixas - ${eventName}`;
     
-    // Tenta buscar os dados das duas abas em paralelo, sem quebrar se uma falhar
     const [waiterResult, cashierResult] = await Promise.allSettled([
       googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
       googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
@@ -327,7 +336,6 @@ app.post('/api/export-online-data', async (req, res) => {
     let consolidatedWaiters = [];
     let consolidatedCashiers = [];
 
-    // Processa os dados de Garçons APENAS SE a busca teve sucesso
     if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
         const rows = waiterResult.value.data.values;
         if (rows.length > 1) {
@@ -341,7 +349,6 @@ app.post('/api/export-online-data', async (req, res) => {
         }
     }
 
-    // Processa os dados de Caixas APENAS SE a busca teve sucesso
     if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
         const rows = cashierResult.value.data.values;
         if (rows.length > 1) {

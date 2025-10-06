@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
-import { generateWaiterReceiptPDF } from '../services/pdfService'; // 1. IMPORTA A FUNÇÃO DE GERAR PDF
+import { generateWaiterReceiptPDF } from '../services/pdfService';
 import './ClosingHistoryPage.css';
 import '../App.css';
 
@@ -51,16 +51,20 @@ function ClosingHistoryPage() {
       setFilteredClosings(sourceData);
     } else {
       const lowercasedQuery = searchQuery.toLowerCase();
-      const filtered = sourceData.filter(closing =>
-        closing.waiterName?.toLowerCase().includes(lowercasedQuery) ||
-        closing.protocol?.toLowerCase().includes(lowercasedQuery)
-      );
+      const filtered = sourceData.filter(closing => {
+        // Lógica de busca unificada para garçom ou caixa
+        const nameToSearch = closing.waiterName || closing.cashierName || '';
+        return nameToSearch.toLowerCase().includes(lowercasedQuery) ||
+               closing.protocol?.toLowerCase().includes(lowercasedQuery);
+      });
       setFilteredClosings(filtered);
     }
   }, [searchQuery, viewMode, localClosings, onlineClosings]);
 
   const handleEdit = (closing) => {
-    navigate('/waiter-closing', { state: { closingToEdit: closing } });
+    // Redireciona para a página correta dependendo do tipo de fechamento
+    const targetPath = closing.type === 'waiter' ? '/waiter-closing' : '/mobile-cashier-closing';
+    navigate(targetPath, { state: { closingToEdit: closing } });
   };
   
   const handleViewDetails = (closing) => {
@@ -148,27 +152,58 @@ function ClosingHistoryPage() {
          filteredClosings.length === 0 ? ( <p className="empty-message">Nenhum fechamento encontrado.</p> ) : 
          (
             <div className="history-list">
-                {filteredClosings.map((closing) => (
-                    <div key={closing.protocol} className="history-card">
-                       <div className="card-header">
-                            <span className="protocol">{closing.protocol}</span>
-                            <span className="date">{new Date(closing.timestamp).toLocaleString('pt-BR')}</span>
+                {filteredClosings.map((closing) => {
+                    // --- LÓGICA DE UNIFICAÇÃO DOS DADOS PARA EXIBIÇÃO ---
+                    const isWaiter = closing.type === 'waiter';
+                    const name = isWaiter ? closing.waiterName : closing.cashierName;
+                    const title = isWaiter ? 'Garçom' : 'Caixa';
+                    const totalValue = isWaiter ? closing.valorTotal : closing.valorTotalVenda;
+                    
+                    let differenceLabel = '';
+                    let differenceValue = 0;
+                    let differenceColor = 'black';
+
+                    if (isWaiter) {
+                        differenceLabel = closing.diferencaLabel;
+                        differenceValue = closing.diferencaPagarReceber;
+                        differenceColor = closing.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red';
+                    } else { // Lógica para Caixa
+                        differenceValue = closing.diferenca;
+                        if (differenceValue > 0) {
+                            differenceLabel = 'Sobrou no Caixa';
+                            differenceColor = 'green';
+                        } else if (differenceValue < 0) {
+                            differenceLabel = 'Faltou no Caixa';
+                            differenceColor = 'red';
+                        } else {
+                            differenceLabel = 'Caixa Zerado';
+                            differenceColor = 'blue';
+                        }
+                        differenceValue = Math.abs(differenceValue);
+                    }
+
+                    return (
+                        <div key={closing.protocol} className="history-card">
+                           <div className="card-header">
+                                <span className="protocol">{closing.protocol}</span>
+                                <span className="date">{new Date(closing.timestamp).toLocaleString('pt-BR')}</span>
+                            </div>
+                            <div className="card-body">
+                                <p><strong>{title}:</strong> {name || 'N/A'}</p>
+                                <p><strong>Venda Total:</strong> {formatCurrency(totalValue)}</p>
+                                <p className="acerto" style={{color: differenceColor}}>
+                                    <strong>{differenceLabel}:</strong> {formatCurrency(differenceValue)}
+                                </p>
+                            </div>
+                            <div className="card-footer">
+                                <button className="details-button" onClick={() => handleViewDetails(closing)}>Detalhes</button>
+                                {viewMode === 'local' && (
+                                    <button className="edit-button" onClick={() => handleEdit(closing)}>Editar</button>
+                                )}
+                            </div>
                         </div>
-                        <div className="card-body">
-                            <p><strong>Garçom:</strong> {closing.waiterName || 'N/A'}</p>
-                            <p><strong>Venda Total:</strong> {formatCurrency(closing.valorTotal)}</p>
-                            <p className="acerto" style={{color: closing.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red'}}>
-                                <strong>{closing.diferencaLabel}:</strong> {formatCurrency(closing.diferencaPagarReceber)}
-                            </p>
-                        </div>
-                        <div className="card-footer">
-                            <button className="details-button" onClick={() => handleViewDetails(closing)}>Detalhes</button>
-                            {viewMode === 'local' && (
-                                <button className="edit-button" onClick={() => handleEdit(closing)}>Editar</button>
-                            )}
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         )}
       </div>
@@ -177,37 +212,50 @@ function ClosingHistoryPage() {
          <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
             <h2>Detalhes do Fechamento</h2>
-            <p><strong>Protocolo:</strong> {selectedClosing.protocol}</p>
-            <p><strong>Data:</strong> {new Date(selectedClosing.timestamp).toLocaleString('pt-BR')}</p>
-            <p><strong>Garçom:</strong> {selectedClosing.waiterName}</p>
-            <p><strong>Operador:</strong> {selectedClosing.operatorName}</p>
-            <p><strong>Nº Máquina:</strong> {selectedClosing.numeroMaquina || 'N/A'}</p>
-            <hr/>
-            <p><strong>Venda Total:</strong> {formatCurrency(selectedClosing.valorTotal)}</p>
-            <p><strong>Crédito:</strong> {formatCurrency(selectedClosing.credito)}</p>
-            <p><strong>Débito:</strong> {formatCurrency(selectedClosing.debito)}</p>
-            <p><strong>PIX:</strong> {formatCurrency(selectedClosing.pix)}</p>
-            <p><strong>Cashless:</strong> {formatCurrency(selectedClosing.cashless)}</p>
-            {selectedClosing.temEstorno && <p><strong>Estorno:</strong> {formatCurrency(selectedClosing.valorEstorno)}</p>}
-             <hr/>
-            <p><strong>Comissão Total:</strong> {formatCurrency(selectedClosing.comissaoTotal)}</p>
-            {selectedClosing.valorTotalAcerto !== undefined && <p><strong>Valor Final de Acerto:</strong> {formatCurrency(selectedClosing.valorTotalAcerto)}</p>}
-            <hr/>
-             <p className="total-text" style={{fontSize: '1.2em'}}>
-                {selectedClosing.diferencaLabel}: 
-                <strong style={{ color: selectedClosing.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red', marginLeft: '10px' }}>
-                    {formatCurrency(selectedClosing.diferencaPagarReceber)}
-                </strong>
-            </p>
+            {(() => {
+              // Lógica de unificação também no modal para garantir consistência
+              const isWaiter = selectedClosing.type === 'waiter';
+              const name = isWaiter ? selectedClosing.waiterName : selectedClosing.cashierName;
+              const title = isWaiter ? 'Garçom' : 'Caixa';
+              const totalValue = isWaiter ? selectedClosing.valorTotal : selectedClosing.valorTotalVenda;
+
+              return (
+                <>
+                  <p><strong>Protocolo:</strong> {selectedClosing.protocol}</p>
+                  <p><strong>Data:</strong> {new Date(selectedClosing.timestamp).toLocaleString('pt-BR')}</p>
+                  <p><strong>{title}:</strong> {name}</p>
+                  <p><strong>Operador:</strong> {selectedClosing.operatorName}</p>
+                  <p><strong>Nº Máquina:</strong> {selectedClosing.numeroMaquina || 'N/A'}</p>
+                  <hr/>
+                  <p><strong>Venda Total:</strong> {formatCurrency(totalValue)}</p>
+                  <p><strong>Crédito:</strong> {formatCurrency(selectedClosing.credito)}</p>
+                  <p><strong>Débito:</strong> {formatCurrency(selectedClosing.debito)}</p>
+                  <p><strong>PIX:</strong> {formatCurrency(selectedClosing.pix)}</p>
+                  <p><strong>Cashless:</strong> {formatCurrency(selectedClosing.cashless)}</p>
+                  {selectedClosing.temEstorno && <p><strong>Estorno:</strong> {formatCurrency(selectedClosing.valorEstorno)}</p>}
+                  <hr/>
+                  {isWaiter && <p><strong>Comissão Total:</strong> {formatCurrency(selectedClosing.comissaoTotal)}</p>}
+                  {isWaiter && selectedClosing.valorTotalAcerto !== undefined && <p><strong>Valor Final de Acerto:</strong> {formatCurrency(selectedClosing.valorTotalAcerto)}</p>}
+                  {isWaiter && <hr/>}
+                  <p className="total-text" style={{fontSize: '1.2em'}}>
+                    Acerto Final:
+                    <strong style={{ marginLeft: '10px' }}>
+                        {formatCurrency(isWaiter ? selectedClosing.diferencaPagarReceber : selectedClosing.diferenca)}
+                    </strong>
+                  </p>
+                </>
+              )
+            })()}
             <div className="modal-buttons" style={{marginTop: '20px'}}>
               <button className="cancel-button" onClick={closeDetailsModal}>Fechar</button>
-              {/* 2. ADICIONADO: O botão de imprimir a segunda via */}
-              <button 
-                className="confirm-button" 
-                onClick={() => generateWaiterReceiptPDF(selectedClosing)}
-              >
-                Imprimir 2ª Via
-              </button>
+              {selectedClosing.type === 'waiter' && (
+                  <button 
+                    className="confirm-button" 
+                    onClick={() => generateWaiterReceiptPDF(selectedClosing)}
+                  >
+                    Imprimir 2ª Via
+                  </button>
+              )}
             </div>
           </div>
         </div>
