@@ -1,5 +1,5 @@
 // backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex corrigido) ---");
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
 
 require('dotenv').config();
 
@@ -102,238 +102,220 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM ---
+// --- ROTA DE SYNC PARA A NUVEM (ROBUSTA E COMPLETA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
-  
-  if (!eventName) {
-    return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
-  }
+  if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
   try {
     const googleSheets = await getGoogleSheetsClient();
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
-
     let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
 
+    // Lógica para Garçons
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "Nome Garçom", "Nº Maquina", "Valor Total Venda", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-      const sheet = sheets.find(s => s.properties.title === sheetName);
-      
       const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
+      const sheet = sheets.find(s => s.properties.title === sheetName);
 
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
+        if (rows.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
         newW = rows.length;
       } else {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!B:B` });
-        const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
+        const existingRows = response.data.values || [];
+        const protocolColumnIndex = 1;
+
+        const protocolMap = new Map();
+        existingRows.slice(1).forEach((row, index) => {
+            const protocol = row[protocolColumnIndex];
+            if (protocol) protocolMap.set(protocol.trim(), { row: row.map(String), index: index + 2 });
+        });
+
         const toAdd = [], toUpdate = [];
         rows.forEach(row => {
-            const p = row[1] ? String(row[1]).trim() : null;
-            if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
-            else toAdd.push(row);
+            const p = row[protocolColumnIndex] ? String(row[protocolColumnIndex]).trim() : null;
+            if (p && protocolMap.has(p)) {
+                const existing = protocolMap.get(p);
+                if (JSON.stringify(existing.row) !== JSON.stringify(row.map(String))) {
+                    toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [row] });
+                }
+            } else {
+                toAdd.push(row);
+            }
         });
+
         if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
         if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
         newW = toAdd.length; updatedW = toUpdate.length;
       }
     }
 
+    // Lógica para Caixas
     if (cashierData && cashierData.length > 0) {
-      const sheetName = `Caixas - ${eventName}`;
-      const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
-      const sheet = sheets.find(s => s.properties.title === sheetName);
+        const sheetName = `Caixas - ${eventName}`;
+        const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
+        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+        const sheet = sheets.find(s => s.properties.title === sheetName);
 
-      const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+        if (!sheet) {
+            await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
+            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
+            if (rows.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
+            newC = rows.length;
+        } else {
+            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
+            const existingRows = response.data.values || [];
+            const protocolColumnIndex = 0;
 
-      if (!sheet) {
-        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
-        newC = rows.length;
-      } else {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:A` });
-        const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
-        const toAdd = [], toUpdate = [];
-        rows.forEach(row => {
-            const p = row[0] ? String(row[0]).trim() : null;
-            if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
-            else toAdd.push(row);
-        });
-        if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
-        if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-        newC = toAdd.length; updatedC = toUpdate.length;
-      }
+            const protocolMap = new Map();
+            existingRows.slice(1).forEach((row, index) => {
+                const protocol = row[protocolColumnIndex];
+                if (protocol) protocolMap.set(protocol.trim(), { row: row.map(String), index: index + 2 });
+            });
+
+            const toAdd = [], toUpdate = [];
+            rows.forEach(row => {
+                const p = row[protocolColumnIndex] ? String(row[protocolColumnIndex]).trim() : null;
+                if (p && protocolMap.has(p)) {
+                    const existing = protocolMap.get(p);
+                    if (JSON.stringify(existing.row) !== JSON.stringify(row.map(String))) {
+                        toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [row] });
+                    }
+                } else {
+                    toAdd.push(row);
+                }
+            });
+
+            if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
+            if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
+            newC = toAdd.length; updatedC = toUpdate.length;
+        }
     }
 
     res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
+
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao salvar na nuvem.' });
   }
 });
 
-
 // --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
-    const { eventName, password } = req.body;
-    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
+  const { eventName, password } = req.body;
 
-    try {
-        const googleSheets = await getGoogleSheetsClient();
-        const waiterSheetName = `Garçons - ${eventName}`;
-        const cashierSheetName = `Caixas - ${eventName}`;
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Acesso não autorizado.' });
+  }
 
-        const [waiterResult, cashierResult] = await Promise.allSettled([
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
-        ]);
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    const waiterSheetName = `Garçons - ${eventName}`;
+    const cashierSheetName = `Caixas - ${eventName}`;
 
-        let allClosings = [];
-        const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+    const [waiterResult, cashierResult] = await Promise.allSettled([
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+    ]);
 
-        if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
-            const [header, ...rows] = waiterResult.value.data.values;
-            if (header && rows.length > 0) {
-                const data = rows.map(row => {
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const closingObject = {
-                        type: 'waiter',
-                        waiterName: rowObj['Nome Garçom'],
-                        protocol: rowObj['Protocolo'],
-                        valorTotal: parseCurrency(rowObj['Valor Total Venda']),
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                        comissaoTotal: parseCurrency(rowObj['Comissão Total']),
-                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
-                        credito: parseCurrency(rowObj['Crédito']),
-                        debito: parseCurrency(rowObj['Débito']),
-                        pix: parseCurrency(rowObj['Pix']),
-                        cashless: parseCurrency(rowObj['Cashless']),
-                        numeroMaquina: rowObj['Nº Maquina'],
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
-                    };
-                    closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
-                    closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
-                    return closingObject;
-                });
-                allClosings.push(...data);
-            }
-        }
+    let allClosings = [];
+    const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
-        if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
-            const [header, ...rows] = cashierResult.value.data.values;
-            if (header && rows.length > 0) {
-                const data = rows.map(row => {
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const type = rowObj['Tipo'] || '';
-                    const protocol = rowObj['Protocolo'] || '';
-                    
-                    if (type === 'Fixo') {
-                        const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
-                        return {
-                            protocol: groupProtocol,
-                            type: 'fixed_cashier',
-                            eventName: eventName,
-                            operatorName: rowObj['Operador'],
-                            timestamp: rowObj['Data'],
-                            valorTroco: parseCurrency(rowObj['Troco']),
-                            caixas: [{
-                                cpf: rowObj['CPF'],
-                                cashierName: rowObj['Nome do Caixa'],
-                                numeroMaquina: rowObj['Nº Máquina'],
-                                valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                                credito: parseCurrency(rowObj['Crédito']),
-                                debito: parseCurrency(rowObj['Débito']),
-                                pix: parseCurrency(rowObj['Pix']),
-                                cashless: parseCurrency(rowObj['Cashless']),
-                                temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                                valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                                // A LINHA COM ERRO ESTAVA AQUI, AGORA CORRIGIDA
-                                dinheiroFisico: parseFloat(String(rowObj['DINHEIRO FÍSICO'] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                                valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                                diferenca: parseCurrency(rowObj['Diferença'])
-                            }]
-                        };
-                    } else { // Assume Móvel
-                        return {
-                            type: 'cashier',
-                            protocol,
-                            eventName,
-                            operatorName: rowObj['Operador'],
-                            timestamp: rowObj['Data'],
-                            cpf: rowObj['CPF'],
-                            cashierName: rowObj['Nome do Caixa'],
-                            numeroMaquina: rowObj['Nº Máquina'],
-                            valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                            credito: parseCurrency(rowObj['Crédito']),
-                            debito: parseCurrency(rowObj['Débito']),
-                            pix: parseCurrency(rowObj['Pix']),
-                            cashless: parseCurrency(rowObj['Cashless']),
-                            temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                            valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                            valorTroco: parseCurrency(rowObj['Troco']),
-                            dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
-                            valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                            diferenca: parseCurrency(rowObj['Diferença']),
-                        };
-                    }
-                }).filter(Boolean); // Filtra quaisquer linhas que possam ter resultado em nulo
-                
-                // Reagrupa os caixas fixos que foram separados
-                const groupMap = new Map();
-                data.forEach(item => {
-                    if (item.type === 'fixed_cashier') {
-                        if (!groupMap.has(item.protocol)) {
-                            groupMap.set(item.protocol, item);
-                        } else {
-                            groupMap.get(item.protocol).caixas.push(...item.caixas);
-                        }
-                    } else {
-                        allClosings.push(item);
-                    }
-                });
-
-                groupMap.forEach(group => {
-                    const totalDiferencaGrupo = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
-                    group.diferencaCaixa = totalDiferencaGrupo;
-                    allClosings.push(group);
-                });
-            }
-        }
-
-        allClosings.forEach(closing => {
-            const dateString = closing.timestamp;
-            let finalDate = new Date(0);
-            if (dateString && typeof dateString === 'string') {
-                const [datePart, timePart] = dateString.split(' ');
-                if (datePart && timePart) {
-                    const [day, month, year] = datePart.split('/');
-                    if (day && month && year) {
-                        const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
-                        const parsedDate = new Date(isoDateString);
-                        if (!isNaN(parsedDate)) finalDate = parsedDate;
-                    }
-                }
-            }
-            closing.timestamp = finalDate.toISOString();
+    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
+      const [header, ...rows] = waiterResult.value.data.values;
+      if (header && rows.length > 0) {
+        const data = rows.map(row => {
+          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+          const closingObject = {
+              type: 'waiter',
+              waiterName: rowObj['Nome Garçom'],
+              protocol: rowObj['Protocolo'],
+              valorTotal: parseCurrency(rowObj['Valor Total Venda']),
+              valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+              comissaoTotal: parseCurrency(rowObj['Comissão Total']),
+              diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
+              credito: parseCurrency(rowObj['Crédito']),
+              debito: parseCurrency(rowObj['Débito']),
+              pix: parseCurrency(rowObj['Pix']),
+              cashless: parseCurrency(rowObj['Cashless']),
+              numeroMaquina: rowObj['Nº Maquina'],
+              operatorName: rowObj['Operador'],
+              timestamp: rowObj['Data'],
+          };
+          closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
+          closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+          return closingObject;
         });
-
-        if (allClosings.length === 0) {
-            return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
-        }
-        res.status(200).json(allClosings);
-    } catch (error) {
-        console.error('Erro ao buscar histórico online (versão unificada):', error);
-        res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
+        allClosings.push(...data);
+      }
     }
-});
 
+    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
+      const [header, ...rows] = cashierResult.value.data.values;
+      if (header && rows.length > 0) {
+        const data = rows.map(row => {
+          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+          const type = rowObj['Tipo'] || '';
+          const protocol = rowObj['Protocolo'] || '';
+          
+          const baseCashierObject = {
+              protocol, eventName,
+              operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'],
+              cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'],
+              valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+              credito: parseCurrency(rowObj['Crédito']),
+              debito: parseCurrency(rowObj['Débito']),
+              pix: parseCurrency(rowObj['Pix']),
+              cashless: parseCurrency(rowObj['Cashless']),
+              valorTroco: parseCurrency(rowObj['Troco']),
+              temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+              valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+              dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
+              valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+              diferenca: parseCurrency(rowObj['Diferença']),
+          };
+
+          if (type === 'Fixo') {
+            return { ...baseCashierObject, type: 'individual_fixed_cashier', groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')) };
+          } else {
+            return { ...baseCashierObject, type: 'cashier' };
+          }
+        }).filter(Boolean);
+        allClosings.push(...data);
+      }
+    }
+
+    allClosings.forEach(closing => {
+      const dateString = closing.timestamp;
+      let finalDate = new Date(0);
+      if (dateString && typeof dateString === 'string') {
+        const [datePart, timePart] = dateString.split(' ');
+        if (datePart && timePart) {
+          const [day, month, year] = datePart.split('/');
+          if (day && month && year) {
+            const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+            const parsedDate = new Date(isoDateString);
+            if (!isNaN(parsedDate)) finalDate = parsedDate;
+          }
+        }
+      }
+      closing.timestamp = finalDate.toISOString();
+    });
+
+    if (allClosings.length === 0) {
+      return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
+    }
+    res.status(200).json(allClosings);
+  } catch (error) {
+    console.error('Erro ao buscar histórico online (versão unificada):', error);
+    res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
+  }
+});
 
 // --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
