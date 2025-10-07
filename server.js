@@ -11,20 +11,8 @@ const app = express();
 
 app.use(express.json({ limit: '50mb' }));
 
-// --- CONFIGURAÇÃO DE CORS MAIS ROBUSTA ---
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://sisfo-backend.onrender.com' // SUBSTITUA PELO SEU ENDEREÇO QUANDO TIVER
-];
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
-}));
+// --- CONFIGURAÇÃO DE CORS REVERTIDA PARA A VERSÃO ABERTA ---
+app.use(cors()); // Permite acesso de qualquer origem
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
@@ -199,7 +187,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO RESTAURADO E CORRETO) ---
+// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO COMPLETO RESTAURADO) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
@@ -230,14 +218,14 @@ app.post('/api/online-history', async (req, res) => {
             switch (key) {
               case 'NOME GARÇOM': closingObject.waiterName = value; break;
               case 'PROTOCOLO': closingObject.protocol = value; break;
-              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(value || 0); break;
-              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value || 0); break;
-              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(value || 0); break;
-              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(value || 0); break;
-              case 'CRÉDITO': closingObject.credito = parseFloat(value || 0); break;
-              case 'DÉBITO': closingObject.debito = parseFloat(value || 0); break;
-              case 'PIX': closingObject.pix = parseFloat(value || 0); break;
-              case 'CASHLESS': closingObject.cashless = parseFloat(value || 0); break;
+              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'CRÉDITO': closingObject.credito = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'DÉBITO': closingObject.debito = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'PIX': closingObject.pix = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
+              case 'CASHLESS': closingObject.cashless = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
               case 'Nº MÁQUINA': closingObject.numeroMaquina = value; break;
               case 'OPERADOR': closingObject.operatorName = value; break;
               case 'DATA':
@@ -289,29 +277,26 @@ app.post('/api/online-history', async (req, res) => {
                             eventName: eventName,
                             operatorName: closingObject['OPERADOR'],
                             timestamp: closingObject['DATA'],
-                            valorTroco: parseFloat(closingObject['TROCO'] || 0),
+                            valorTroco: parseFloat(closingObject['TROCO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
                             caixas: []
                         });
                     }
                     
                     const group = groupMap.get(groupProtocol);
-                    const acerto = parseFloat(closingObject['VALOR ACERTO'] || 0);
-                    const diferenca = parseFloat(closingObject['DIFERENÇA'] || 0);
-
                     group.caixas.push({
                         cpf: closingObject['CPF'],
                         cashierName: closingObject['NOME DO CAIXA'],
                         numeroMaquina: closingObject['Nº MÁQUINA'],
-                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'] || 0),
-                        credito: parseFloat(closingObject['CRÉDITO'] || 0),
-                        debito: parseFloat(closingObject['DÉBITO'] || 0),
-                        pix: parseFloat(closingObject['PIX'] || 0),
-                        cashless: parseFloat(closingObject['CASHLESS'] || 0),
-                        temEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0) > 0,
-                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0),
-                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'] || 0),
-                        valorAcerto: acerto,
-                        diferenca: diferenca
+                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        credito: parseFloat(closingObject['CRÉDITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        debito: parseFloat(closingObject['DÉBITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        pix: parseFloat(closingObject['PIX'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        cashless: parseFloat(closingObject['CASHLESS'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        temEstorno: (parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0) > 0,
+                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0--9,-]/g, '').replace(',', '.')) || 0,
+                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        diferenca: parseFloat(closingObject['DIFERENÇA'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0
                     });
                 } else {
                     allClosings.push({
@@ -323,17 +308,17 @@ app.post('/api/online-history', async (req, res) => {
                         cpf: closingObject['CPF'],
                         cashierName: closingObject['NOME DO CAIXA'],
                         numeroMaquina: closingObject['Nº MÁQUINA'],
-                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'] || 0),
-                        credito: parseFloat(closingObject['CRÉDITO'] || 0),
-                        debito: parseFloat(closingObject['DÉBITO'] || 0),
-                        pix: parseFloat(closingObject['PIX'] || 0),
-                        cashless: parseFloat(closingObject['CASHLESS'] || 0),
-                        temEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0) > 0,
-                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0),
-                        valorTroco: parseFloat(closingObject['TROCO'] || 0),
-                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'] || 0),
-                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'] || 0),
-                        diferenca: parseFloat(closingObject['DIFERENÇA'] || 0),
+                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        credito: parseFloat(closingObject['CRÉDITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        debito: parseFloat(closingObject['DÉBITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        pix: parseFloat(closingObject['PIX'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        cashless: parseFloat(closingObject['CASHLESS'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        temEstorno: (parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0) > 0,
+                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        valorTroco: parseFloat(closingObject['TROCO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                        diferenca: parseFloat(closingObject['DIFERENÇA'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
                     });
                 }
             });
@@ -374,7 +359,6 @@ app.post('/api/online-history', async (req, res) => {
     res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
   }
 });
-
 
 // --- ROTA DE EXPORTAÇÃO (CORRIGIDA) ---
 app.post('/api/export-online-data', async (req, res) => {
