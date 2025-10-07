@@ -1,4 +1,4 @@
-// backend/server.js (VERSÃO FINAL E COMPLETA)
+// backend/server.js (VERSÃO FINAL E COMPLETA - CORRIGIDA)
 console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
 
 require('dotenv').config();
@@ -333,7 +333,10 @@ app.post('/api/export-online-data', async (req, res) => {
           const header = response.data.values[0].map(h => String(h).trim());
           consolidatedWaiters = response.data.values.slice(1).map(row => {
               const rowData = { eventName };
-              header.forEach((key, index) => rowData[key] = row[index] || '');
+              // ===== CORREÇÃO APLICADA AQUI =====
+              header.forEach((key, index) => {
+                  rowData[String(key).trim().toUpperCase()] = row[index] || '';
+              });
               return rowData;
           });
       }
@@ -345,7 +348,10 @@ app.post('/api/export-online-data', async (req, res) => {
           const header = response.data.values[0].map(h => String(h).trim());
           consolidatedCashiers = response.data.values.slice(1).map(row => {
               const rowData = { eventName };
-              header.forEach((key, index) => rowData[key] = row[index] || '');
+              // ===== CORREÇÃO APLICADA AQUI =====
+              header.forEach((key, index) => {
+                  rowData[String(key).trim().toUpperCase()] = row[index] || '';
+              });
               return rowData;
           });
       }
