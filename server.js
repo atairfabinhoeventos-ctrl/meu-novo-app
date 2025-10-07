@@ -1,5 +1,5 @@
-// backend/server.js (VERSÃO FINAL COM ATUALIZAÇÃO DE DADOS NA NUVEM)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com sync e update) ---");
+// backend/server.js (VERSÃO FINAL E COMPLETA)
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO ---");
 
 require('dotenv').config();
 
@@ -12,7 +12,7 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors({ origin: '*' }));
 
-// --- FUNÇÃO DE AUTENTICAÇÃO ATUALIZADA ---
+// --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
@@ -71,62 +71,36 @@ app.get('/api/sync/events', async (req, res) => {
 // --- ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
-
   try {
     const googleSheets = await getGoogleSheetsClient();
     let addedWaitersCount = 0;
     let addedEventsCount = 0;
-
     if (waiters && waiters.length > 0) {
-      const response = await googleSheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId_sync,
-        range: 'Garcons!A2:A',
-      });
+      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A2:A' });
       const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
       const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
-      
       if (newWaiters.length > 0) {
         const values = newWaiters.map(w => [w.cpf, w.name]);
-        await googleSheets.spreadsheets.values.append({
-          spreadsheetId: spreadsheetId_sync,
-          range: 'Garcons!A:B',
-          valueInputOption: 'USER_ENTERED',
-          resource: { values },
-        });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
         addedWaitersCount = newWaiters.length;
       }
     }
-
     if (events && events.length > 0) {
-      const response = await googleSheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId_sync,
-        range: 'Eventos!A2:A',
-      });
+      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-
       if (newEvents.length > 0) {
         const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
-        await googleSheets.spreadsheets.values.append({
-          spreadsheetId: spreadsheetId_sync,
-          range: 'Eventos!A:C',
-          valueInputOption: 'USER_ENTERED',
-          resource: { values },
-        });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:C', valueInputOption: 'USER_ENTERED', resource: { values } });
         addedEventsCount = newEvents.length;
       }
     }
-    
-    res.status(200).json({ 
-      message: `Base de cadastro online atualizada com sucesso!\n- ${addedWaitersCount} novo(s) garçom(ns) adicionado(s).\n- ${addedEventsCount} novo(s) evento(s) adicionado(s).`
-    });
-
+    res.status(200).json({ message: `Base de cadastro online atualizada com sucesso!\n- ${addedWaitersCount} novo(s) garçom(ns) adicionado(s).\n- ${addedEventsCount} novo(s) evento(s) adicionado(s).` });
   } catch (error) {
     console.error('Erro ao atualizar base de cadastro online:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao atualizar a base de cadastro.' });
   }
 });
-
 
 // --- ROTA ATUALIZADA: ENVIAR DADOS PARA A NUVEM (COM LÓGICA DE UPDATE) ---
 app.post('/api/cloud-sync', async (req, res) => {
@@ -152,7 +126,6 @@ app.post('/api/cloud-sync', async (req, res) => {
       const sheet = sheets.find(s => s.properties.title === waiterSheetName);
       
       if (!sheet) {
-        // Se a aba não existe, cria e adiciona todos como novos
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: waiterSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: waiterData.data } });
@@ -163,18 +136,15 @@ app.post('/api/cloud-sync', async (req, res) => {
         
         const protocolMap = new Map();
         existingProtocols.forEach((row, index) => {
-            if (row[0]) protocolMap.set(row[0], index + 2); // +2 porque o range começa em A2
+            if (row[0]) protocolMap.set(row[0].trim(), index + 2);
         });
 
         const rowsToAppend = [];
         const updatesToPerform = [];
         waiterData.data.forEach(row => {
-            const protocol = row[1]; // Protocolo do garçom está na coluna B (índice 1)
+            const protocol = row[1];
             if (protocolMap.has(protocol)) {
-                updatesToPerform.push({
-                    range: `${waiterSheetName}!A${protocolMap.get(protocol)}`,
-                    values: [row]
-                });
+                updatesToPerform.push({ range: `${waiterSheetName}!A${protocolMap.get(protocol)}`, values: [row] });
             } else {
                 rowsToAppend.push(row);
             }
@@ -190,17 +160,15 @@ app.post('/api/cloud-sync', async (req, res) => {
                 resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform }
             });
         }
-
         newWaitersCount = rowsToAppend.length;
         updatedWaitersCount = updatesToPerform.length;
       }
     }
 
-    // --- LÓGICA PARA CAIXAS (MESMO PADRÃO) ---
+    // --- LÓGICA PARA CAIXAS ---
     if (cashierData && cashierData.data && cashierData.data.length > 0) {
       const cashierSheetName = `Caixas - ${eventName}`;
       const sheet = sheets.find(s => s.properties.title === cashierSheetName);
-
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: cashierSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
@@ -211,13 +179,13 @@ app.post('/api/cloud-sync', async (req, res) => {
         const existingProtocols = response.data.values || [];
         const protocolMap = new Map();
         existingProtocols.forEach((row, index) => {
-            if (row[0]) protocolMap.set(row[0], index + 2);
+            if (row[0]) protocolMap.set(row[0].trim(), index + 2);
         });
 
         const rowsToAppend = [];
         const updatesToPerform = [];
         cashierData.data.forEach(row => {
-            const protocol = row[0]; // Protocolo do caixa está na coluna A (índice 0)
+            const protocol = row[0];
             if (protocolMap.has(protocol)) {
                 updatesToPerform.push({ range: `${cashierSheetName}!A${protocolMap.get(protocol)}`, values: [row] });
             } else {
@@ -239,13 +207,7 @@ app.post('/api/cloud-sync', async (req, res) => {
       }
     }
 
-    res.status(200).json({
-      newWaiters: newWaitersCount,
-      updatedWaiters: updatedWaitersCount,
-      newCashiers: newCashiersCount,
-      updatedCashiers: updatedCashiersCount
-    });
-
+    res.status(200).json({ newWaiters: newWaitersCount, updatedWaiters: updatedWaitersCount, newCashiers: newCashiersCount, updatedCashiers: updatedCashiersCount });
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao salvar na nuvem.' });
@@ -253,9 +215,8 @@ app.post('/api/cloud-sync', async (req, res) => {
 });
 
 
-// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE ---
+// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (COM REAGRUPAMENTO DE CAIXAS FIXOS) ---
 app.post('/api/online-history', async (req, res) => {
-  // ... (Esta rota permanece a mesma da versão anterior, já estava correta)
   const { eventName, password } = req.body;
 
   if (!eventName || !password) {
@@ -327,44 +288,99 @@ app.post('/api/online-history', async (req, res) => {
         const rows = cashierResult.value.data.values;
         if (rows.length > 1) {
             const header = rows[0].map(h => String(h).trim());
-            const data = rows.slice(1).map(row => {
-                const closingObject = { type: 'cashier' };
+            const groupMap = new Map();
+
+            rows.slice(1).forEach(row => {
+                const closingObject = {};
                 header.forEach((key, index) => {
-                    const value = row[index];
-                    switch(key) {
-                        case 'NOME DO CAIXA': closingObject.cashierName = value; break;
-                        case 'PROTOCOLO': closingObject.protocol = value; break;
-                        case 'VALOR VENDA TOTAL': closingObject.valorTotalVenda = parseFloat(value || 0); break;
-                        case 'CRÉDITO': closingObject.credito = parseFloat(value || 0); break;
-                        case 'DÉBITO': closingObject.debito = parseFloat(value || 0); break;
-                        case 'PIX': closingObject.pix = parseFloat(value || 0); break;
-                        case 'CASHLESS': closingObject.cashless = parseFloat(value || 0); break;
-                        case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value || 0); closingObject.temEstorno = !!(parseFloat(value || 0) > 0); break;
-                        case 'DIFERENÇA': closingObject.diferenca = parseFloat(value || 0); break;
-                        case 'OPERADOR': closingObject.operatorName = value; break;
-                        case 'Nº MÁQUINA': closingObject.numeroMaquina = value; break;
-                        case 'DATA':
-                            let finalDate = new Date(0);
-                             if (value && typeof value === 'string') {
-                                const [datePart, timePart] = value.split(' ');
-                                if (datePart && timePart) {
-                                    const [day, month, year] = datePart.split('/');
-                                    if (day && month && year) {
-                                      const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
-                                      const parsedDate = new Date(isoDateString);
-                                      if (!isNaN(parsedDate)) finalDate = parsedDate;
-                                    }
-                                }
-                            }
-                            closingObject.timestamp = finalDate.toISOString();
-                            break;
-                    }
+                    closingObject[key] = row[index];
                 });
-                return closingObject;
+
+                const protocol = closingObject['PROTOCOLO'] || '';
+                const type = closingObject['TIPO'] || '';
+
+                if (type === 'Fixo') {
+                    const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
+                    if (!groupMap.has(groupProtocol)) {
+                        groupMap.set(groupProtocol, {
+                            protocol: groupProtocol,
+                            type: 'fixed_cashier',
+                            eventName: eventName,
+                            operatorName: closingObject['OPERADOR'],
+                            timestamp: closingObject['DATA'],
+                            valorTroco: parseFloat(closingObject['TROCO'] || 0),
+                            caixas: []
+                        });
+                    }
+                    
+                    const group = groupMap.get(groupProtocol);
+                    const acerto = parseFloat(closingObject['VALOR ACERTO'] || 0);
+                    const diferenca = parseFloat(closingObject['DIFERENÇA'] || 0);
+
+                    group.caixas.push({
+                        cpf: closingObject['CPF'],
+                        cashierName: closingObject['NOME DO CAIXA'],
+                        numeroMaquina: closingObject['Nº MÁQUINA'],
+                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'] || 0),
+                        credito: parseFloat(closingObject['CRÉDITO'] || 0),
+                        debito: parseFloat(closingObject['DÉBITO'] || 0),
+                        pix: parseFloat(closingObject['PIX'] || 0),
+                        cashless: parseFloat(closingObject['CASHLESS'] || 0),
+                        temEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0) > 0,
+                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0),
+                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'] || 0),
+                        valorAcerto: acerto,
+                        diferenca: diferenca
+                    });
+                } else {
+                    allClosings.push({
+                        type: 'cashier',
+                        protocol: protocol,
+                        eventName: eventName,
+                        operatorName: closingObject['OPERADOR'],
+                        timestamp: closingObject['DATA'],
+                        cpf: closingObject['CPF'],
+                        cashierName: closingObject['NOME DO CAIXA'],
+                        numeroMaquina: closingObject['Nº MÁQUINA'],
+                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'] || 0),
+                        credito: parseFloat(closingObject['CRÉDITO'] || 0),
+                        debito: parseFloat(closingObject['DÉBITO'] || 0),
+                        pix: parseFloat(closingObject['PIX'] || 0),
+                        cashless: parseFloat(closingObject['CASHLESS'] || 0),
+                        temEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0) > 0,
+                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'] || 0),
+                        valorTroco: parseFloat(closingObject['TROCO'] || 0),
+                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'] || 0),
+                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'] || 0),
+                        diferenca: parseFloat(closingObject['DIFERENÇA'] || 0),
+                    });
+                }
             });
-            allClosings.push(...data);
+
+            groupMap.forEach(group => {
+                const totalDiferencaGrupo = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
+                group.diferencaCaixa = totalDiferencaGrupo;
+                allClosings.push(group);
+            });
         }
     }
+
+    allClosings.forEach(closing => {
+      const dateString = closing.timestamp;
+      let finalDate = new Date(0);
+      if (dateString && typeof dateString === 'string') {
+          const [datePart, timePart] = dateString.split(' ');
+          if (datePart && timePart) {
+              const [day, month, year] = datePart.split('/');
+              if (day && month && year) {
+                const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+                const parsedDate = new Date(isoDateString);
+                if (!isNaN(parsedDate)) finalDate = parsedDate;
+              }
+          }
+      }
+      closing.timestamp = finalDate.toISOString();
+    });
 
     if (allClosings.length === 0) {
       return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
@@ -378,9 +394,9 @@ app.post('/api/online-history', async (req, res) => {
   }
 });
 
+
 // --- ROTA PARA EXPORTAR DADOS DA NUVEM POR EVENTO ---
 app.post('/api/export-online-data', async (req, res) => {
-  // ... (Esta rota permanece a mesma da versão anterior, já estava correta)
   const { password, eventName } = req.body;
 
   if (!eventName) {

@@ -1,4 +1,4 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA SEM ERROS DE SINTAXE)
+// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA COM FILTRO ROBUSTO)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -50,7 +50,11 @@ function CloudSyncPage() {
       }
 
       const waiterClosings = eventClosings.filter(c => c.type === 'waiter');
-      const cashierClosings = eventClosings.filter(c => c.type === 'cashier' || c.type === 'fixed_cashier');
+      
+      // --- INÍCIO DA CORREÇÃO ---
+      // Filtro corrigido para incluir Caixas Fixos antigos (sem a propriedade 'type')
+      const cashierClosings = eventClosings.filter(c => c.type === 'cashier' || Array.isArray(c.caixas));
+      // --- FIM DA CORREÇÃO ---
       
       const waiterHeader = [ "DATA", "PROTOCOLO", "NOME GARÇOM", "Nº MÁQUINA", "VALOR VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "DEVOLUÇÃO ESTORNO", "COMISSÃO TOTAL", "ACERTO", "OPERADOR"];
       const waiterData = waiterClosings.map(c => [ new Date(c.timestamp).toLocaleString('pt-BR'), c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.temEstorno ? c.valorEstorno : 0, c.comissaoTotal, c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber, c.operatorName ]);
@@ -58,12 +62,14 @@ function CloudSyncPage() {
       const cashierHeader = [ "PROTOCOLO", "DATA", "TIPO", "CPF", "NOME DO CAIXA", "Nº MÁQUINA", "VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "TROCO", "DEVOLUÇÃO ESTORNO", "DINHEIRO FÍSICO", "VALOR ACERTO", "DIFERENÇA", "OPERADOR" ];
       let cashierData = [];
       cashierClosings.forEach(c => {
-        if (c.type === 'fixed_cashier' && c.caixas) {
-          c.caixas.forEach(caixa => {
+        // A lógica para desmembrar os caixas fixos continua a mesma e está correta
+        if (Array.isArray(c.caixas)) { // Identifica um caixa fixo (novo ou antigo)
+          c.caixas.forEach((caixa, index) => {
+            const uniqueProtocol = `${c.protocol}-${index}`;
             const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
-            cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Fixo', caixa.cpf, caixa.cashierName, caixa.numeroMaquina, caixa.valorTotalVenda, caixa.credito, caixa.debito, caixa.pix, caixa.cashless, c.valorTroco, caixa.temEstorno ? caixa.valorEstorno : 0, caixa.dinheiroFisico, acertoCaixa, caixa.dinheiroFisico - acertoCaixa, c.operatorName ]);
+            cashierData.push([ uniqueProtocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Fixo', caixa.cpf, caixa.cashierName, caixa.numeroMaquina, caixa.valorTotalVenda, caixa.credito, caixa.debito, caixa.pix, caixa.cashless, c.valorTroco, caixa.temEstorno ? caixa.valorEstorno : 0, caixa.dinheiroFisico, acertoCaixa, caixa.dinheiroFisico - acertoCaixa, c.operatorName ]);
           });
-        } else if (c.type === 'cashier') {
+        } else if (c.type === 'cashier') { // Identifica um caixa móvel
            cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Móvel', c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.temEstorno ? c.valorEstorno : 0, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
         }
       });
@@ -113,6 +119,7 @@ function CloudSyncPage() {
     }
   };
   
+  // ... (O restante do arquivo continua o mesmo)
   const closeFeedbackModal = () => {
     setFeedbackModal({ isOpen: false, title: '', message: '', status: '' });
   };

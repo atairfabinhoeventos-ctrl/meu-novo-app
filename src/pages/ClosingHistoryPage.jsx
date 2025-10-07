@@ -43,7 +43,7 @@ function ClosingHistoryPage() {
 
       const flattenedClosings = [];
       eventClosings.forEach(closing => {
-        if (closing.type === 'fixed_cashier' && Array.isArray(closing.caixas)) {
+        if (Array.isArray(closing.caixas)) {
           closing.caixas.forEach((caixa, index) => {
             const acertoIndividual = (caixa.valorTotalVenda || 0) - ((caixa.credito || 0) + (caixa.debito || 0) + (caixa.pix || 0) + (caixa.cashless || 0)) - (caixa.temEstorno ? (caixa.valorEstorno || 0) : 0);
             const diferencaIndividual = (caixa.dinheiroFisico || 0) - acertoIndividual;
@@ -206,19 +206,19 @@ function ClosingHistoryPage() {
         )}
       </div>
       
-      {/* --- INÍCIO DO MODAL DE DETALHES COMPLETO E RESTAURADO --- */}
       {isDetailsModalOpen && selectedClosing && (
          <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
             <h2>Detalhes do Fechamento</h2>
             {(() => {
-              const isWaiter = selectedClosing.type === 'waiter';
-              const isCashier = ['cashier', 'individual_fixed_cashier'].includes(selectedClosing.type);
+              const { type } = selectedClosing;
+              const isWaiter = type === 'waiter';
+              const isCashier = ['cashier', 'individual_fixed_cashier'].includes(type);
               
               const name = selectedClosing.waiterName || selectedClosing.cashierName;
-              const title = isWaiter ? 'Garçom' : (selectedClosing.type === 'cashier' ? 'Caixa Móvel' : 'Caixa Fixo');
-              const totalValue = isWaiter ? selectedClosing.valorTotal : selectedClosing.valorTotalVenda;
-              const differenceValue = isWaiter ? selectedClosing.diferencaPagarReceber : selectedClosing.diferenca;
+              const title = isWaiter ? 'Garçom' : (type === 'cashier' ? 'Caixa Móvel' : 'Caixa Fixo');
+              const totalValue = selectedClosing.valorTotal || selectedClosing.valorTotalVenda;
+              const differenceValue = isWaiter ? selectedClosing.diferencaPagarReceber : (typeof selectedClosing.diferenca === 'number' ? selectedClosing.diferenca : 0);
 
               return (
                 <>
@@ -261,9 +261,7 @@ function ClosingHistoryPage() {
           </div>
         </div>
       )}
-      {/* --- FIM DO MODAL DE DETALHES --- */}
 
-      {/* --- MODAL DE SENHA COMPLETO --- */}
       {isPasswordModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content" style={{maxWidth: '400px'}}>
@@ -290,7 +288,6 @@ function ClosingHistoryPage() {
         </div>
       )}
 
-      {/* --- MODAL DE LOADING COMPLETO --- */}
       {isGlobalLoading && (
         <div className="modal-overlay">
           <div className="loading-container">
