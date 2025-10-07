@@ -52,7 +52,6 @@ function ClosingHistoryPage() {
     } else {
       const lowercasedQuery = searchQuery.toLowerCase();
       const filtered = sourceData.filter(closing => {
-        // Lógica de busca unificada para garçom ou caixa
         const nameToSearch = closing.waiterName || closing.cashierName || '';
         return nameToSearch.toLowerCase().includes(lowercasedQuery) ||
                closing.protocol?.toLowerCase().includes(lowercasedQuery);
@@ -62,7 +61,6 @@ function ClosingHistoryPage() {
   }, [searchQuery, viewMode, localClosings, onlineClosings]);
 
   const handleEdit = (closing) => {
-    // Redireciona para a página correta dependendo do tipo de fechamento
     const targetPath = closing.type === 'waiter' ? '/waiter-closing' : '/mobile-cashier-closing';
     navigate(targetPath, { state: { closingToEdit: closing } });
   };
@@ -153,11 +151,15 @@ function ClosingHistoryPage() {
          (
             <div className="history-list">
                 {filteredClosings.map((closing) => {
-                    // --- LÓGICA DE UNIFICAÇÃO DOS DADOS PARA EXIBIÇÃO ---
+                    // --- INÍCIO DA CORREÇÃO: LÓGICA DE UNIFICAÇÃO DOS DADOS PARA EXIBIÇÃO ---
                     const isWaiter = closing.type === 'waiter';
-                    const name = isWaiter ? closing.waiterName : closing.cashierName;
+                    
+                    // Defensivamente, pega o nome ou do campo de garçom ou do de caixa
+                    const name = closing.waiterName || closing.cashierName;
                     const title = isWaiter ? 'Garçom' : 'Caixa';
-                    const totalValue = isWaiter ? closing.valorTotal : closing.valorTotalVenda;
+                    
+                    // Pega o valor total ou do campo de garçom ou do de caixa
+                    const totalValue = closing.valorTotal || closing.valorTotalVenda;
                     
                     let differenceLabel = '';
                     let differenceValue = 0;
@@ -167,8 +169,12 @@ function ClosingHistoryPage() {
                         differenceLabel = closing.diferencaLabel;
                         differenceValue = closing.diferencaPagarReceber;
                         differenceColor = closing.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red';
-                    } else { // Lógica para Caixa
-                        differenceValue = closing.diferenca;
+                    } else { // Lógica para Caixa (Local e Online)
+                        // A diferença do caixa pode estar em 'diferenca' (correto) ou 'diferencaPagarReceber' (incorreto)
+                        let diff = typeof closing.diferenca === 'number' ? closing.diferenca : closing.diferencaPagarReceber;
+                        
+                        differenceValue = typeof diff === 'number' ? diff : 0;
+
                         if (differenceValue > 0) {
                             differenceLabel = 'Sobrou no Caixa';
                             differenceColor = 'green';
@@ -208,16 +214,17 @@ function ClosingHistoryPage() {
         )}
       </div>
 
+      {/* O MODAL DE DETALHES TAMBÉM FOI CORRIGIDO PARA SER MAIS ROBUSTO */}
       {isDetailsModalOpen && selectedClosing && (
          <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
             <h2>Detalhes do Fechamento</h2>
             {(() => {
-              // Lógica de unificação também no modal para garantir consistência
               const isWaiter = selectedClosing.type === 'waiter';
-              const name = isWaiter ? selectedClosing.waiterName : selectedClosing.cashierName;
+              const name = selectedClosing.waiterName || selectedClosing.cashierName;
               const title = isWaiter ? 'Garçom' : 'Caixa';
-              const totalValue = isWaiter ? selectedClosing.valorTotal : selectedClosing.valorTotalVenda;
+              const totalValue = selectedClosing.valorTotal || selectedClosing.valorTotalVenda;
+              const differenceValue = typeof selectedClosing.diferenca === 'number' ? selectedClosing.diferenca : selectedClosing.diferencaPagarReceber;
 
               return (
                 <>
@@ -236,12 +243,13 @@ function ClosingHistoryPage() {
                   <hr/>
                   {isWaiter && <p><strong>Comissão Total:</strong> {formatCurrency(selectedClosing.comissaoTotal)}</p>}
                   {isWaiter && selectedClosing.valorTotalAcerto !== undefined && <p><strong>Valor Final de Acerto:</strong> {formatCurrency(selectedClosing.valorTotalAcerto)}</p>}
-                  {isWaiter && <hr/>}
-                  <p className="total-text" style={{fontSize: '1.2em'}}>
-                    Acerto Final:
-                    <strong style={{ marginLeft: '10px' }}>
-                        {formatCurrency(isWaiter ? selectedClosing.diferencaPagarReceber : selectedClosing.diferenca)}
-                    </strong>
+                  {!isWaiter && <p><strong>Valor do Acerto:</strong> {formatCurrency(selectedClosing.valorAcerto)}</p>}
+                  <hr/>
+                   <p className="total-text" style={{fontSize: '1.2em'}}>
+                      Diferença Final:
+                      <strong style={{ marginLeft: '10px' }}>
+                          {formatCurrency(differenceValue)}
+                      </strong>
                   </p>
                 </>
               )
@@ -261,6 +269,7 @@ function ClosingHistoryPage() {
         </div>
       )}
 
+      {/* O restante do código para os modais de senha e loading continua o mesmo */}
       {isPasswordModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content" style={{maxWidth: '400px'}}>
