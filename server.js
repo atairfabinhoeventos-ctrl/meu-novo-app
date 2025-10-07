@@ -1,5 +1,5 @@
 // backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex corrigido) ---");
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex final) ---");
 
 require('dotenv').config();
 
@@ -32,7 +32,163 @@ async function getGoogleSheetsClient() {
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; 
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
-// --- ROTAS DE SINCRONIZAÇÃO DE CADASTROS ---
+// --- ROTAS (sem alteração) ---
+app.get('/api/sync/waiters', async (req, res) => { /* ... código ... */ });
+app.get('/api/sync/events', async (req, res) => { /* ... código ... */ });
+app.post('/api/update-base', async (req, res) => { /* ... código ... */ });
+app.post('/api/cloud-sync', async (req, res) => { /* ... código ... */ });
+
+// --- ROTA DE HISTÓRICO ONLINE (COM REGEX CORRIGIDO E REESTRUTURADA) ---
+app.post('/api/online-history', async (req, res) => {
+  const { eventName, password } = req.body;
+
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Acesso não autorizado.' });
+  }
+
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    const waiterSheetName = `Garçons - ${eventName}`;
+    const cashierSheetName = `Caixas - ${eventName}`;
+
+    const [waiterResult, cashierResult] = await Promise.allSettled([
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
+      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+    ]);
+
+    let allClosings = [];
+    // Função auxiliar segura para converter valores de moeda
+    const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+
+    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
+      const [header, ...rows] = waiterResult.value.data.values;
+      if (header && rows.length > 0) {
+        const data = rows.map(row => {
+          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+          const closingObject = {
+              type: 'waiter',
+              waiterName: rowObj['Nome Garçom'],
+              protocol: rowObj['Protocolo'],
+              valorTotal: parseCurrency(rowObj['Valor Total Venda']),
+              valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+              comissaoTotal: parseCurrency(rowObj['Comissão Total']),
+              diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
+              credito: parseCurrency(rowObj['Crédito']),
+              debito: parseCurrency(rowObj['Débito']),
+              pix: parseCurrency(rowObj['Pix']),
+              cashless: parseCurrency(rowObj['Cashless']),
+              numeroMaquina: rowObj['Nº Maquina'],
+              operatorName: rowObj['Operador'],
+              timestamp: rowObj['Data'],
+          };
+          closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
+          closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+          return closingObject;
+        });
+        allClosings.push(...data);
+      }
+    }
+
+    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
+      const [header, ...rows] = cashierResult.value.data.values;
+      if (header && rows.length > 0) {
+        const groupMap = new Map();
+        rows.forEach(row => {
+          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+          const protocol = rowObj['Protocolo'] || '';
+          const type = rowObj['TIPO'] || '';
+
+          if (type === 'Fixo') {
+            const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
+            if (!groupMap.has(groupProtocol)) {
+              groupMap.set(groupProtocol, {
+                protocol: groupProtocol, type: 'fixed_cashier', eventName,
+                operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'],
+                valorTroco: parseCurrency(rowObj['TROCO']),
+                caixas: []
+              });
+            }
+            groupMap.get(groupProtocol).caixas.push({
+              cpf: rowObj['CPF'],
+              cashierName: rowObj['Nome do Caixa'],
+              numeroMaquina: rowObj['Nº Máquina'],
+              valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+              credito: parseCurrency(rowObj['Crédito']),
+              debito: parseCurrency(rowObj['Débito']),
+              pix: parseCurrency(rowObj['Pix']),
+              cashless: parseCurrency(rowObj['Cashless']),
+              temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+              valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+              dinheiroFisico: parseCurrency(rowObj['DINHEIRO FÍSICO']), // CORREÇÃO APLICADA
+              valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+              diferenca: parseCurrency(rowObj['Diferença'])
+            });
+          } else {
+            allClosings.push({
+              type: 'cashier', protocol, eventName,
+              operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'],
+              cpf: rowObj['CPF'], cashierName: rowObj['Nome do Caixa'],
+              numeroMaquina: rowObj['Nº Máquina'],
+              valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+              credito: parseCurrency(rowObj['Crédito']),
+              debito: parseCurrency(rowObj['Débito']),
+              pix: parseCurrency(rowObj['Pix']),
+              cashless: parseCurrency(rowObj['Cashless']),
+              temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+              valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+              valorTroco: parseCurrency(rowObj['Troco']),
+              dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
+              valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+              diferenca: parseCurrency(rowObj['Diferença']),
+            });
+          }
+        });
+        groupMap.forEach(group => {
+          group.diferencaCaixa = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
+          allClosings.push(group);
+        });
+      }
+    }
+
+    allClosings.forEach(closing => {
+      const dateString = closing.timestamp;
+      let finalDate = new Date(0);
+      if (dateString && typeof dateString === 'string') {
+        const [datePart, timePart] = dateString.split(' ');
+        if (datePart && timePart) {
+          const [day, month, year] = datePart.split('/');
+          if (day && month && year) {
+            const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+            const parsedDate = new Date(isoDateString);
+            if (!isNaN(parsedDate)) finalDate = parsedDate;
+          }
+        }
+      }
+      closing.timestamp = finalDate.toISOString();
+    });
+
+    if (allClosings.length === 0) {
+      return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
+    }
+    res.status(200).json(allClosings);
+  } catch (error) {
+    console.error('Erro ao buscar histórico online (versão unificada):', error);
+    res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
+  }
+});
+
+// --- ROTA DE EXPORTAÇÃO ---
+app.post('/api/export-online-data', async (req, res) => { /* ... código sem alteração ... */ });
+
+// --- INICIALIZAÇÃO DO SERVIDOR ---
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor backend rodando na porta ${PORT}`);
+});
+
+// --- CÓDIGO ABREVIADO PARA CLAREZA (RESTANTE DO ARQUIVO) ---
+// (As funções completas e sem abreviação estão abaixo)
+
 app.get('/api/sync/waiters', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -68,7 +224,6 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
-// --- ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -102,7 +257,6 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -178,164 +332,6 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-
-// --- ROTA DE HISTÓRICO ONLINE ---
-app.post('/api/online-history', async (req, res) => {
-    const { eventName, password } = req.body;
-    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
-
-    try {
-        const googleSheets = await getGoogleSheetsClient();
-        const waiterSheetName = `Garçons - ${eventName}`;
-        const cashierSheetName = `Caixas - ${eventName}`;
-
-        const [waiterResult, cashierResult] = await Promise.allSettled([
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
-        ]);
-
-        let allClosings = [];
-        const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-
-        if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
-            const [header, ...rows] = waiterResult.value.data.values;
-            if (header && rows.length > 0) {
-                const data = rows.map(row => {
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const closingObject = {
-                        type: 'waiter',
-                        waiterName: rowObj['Nome Garçom'],
-                        protocol: rowObj['Protocolo'],
-                        valorTotal: parseCurrency(rowObj['Valor Total Venda']),
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                        comissaoTotal: parseCurrency(rowObj['Comissão Total']),
-                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
-                        credito: parseCurrency(rowObj['Crédito']),
-                        debito: parseCurrency(rowObj['Débito']),
-                        pix: parseCurrency(rowObj['Pix']),
-                        cashless: parseCurrency(rowObj['Cashless']),
-                        numeroMaquina: rowObj['Nº Maquina'],
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
-                    };
-                    closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
-                    closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
-                    return closingObject;
-                });
-                allClosings.push(...data);
-            }
-        }
-
-        if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
-            const [header, ...rows] = cashierResult.value.data.values;
-            if (header && rows.length > 0) {
-                const data = rows.map(row => {
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const type = rowObj['Tipo'] || '';
-                    const protocol = rowObj['Protocolo'] || '';
-                    
-                    if (type === 'Fixo') {
-                        const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
-                        return {
-                            protocol: groupProtocol,
-                            type: 'fixed_cashier',
-                            eventName: eventName,
-                            operatorName: rowObj['Operador'],
-                            timestamp: rowObj['Data'],
-                            valorTroco: parseCurrency(rowObj['Troco']),
-                            caixas: [{
-                                cpf: rowObj['CPF'],
-                                cashierName: rowObj['Nome do Caixa'],
-                                numeroMaquina: rowObj['Nº Máquina'],
-                                valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                                credito: parseCurrency(rowObj['Crédito']),
-                                debito: parseCurrency(rowObj['Débito']),
-                                pix: parseCurrency(rowObj['Pix']),
-                                cashless: parseCurrency(rowObj['Cashless']),
-                                temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                                valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                                // A LINHA COM ERRO ESTAVA AQUI, AGORA CORRIGIDA
-                                dinheiroFisico: parseFloat(String(rowObj['DINHEIRO FÍSICO'] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                                valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                                diferenca: parseCurrency(rowObj['Diferença'])
-                            }]
-                        };
-                    } else { // Assume Móvel
-                        return {
-                            type: 'cashier',
-                            protocol,
-                            eventName,
-                            operatorName: rowObj['Operador'],
-                            timestamp: rowObj['Data'],
-                            cpf: rowObj['CPF'],
-                            cashierName: rowObj['Nome do Caixa'],
-                            numeroMaquina: rowObj['Nº Máquina'],
-                            valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                            credito: parseCurrency(rowObj['Crédito']),
-                            debito: parseCurrency(rowObj['Débito']),
-                            pix: parseCurrency(rowObj['Pix']),
-                            cashless: parseCurrency(rowObj['Cashless']),
-                            temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                            valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                            valorTroco: parseCurrency(rowObj['Troco']),
-                            dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
-                            valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                            diferenca: parseCurrency(rowObj['Diferença']),
-                        };
-                    }
-                }).filter(Boolean); // Filtra quaisquer linhas que possam ter resultado em nulo
-                
-                // Reagrupa os caixas fixos que foram separados
-                const groupMap = new Map();
-                data.forEach(item => {
-                    if (item.type === 'fixed_cashier') {
-                        if (!groupMap.has(item.protocol)) {
-                            groupMap.set(item.protocol, item);
-                        } else {
-                            groupMap.get(item.protocol).caixas.push(...item.caixas);
-                        }
-                    } else {
-                        allClosings.push(item);
-                    }
-                });
-
-                groupMap.forEach(group => {
-                    const totalDiferencaGrupo = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
-                    group.diferencaCaixa = totalDiferencaGrupo;
-                    allClosings.push(group);
-                });
-            }
-        }
-
-        allClosings.forEach(closing => {
-            const dateString = closing.timestamp;
-            let finalDate = new Date(0);
-            if (dateString && typeof dateString === 'string') {
-                const [datePart, timePart] = dateString.split(' ');
-                if (datePart && timePart) {
-                    const [day, month, year] = datePart.split('/');
-                    if (day && month && year) {
-                        const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
-                        const parsedDate = new Date(isoDateString);
-                        if (!isNaN(parsedDate)) finalDate = parsedDate;
-                    }
-                }
-            }
-            closing.timestamp = finalDate.toISOString();
-        });
-
-        if (allClosings.length === 0) {
-            return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
-        }
-        res.status(200).json(allClosings);
-    } catch (error) {
-        console.error('Erro ao buscar histórico online (versão unificada):', error);
-        res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
-    }
-});
-
-
-// --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
 
@@ -381,10 +377,4 @@ app.post('/api/export-online-data', async (req, res) => {
     console.error('Erro ao exportar dados da nuvem por evento:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao processar os dados.' });
   }
-});
-
-// --- INICIALIZAÇÃO DO SERVIDOR ---
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor backend rodando na porta ${PORT}`);
 });
