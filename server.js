@@ -1,5 +1,5 @@
-// backend/server.js (VERSÃO FINAL E ROBUSTA PARA NUVEM E LOCAL)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com histórico online) ---");
+// backend/server.js (VERSÃO FINAL COM ATUALIZAÇÃO DE DADOS NA NUVEM)
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com sync e update) ---");
 
 require('dotenv').config();
 
@@ -68,7 +68,7 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
-// --- NOVA ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
+// --- ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
 
@@ -127,7 +127,8 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA PARA ENVIAR DADOS PARA A NUVEM COM VERIFICAÇÃO ---
+
+// --- ROTA ATUALIZADA: ENVIAR DADOS PARA A NUVEM (COM LÓGICA DE UPDATE) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -141,51 +142,109 @@ app.post('/api/cloud-sync', async (req, res) => {
     const sheets = sheetInfo.data.sheets;
 
     let newWaitersCount = 0;
+    let updatedWaitersCount = 0;
     let newCashiersCount = 0;
+    let updatedCashiersCount = 0;
 
+    // --- LÓGICA PARA GARÇONS ---
     if (waiterData && waiterData.data && waiterData.data.length > 0) {
       const waiterSheetName = `Garçons - ${eventName}`;
       const sheet = sheets.find(s => s.properties.title === waiterSheetName);
-      let existingProtocols = new Set();
-      if (sheet) {
-        const response = await googleSheets.spreadsheets.values.get({
-          spreadsheetId: spreadsheetId_cloud_sync,
-          range: `${waiterSheetName}!B:B`,
-        });
-        const protocols = response.data.values || [];
-        protocols.forEach(row => { if(row[0]) existingProtocols.add(row[0]) });
-      } else {
+      
+      if (!sheet) {
+        // Se a aba não existe, cria e adiciona todos como novos
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: waiterSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
-      }
-      const newWaiterRows = waiterData.data.filter(row => !existingProtocols.has(row[1]));
-      if (newWaiterRows.length > 0) {
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: newWaiterRows } });
-        newWaitersCount = newWaiterRows.length;
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: waiterData.data } });
+        newWaitersCount = waiterData.data.length;
+      } else {
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!B:B` });
+        const existingProtocols = response.data.values || [];
+        
+        const protocolMap = new Map();
+        existingProtocols.forEach((row, index) => {
+            if (row[0]) protocolMap.set(row[0], index + 2); // +2 porque o range começa em A2
+        });
+
+        const rowsToAppend = [];
+        const updatesToPerform = [];
+        waiterData.data.forEach(row => {
+            const protocol = row[1]; // Protocolo do garçom está na coluna B (índice 1)
+            if (protocolMap.has(protocol)) {
+                updatesToPerform.push({
+                    range: `${waiterSheetName}!A${protocolMap.get(protocol)}`,
+                    values: [row]
+                });
+            } else {
+                rowsToAppend.push(row);
+            }
+        });
+
+        if (rowsToAppend.length > 0) {
+            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
+        }
+        
+        if (updatesToPerform.length > 0) {
+            await googleSheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: spreadsheetId_cloud_sync,
+                resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform }
+            });
+        }
+
+        newWaitersCount = rowsToAppend.length;
+        updatedWaitersCount = updatesToPerform.length;
       }
     }
 
+    // --- LÓGICA PARA CAIXAS (MESMO PADRÃO) ---
     if (cashierData && cashierData.data && cashierData.data.length > 0) {
       const cashierSheetName = `Caixas - ${eventName}`;
       const sheet = sheets.find(s => s.properties.title === cashierSheetName);
-      let existingProtocols = new Set();
-      if (sheet) {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:A` });
-        const protocols = response.data.values || [];
-        protocols.forEach(row => { if(row[0]) existingProtocols.add(row[0]) });
-      } else {
+
+      if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: cashierSheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
-      }
-      const newCashierRows = cashierData.data.filter(row => !existingProtocols.has(row[0]));
-      if (newCashierRows.length > 0) {
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: newCashierRows } });
-        newCashiersCount = newCashierRows.length;
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: cashierData.data } });
+        newCashiersCount = cashierData.data.length;
+      } else {
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:A` });
+        const existingProtocols = response.data.values || [];
+        const protocolMap = new Map();
+        existingProtocols.forEach((row, index) => {
+            if (row[0]) protocolMap.set(row[0], index + 2);
+        });
+
+        const rowsToAppend = [];
+        const updatesToPerform = [];
+        cashierData.data.forEach(row => {
+            const protocol = row[0]; // Protocolo do caixa está na coluna A (índice 0)
+            if (protocolMap.has(protocol)) {
+                updatesToPerform.push({ range: `${cashierSheetName}!A${protocolMap.get(protocol)}`, values: [row] });
+            } else {
+                rowsToAppend.push(row);
+            }
+        });
+
+        if (rowsToAppend.length > 0) {
+            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
+        }
+        if (updatesToPerform.length > 0) {
+            await googleSheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: spreadsheetId_cloud_sync,
+                resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform }
+            });
+        }
+        newCashiersCount = rowsToAppend.length;
+        updatedCashiersCount = updatesToPerform.length;
       }
     }
 
-    const message = `Sincronização concluída!\n- ${newWaitersCount} novo(s) fechamento(s) de garçom enviado(s).\n- ${newCashiersCount} novo(s) fechamento(s) de caixa enviado(s).`;
-    res.status(200).json({ message, newWaiters: newWaitersCount, newCashiers: newCashiersCount });
+    res.status(200).json({
+      newWaiters: newWaitersCount,
+      updatedWaiters: updatedWaitersCount,
+      newCashiers: newCashiersCount,
+      updatedCashiers: updatedCashiersCount
+    });
 
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
@@ -193,8 +252,10 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (VERSÃO FINALMENTE CORRIGIDA) ---
+
+// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
+  // ... (Esta rota permanece a mesma da versão anterior, já estava correta)
   const { eventName, password } = req.body;
 
   if (!eventName || !password) {
@@ -216,7 +277,6 @@ app.post('/api/online-history', async (req, res) => {
 
     let allClosings = [];
 
-    // Processa dados de Garçons
     if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
       const rows = waiterResult.value.data.values;
       if (rows.length > 1) {
@@ -263,7 +323,6 @@ app.post('/api/online-history', async (req, res) => {
       }
     }
 
-    // Processa dados de Caixas (COM MAPEAMENTO CORRETO)
     if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
         const rows = cashierResult.value.data.values;
         if (rows.length > 1) {
@@ -319,8 +378,9 @@ app.post('/api/online-history', async (req, res) => {
   }
 });
 
-// --- ROTA ROBUSTA: EXPORTAR DADOS DA NUVEM POR EVENTO ---
+// --- ROTA PARA EXPORTAR DADOS DA NUVEM POR EVENTO ---
 app.post('/api/export-online-data', async (req, res) => {
+  // ... (Esta rota permanece a mesma da versão anterior, já estava correta)
   const { password, eventName } = req.body;
 
   if (!eventName) {
@@ -381,6 +441,7 @@ app.post('/api/export-online-data', async (req, res) => {
     res.status(500).json({ message: 'Erro interno do servidor ao processar os dados da planilha.' });
   }
 });
+
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3001;

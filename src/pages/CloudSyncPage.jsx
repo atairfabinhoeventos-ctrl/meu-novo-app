@@ -1,4 +1,4 @@
-// src/pages/CloudSyncPage.jsx (Com correção de status do feedback)
+// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA SEM ERROS DE SINTAXE)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -41,27 +41,30 @@ function CloudSyncPage() {
       if (eventClosings.length === 0) {
         setFeedbackModal({
           isOpen: true,
-          title: 'Atenção',
+          title: 'Nenhuma Ação Necessária',
           message: `Nenhum fechamento local encontrado para o evento "${activeEvent}". Nada a enviar.`,
-          status: 'error' // CORRIGIDO
+          status: 'success'
         });
         setIsLoading(false);
         return;
       }
 
-      const waiterClosings = eventClosings.filter(c => c.waiterName);
-      const cashierClosings = eventClosings.filter(c => c.cashierName || c.caixas);
-      const waiterHeader = [ "NOME GARÇOM", "PROTOCOLO", "VALOR VENDA TOTAL", "DEVOLUÇÃO ESTORNO", "COMISSÃO TOTAL", "ACERTO", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "Nº MÁQUINA", "OPERADOR", "DATA" ];
-      const waiterData = waiterClosings.map(c => [ c.waiterName, c.protocol, c.valorTotal, c.temEstorno ? c.valorEstorno : 0, c.comissaoTotal, c.diferencaPagarReceber, c.credito, c.debito, c.pix, c.cashless, c.numeroMaquina, c.operatorName, new Date(c.timestamp).toLocaleString('pt-BR') ]);
-      const cashierHeader = [ "PROTOCOLO", "DATA", "TIPO", "CPF", "NOME DO CAIXA", "Nº MÁQUINA", "VENDA TOTAL", "DIFERENÇA", "OPERADOR" ];
+      const waiterClosings = eventClosings.filter(c => c.type === 'waiter');
+      const cashierClosings = eventClosings.filter(c => c.type === 'cashier' || c.type === 'fixed_cashier');
+      
+      const waiterHeader = [ "DATA", "PROTOCOLO", "NOME GARÇOM", "Nº MÁQUINA", "VALOR VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "DEVOLUÇÃO ESTORNO", "COMISSÃO TOTAL", "ACERTO", "OPERADOR"];
+      const waiterData = waiterClosings.map(c => [ new Date(c.timestamp).toLocaleString('pt-BR'), c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.temEstorno ? c.valorEstorno : 0, c.comissaoTotal, c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber, c.operatorName ]);
+      
+      const cashierHeader = [ "PROTOCOLO", "DATA", "TIPO", "CPF", "NOME DO CAIXA", "Nº MÁQUINA", "VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "TROCO", "DEVOLUÇÃO ESTORNO", "DINHEIRO FÍSICO", "VALOR ACERTO", "DIFERENÇA", "OPERADOR" ];
       let cashierData = [];
       cashierClosings.forEach(c => {
-        if (c.caixas) {
+        if (c.type === 'fixed_cashier' && c.caixas) {
           c.caixas.forEach(caixa => {
-            cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Fixo', caixa.cpf, caixa.cashierName, caixa.numeroMaquina, caixa.valorTotalVenda, null, c.operatorName ]);
+            const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
+            cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Fixo', caixa.cpf, caixa.cashierName, caixa.numeroMaquina, caixa.valorTotalVenda, caixa.credito, caixa.debito, caixa.pix, caixa.cashless, c.valorTroco, caixa.temEstorno ? caixa.valorEstorno : 0, caixa.dinheiroFisico, acertoCaixa, caixa.dinheiroFisico - acertoCaixa, c.operatorName ]);
           });
-        } else {
-           cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Móvel', c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.diferenca, c.operatorName ]);
+        } else if (c.type === 'cashier') {
+           cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Móvel', c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.temEstorno ? c.valorEstorno : 0, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
         }
       });
 
@@ -71,12 +74,29 @@ function CloudSyncPage() {
         cashierData: { header: cashierHeader, data: cashierData }
       });
       
-      setFeedbackModal({
-        isOpen: true,
-        title: 'Sincronização Concluída!',
-        message: response.data.message.replace(/\n/g, '<br/>'),
-        status: 'success'
-      });
+      const { newWaiters, updatedWaiters, newCashiers, updatedCashiers } = response.data;
+      
+      let messageParts = [];
+      if (newWaiters > 0) messageParts.push(`- ${newWaiters} novo(s) fechamento(s) de garçom enviados.`);
+      if (updatedWaiters > 0) messageParts.push(`- ${updatedWaiters} fechamento(s) de garçom atualizados.`);
+      if (newCashiers > 0) messageParts.push(`- ${newCashiers} novo(s) fechamento(s) de caixa enviados.`);
+      if (updatedCashiers > 0) messageParts.push(`- ${updatedCashiers} fechamento(s) de caixa atualizados.`);
+
+      if (messageParts.length === 0) {
+        setFeedbackModal({
+          isOpen: true,
+          title: 'Tudo Certo!',
+          message: 'Todos os dados locais já estavam sincronizados com a nuvem. Nenhuma ação foi necessária.',
+          status: 'success'
+        });
+      } else {
+        setFeedbackModal({
+          isOpen: true,
+          title: 'Sincronização Concluída!',
+          message: messageParts.join('<br/>'),
+          status: 'success'
+        });
+      }
 
     } catch (error) {
       console.error('Erro ao sincronizar:', error);
@@ -126,7 +146,7 @@ function CloudSyncPage() {
         )}
         
         <button onClick={handleCloudSync} disabled={isLoading || !activeEvent}>
-          Iniciar Envio para Nuvem
+          {isLoading ? 'Enviando...' : 'Iniciar Envio para Nuvem'}
         </button>
       </div>
 

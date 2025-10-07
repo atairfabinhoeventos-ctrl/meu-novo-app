@@ -1,7 +1,8 @@
-// src/pages/FixedCashierClosingPage.jsx (VERSÃO FINAL COM LAYOUT PADRONIZADO E MELHORIAS)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO CORRIGIDA COM FUNCIONALIDADE DE EDIÇÃO)
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+// 1. Importar o hook useLocation para ler os dados da navegação
+import { useNavigate, useLocation } from 'react-router-dom';
 import { saveFixedCashierClosing } from '../services/apiService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
@@ -19,10 +20,19 @@ function useDebounce(value, delay) {
 }
 
 // Componente para cada item de Caixa no grupo
-const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs }) => {
+const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs, isEditing }) => {
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
+
+    useEffect(() => {
+        // Se estiver editando, o nome já vem preenchido, então atualiza o searchInput
+        if (isEditing && item.name) {
+            setSearchInput(item.name);
+            setSelectedCashier({ name: item.name, cpf: item.cpf });
+        }
+    }, [item, isEditing]);
+
 
     useEffect(() => {
         const query = searchInput.trim().toLowerCase();
@@ -55,7 +65,8 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
     };
     
     const cleanAndSet = (field, value) => {
-        handleInputChange(item.id, field, value);
+        const digitsOnly = String(value).replace(/\D/g, '');
+        handleInputChange(item.id, field, digitsOnly);
     };
 
     return (
@@ -64,7 +75,7 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
             <div className="form-row">
                 <div className="input-group" style={{ position: 'relative' }}>
                     <label>Buscar Funcionário (Nome ou CPF)</label>
-                    <input ref={formRefs.current[`cpf_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `numeroMaquina_${item.id}`)} placeholder="Digite o nome ou CPF" value={searchInput} onChange={(e) => onSearchChange(e.target.value)} />
+                    <input ref={formRefs.current[`cpf_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `numeroMaquina_${item.id}`)} placeholder="Digite o nome ou CPF" value={searchInput} onChange={(e) => onSearchChange(e.target.value)} disabled={isEditing} />
                     {filteredPersonnel.length > 0 && (
                         <div className="suggestions-list">
                             {filteredPersonnel.map(p => <div key={p.cpf} className="suggestion-item" onClick={() => onSelect(p)}>{p.name} - {p.cpf}</div>)}
@@ -110,6 +121,10 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
 
 function FixedCashierClosingPage() {
     const navigate = useNavigate();
+    // 2. Obter os dados de edição passados pela navegação
+    const { state } = useLocation();
+    const closingToEdit = state?.closingToEdit;
+
     const [personnelList, setPersonnelList] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
@@ -118,6 +133,8 @@ function FixedCashierClosingPage() {
     const [caixasDoGrupo, setCaixasDoGrupo] = useState([{ id: 1, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
     const [alertMessage, setAlertMessage] = useState('');
     const [finalDiferenca, setFinalDiferenca] = useState(0);
+    // NOVO: Estado para armazenar o protocolo durante a edição
+    const [protocol, setProtocol] = useState(null);
     
     const formRefs = useRef({});
 
@@ -128,9 +145,36 @@ function FixedCashierClosingPage() {
       const stringValue = String(value);
       const cleanValue = stringValue.replace(/\D/g, '');
       if (cleanValue === '') return 0;
-      if (!stringValue.includes(',') && !stringValue.includes('.')) { return parseInt(cleanValue, 10); }
       return parseInt(cleanValue, 10) / 100;
     };
+
+    // --- CÓDIGO NOVO ADICIONADO ---
+    // 3. Adicionar useEffect para pré-preencher o formulário se estiver em modo de edição
+    useEffect(() => {
+        if (closingToEdit) {
+            setProtocol(closingToEdit.protocol); // Armazena o protocolo
+            const formatForInput = (value) => String(Math.round((value || 0) * 100));
+            setValorTroco(formatForInput(closingToEdit.valorTroco));
+
+            // Mapeia os caixas do fechamento para o estado do formulário
+            const caixasEdit = closingToEdit.caixas.map((caixa, index) => ({
+                id: index + 1, // Cria um ID sequencial para o estado
+                cpf: caixa.cpf,
+                name: caixa.cashierName, // O nome do campo é cashierName no objeto salvo
+                numeroMaquina: caixa.numeroMaquina,
+                temEstorno: caixa.temEstorno,
+                valorEstorno: formatForInput(caixa.valorEstorno),
+                valorTotalVenda: formatForInput(caixa.valorTotalVenda),
+                credito: formatForInput(caixa.credito),
+                debito: formatForInput(caixa.debito),
+                pix: formatForInput(caixa.pix),
+                cashless: formatForInput(caixa.cashless),
+                dinheiroFisico: formatForInput(caixa.dinheiroFisico),
+            }));
+            setCaixasDoGrupo(caixasEdit);
+        }
+    }, [closingToEdit]);
+
 
     useEffect(() => {
         const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
@@ -192,6 +236,7 @@ function FixedCashierClosingPage() {
             const closingData = {
                 eventName, operatorName,
                 valorTroco: parseCurrency(valorTroco),
+                diferencaCaixa: finalDiferenca, // Adiciona a diferença final
                 caixas: caixasDoGrupo.map(caixa => ({
                     cpf: caixa.cpf, cashierName: caixa.name, numeroMaquina: caixa.numeroMaquina,
                     temEstorno: caixa.temEstorno,
@@ -202,12 +247,14 @@ function FixedCashierClosingPage() {
                     pix: parseCurrency(caixa.pix),
                     cashless: parseCurrency(caixa.cashless),
                     dinheiroFisico: parseCurrency(caixa.dinheiroFisico),
-                }))
+                })),
+                protocol: protocol, // Inclui o protocolo se estiver editando
+                timestamp: closingToEdit?.timestamp // Mantém o timestamp original
             };
     
             const response = await saveFixedCashierClosing(closingData);
             setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
-            setTimeout(() => navigate('/financial-selection'), 2000);
+            setTimeout(() => navigate('/closing-history'), 2000); // Redireciona para o histórico
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
             setAlertMessage('Ocorreu um erro ao salvar o fechamento de grupo localmente.');
@@ -217,6 +264,7 @@ function FixedCashierClosingPage() {
         }
     };
     
+    // ... (O restante do seu arquivo JSX e funções continuam aqui, sem mais alterações necessárias) ...
     const getDiferencaColor = (diff) => {
         if (diff < 0) return 'red';
         if (diff > 0) return 'green';
@@ -238,7 +286,8 @@ function FixedCashierClosingPage() {
             <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
             <div className="login-form form-scrollable" style={{ maxWidth: '1000px' }}>
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
-                <h1>Fechamento Caixa Fixo (Grupo)</h1>
+                {/* 4. Título dinâmico */}
+                <h1>{closingToEdit ? 'Editar Fechamento de Caixa Fixo' : 'Fechamento Caixa Fixo (Grupo)'}</h1>
 
                 <div className="form-section form-row">
                     <div className="switch-container">
@@ -271,12 +320,13 @@ function FixedCashierClosingPage() {
                             personnelList={personnelList}
                             handleKeyDown={handleKeyDown}
                             formRefs={formRefs}
+                            isEditing={!!closingToEdit} // Informa ao subcomponente que está em modo de edição
                         />
                     );
                 })}
 
                 <div className="footer-actions">
-                     <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} className="add-button" onClick={handleAddCaixa}>Adicionar Novo Caixa</button>
+                     <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} className="add-button" onClick={handleAddCaixa} disabled={!!closingToEdit}>Adicionar Novo Caixa</button>
                     <div className="results-container">
                         <p className="total-text">Diferença Final do Grupo: 
                             <strong style={{ color: getDiferencaColor(finalDiferenca), marginLeft: '10px' }}>

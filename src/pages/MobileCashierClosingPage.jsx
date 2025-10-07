@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+// 1. Importar o hook useLocation para ler os dados da navegação
+import { useNavigate, useLocation } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
@@ -18,6 +19,9 @@ function useDebounce(value, delay) {
 
 function MobileCashierClosingPage() {
     const navigate = useNavigate();
+    // 2. Obter os dados de edição passados pela navegação
+    const { state } = useLocation();
+    const closingToEdit = state?.closingToEdit;
     
     const formRefs = {
       cpf: useRef(null), numeroMaquina: useRef(null), valorTotalVenda: useRef(null),
@@ -51,6 +55,38 @@ function MobileCashierClosingPage() {
     const [showRegisterButton, setShowRegisterButton] = useState(false);
     const [registerModalVisible, setRegisterModalVisible] = useState(false);
     const [newCashierName, setNewCashierName] = useState('');
+    // NOVO: Estado para armazenar o protocolo durante a edição
+    const [protocol, setProtocol] = useState(null);
+
+    // --- CÓDIGO NOVO ADICIONADO ---
+    // 3. Adicionar useEffect para pré-preencher o formulário se estiver em modo de edição
+    useEffect(() => {
+        if (closingToEdit) {
+            // Preenche os dados do funcionário
+            const cashierInfo = { name: closingToEdit.cashierName, cpf: closingToEdit.cpf };
+            setSelectedCashier(cashierInfo);
+            setSearchInput(cashierInfo.name);
+            
+            // Preenche os outros campos
+            setNumeroMaquina(closingToEdit.numeroMaquina || '');
+            setTemTroco(closingToEdit.temTroco || false);
+            setTemEstorno(closingToEdit.temEstorno || false);
+            setProtocol(closingToEdit.protocol); // Armazena o protocolo
+
+            // Converte os valores numéricos de volta para o formato de string de dígitos
+            // Ex: 123.45 -> "12345"
+            const formatForInput = (value) => String(Math.round((value || 0) * 100));
+            setValorTotalVenda(formatForInput(closingToEdit.valorTotalVenda));
+            setCredito(formatForInput(closingToEdit.credito));
+            setDebito(formatForInput(closingToEdit.debito));
+            setPix(formatForInput(closingToEdit.pix));
+            setCashless(formatForInput(closingToEdit.cashless));
+            setValorTroco(formatForInput(closingToEdit.valorTroco));
+            setValorEstorno(formatForInput(closingToEdit.valorEstorno));
+            setDinheiroFisico(formatForInput(closingToEdit.dinheiroFisico));
+        }
+    }, [closingToEdit]);
+
 
     const debouncedValorTotal = useDebounce(valorTotalVenda, 500);
     const debouncedValorTroco = useDebounce(valorTroco, 500);
@@ -162,10 +198,12 @@ function MobileCashierClosingPage() {
                 cashless: getNumericValue(cashless),
                 dinheiroFisico: getNumericValue(dinheiroFisico),
                 valorAcerto, diferenca,
+                protocol: protocol, // Inclui o protocolo se estiver editando
+                timestamp: closingToEdit?.timestamp // Mantém o timestamp original se estiver editando
             };
             const response = await saveMobileCashierClosing(closingData);
             setAlertMessage(`Fechamento salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
-            setTimeout(() => navigate('/financial-selection'), 2000);
+            setTimeout(() => navigate('/closing-history'), 2000); // Redireciona para o histórico
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
             setAlertMessage('Ocorreu um erro ao salvar o fechamento localmente.');
@@ -190,7 +228,7 @@ function MobileCashierClosingPage() {
       }
     };
 
-    if (isLoading) {
+    if (isLoading && !closingToEdit) { // Só mostra o loading inicial se não for uma edição
         return <LoadingSpinner message="Carregando formulário..." />;
     }
 
@@ -199,7 +237,8 @@ function MobileCashierClosingPage() {
             <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
             <div className="login-form form-scrollable" style={{ maxWidth: '800px' }}>
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
-                <h1>Fechamento Caixa Móvel</h1>
+                {/* 4. Título dinâmico */}
+                <h1>{closingToEdit ? 'Editar Fechamento de Caixa Móvel' : 'Fechamento Caixa Móvel'}</h1>
                 
                 <div className="form-section">
                     <div className="form-row">
@@ -211,6 +250,7 @@ function MobileCashierClosingPage() {
                                 placeholder="Digite o nome ou CPF" 
                                 value={searchInput} 
                                 onChange={(e) => { setSearchInput(e.target.value); setSelectedCashier(null); }} 
+                                disabled={!!closingToEdit} // Desabilita a busca no modo de edição
                             />
                             {filteredPersonnel.length > 0 && (
                                 <div className="suggestions-list">
