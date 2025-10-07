@@ -61,28 +61,27 @@ function ExportDataPage() {
     const parseCurrencyString = (value) => {
         if (typeof value === 'number') return value;
         if (typeof value !== 'string' || value.trim() === '') return 0;
-        // Remove 'R$', espaços, e troca o separador de milhar por nada e a vírgula por ponto
         const numberString = value.replace("R$", "").trim().replace(/\./g, "").replace(",", ".");
         return parseFloat(numberString) || 0;
     };
 
-    // --- Aba de Garçons (COM FORMATAÇÃO) ---
+    // --- Aba de Garçons (COM A ORDEM CORRIGIDA) ---
     const waiterSheet = workbook.addWorksheet('Garçons');
     if (waitersData && waitersData.length > 0) {
         const waiterColumns = [
-          { header: 'DATA', key: 'DATA', width: 20 },
-          { header: 'PROTOCOLO', key: 'PROTOCOLO', width: 30 },
-          { header: 'NOME GARÇOM', key: 'NOME GARÇOM', width: 30 },
-          { header: 'Nº MÁQUINA', key: 'Nº MÁQUINA', width: 15 },
-          { header: 'VALOR VENDA TOTAL', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: moneyFormat } },
-          { header: 'CRÉDITO', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
-          { header: 'DÉBITO', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'Data', key: 'DATA', width: 20 },
+          { header: 'Protocolo', key: 'PROTOCOLO', width: 30 },
+          { header: 'Nome Garçom', key: 'NOME GARÇOM', width: 30 },
+          { header: 'Nº Máquina', key: 'Nº MÁQUINA', width: 15 },
+          { header: 'Valor Total Venda', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'Crédito', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'Débito', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
           { header: 'PIX', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
-          { header: 'CASHLESS', key: 'CASHLESS', width: 15, style: { numFmt: moneyFormat } },
-          { header: 'DEVOLUÇÃO ESTORNO', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: moneyFormat } },
-          { header: 'COMISSÃO TOTAL', key: 'COMISSÃO TOTAL', width: 20, style: { numFmt: moneyFormat } },
-          { header: 'ACERTO', key: 'ACERTO', width: 15, style: { numFmt: moneyFormat } },
-          { header: 'OPERADOR', key: 'OPERADOR', width: 25 },
+          { header: 'Cashless', key: 'CASHLESS', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'Devolução/Estorno', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'Comissão Total', key: 'COMISSÃO TOTAL', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'Acerto', key: 'ACERTO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'Operador', key: 'OPERADOR', width: 25 },
         ];
         waiterSheet.columns = waiterColumns;
         waiterSheet.addRows(waitersData.map(row => {
@@ -96,7 +95,7 @@ function ExportDataPage() {
         }));
     }
     
-    // --- Aba de Caixas (COM FORMATAÇÃO) ---
+    // --- Aba de Caixas (SEM ALTERAÇÃO NA ORDEM) ---
     const cashierSheet = workbook.addWorksheet('Caixas');
     if (cashiersData && cashiersData.length > 0) {
         const cashierColumns = [
