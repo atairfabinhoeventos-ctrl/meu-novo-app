@@ -1,5 +1,5 @@
-// backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com export e sync) ---");
+// backend/server.js (VERSÃO FINAL E CORRIGIDA)
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex corrigido) ---");
 
 require('dotenv').config();
 
@@ -10,8 +10,6 @@ const path = require('path');
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
-
-// --- CONFIGURAÇÃO DE CORS REVERTIDA PARA A VERSÃO ABERTA ---
 app.use(cors()); // Permite acesso de qualquer origem
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
@@ -104,7 +102,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM (CORRIGIDA) ---
+// --- ROTA DE SYNC PARA A NUVEM ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -187,7 +185,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO COMPLETO RESTAURADO) ---
+// --- ROTA DE HISTÓRICO ONLINE (COM REGEX CORRIGIDO) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
@@ -294,7 +292,7 @@ app.post('/api/online-history', async (req, res) => {
                         cashless: parseFloat(closingObject['CASHLESS'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
                         temEstorno: (parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0) > 0,
                         valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0--9,-]/g, '').replace(',', '.')) || 0,
+                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
                         valorAcerto: parseFloat(closingObject['VALOR ACERTO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
                         diferenca: parseFloat(closingObject['DIFERENÇA'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0
                     });
@@ -360,7 +358,7 @@ app.post('/api/online-history', async (req, res) => {
   }
 });
 
-// --- ROTA DE EXPORTAÇÃO (CORRIGIDA) ---
+// --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
 
