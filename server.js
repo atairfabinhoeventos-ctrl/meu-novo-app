@@ -1,5 +1,5 @@
-// backend/server.js (VERSÃO FINAL E CORRIGIDA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex corrigido) ---");
+// backend/server.js (VERSÃO FINAL E COMPLETA)
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
 
 require('dotenv').config();
 
@@ -10,7 +10,10 @@ const path = require('path');
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
-app.use(cors()); // Permite acesso de qualquer origem
+
+// --- CONFIGURAÇÃO DE CORS ABERTA PARA DEBUG ---
+// Lembre-se de restringir isso no futuro, como discutimos
+app.use(cors());
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
@@ -185,7 +188,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE (COM REGEX CORRIGIDO) ---
+// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO COMPLETO RESTAURADO) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
@@ -204,45 +207,29 @@ app.post('/api/online-history', async (req, res) => {
     ]);
 
     let allClosings = [];
+    const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
     if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
-      const rows = waiterResult.value.data.values;
-      if (rows.length > 1) {
-        const header = rows[0].map(h => String(h).trim());
-        const data = rows.slice(1).map(row => {
-          const closingObject = { type: 'waiter' };
-          header.forEach((key, index) => {
-            const value = row[index];
-            switch (key) {
-              case 'NOME GARÇOM': closingObject.waiterName = value; break;
-              case 'PROTOCOLO': closingObject.protocol = value; break;
-              case 'VALOR VENDA TOTAL': closingObject.valorTotal = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'DEVOLUÇÃO ESTORNO': closingObject.valorEstorno = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'COMISSÃO TOTAL': closingObject.comissaoTotal = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'ACERTO': closingObject.diferencaPagarReceber = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'CRÉDITO': closingObject.credito = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'DÉBITO': closingObject.debito = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'PIX': closingObject.pix = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'CASHLESS': closingObject.cashless = parseFloat(value.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0; break;
-              case 'Nº MÁQUINA': closingObject.numeroMaquina = value; break;
-              case 'OPERADOR': closingObject.operatorName = value; break;
-              case 'DATA':
-                  let finalDate = new Date(0);
-                  if (value && typeof value === 'string') {
-                      const [datePart, timePart] = value.split(' ');
-                      if (datePart && timePart) {
-                          const [day, month, year] = datePart.split('/');
-                          if (day && month && year) {
-                            const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
-                            const parsedDate = new Date(isoDateString);
-                            if (!isNaN(parsedDate)) finalDate = parsedDate;
-                          }
-                      }
-                  }
-                  closingObject.timestamp = finalDate.toISOString();
-                  break;
-            }
-          });
+      const [header, ...rows] = waiterResult.value.data.values;
+      if(header && rows.length > 0) {
+        const data = rows.map(row => {
+          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+          const closingObject = {
+              type: 'waiter',
+              waiterName: rowObj['NOME GARÇOM'],
+              protocol: rowObj['PROTOCOLO'],
+              valorTotal: parseCurrency(rowObj['VALOR VENDA TOTAL']),
+              valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
+              comissaoTotal: parseCurrency(rowObj['COMISSÃO TOTAL']),
+              diferencaPagarReceber: parseCurrency(rowObj['ACERTO']),
+              credito: parseCurrency(rowObj['CRÉDITO']),
+              debito: parseCurrency(rowObj['DÉBITO']),
+              pix: parseCurrency(rowObj['PIX']),
+              cashless: parseCurrency(rowObj['CASHLESS']),
+              numeroMaquina: rowObj['Nº MÁQUINA'],
+              operatorName: rowObj['OPERADOR'],
+              timestamp: rowObj['DATA'],
+          };
           closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
           closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
           return closingObject;
@@ -252,80 +239,61 @@ app.post('/api/online-history', async (req, res) => {
     }
 
     if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
-        const rows = cashierResult.value.data.values;
-        if (rows.length > 1) {
-            const header = rows[0].map(h => String(h).trim());
-            const groupMap = new Map();
-
-            rows.slice(1).forEach(row => {
-                const closingObject = {};
-                header.forEach((key, index) => {
-                    closingObject[key] = row[index];
-                });
-
-                const protocol = closingObject['PROTOCOLO'] || '';
-                const type = closingObject['TIPO'] || '';
+        const [header, ...rows] = cashierResult.value.data.values;
+        if(header && rows.length > 0) {
+            const data = rows.map(row => {
+                const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+                const type = rowObj['TIPO'] || '';
+                const protocol = rowObj['PROTOCOLO'] || '';
 
                 if (type === 'Fixo') {
                     const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
-                    if (!groupMap.has(groupProtocol)) {
-                        groupMap.set(groupProtocol, {
-                            protocol: groupProtocol,
-                            type: 'fixed_cashier',
-                            eventName: eventName,
-                            operatorName: closingObject['OPERADOR'],
-                            timestamp: closingObject['DATA'],
-                            valorTroco: parseFloat(closingObject['TROCO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                            caixas: []
-                        });
-                    }
-                    
-                    const group = groupMap.get(groupProtocol);
-                    group.caixas.push({
-                        cpf: closingObject['CPF'],
-                        cashierName: closingObject['NOME DO CAIXA'],
-                        numeroMaquina: closingObject['Nº MÁQUINA'],
-                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        credito: parseFloat(closingObject['CRÉDITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        debito: parseFloat(closingObject['DÉBITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        pix: parseFloat(closingObject['PIX'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        cashless: parseFloat(closingObject['CASHLESS'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        temEstorno: (parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0) > 0,
-                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        diferenca: parseFloat(closingObject['DIFERENÇA'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0
-                    });
-                } else {
-                    allClosings.push({
+                    return {
+                        type: 'individual_fixed_cashier',
+                        protocol,
+                        groupProtocol,
+                        eventName,
+                        operatorName: rowObj['OPERADOR'],
+                        timestamp: rowObj['DATA'],
+                        cpf: rowObj['CPF'],
+                        cashierName: rowObj['NOME DO CAIXA'],
+                        numeroMaquina: rowObj['Nº MÁQUINA'],
+                        valorTotalVenda: parseCurrency(rowObj['VENDA TOTAL']),
+                        credito: parseCurrency(rowObj['CRÉDITO']),
+                        debito: parseCurrency(rowObj['DÉBITO']),
+                        pix: parseCurrency(rowObj['PIX']),
+                        cashless: parseCurrency(rowObj['CASHLESS']),
+                        valorTroco: parseCurrency(rowObj['TROCO']),
+                        temEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']) > 0,
+                        valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
+                        dinheiroFisico: parseCurrency(rowObj['DINHEIRO FÍSICO']),
+                        diferenca: parseCurrency(rowObj['DIFERENÇA']),
+                    };
+                } else { // Assume Móvel
+                    return {
                         type: 'cashier',
-                        protocol: protocol,
-                        eventName: eventName,
-                        operatorName: closingObject['OPERADOR'],
-                        timestamp: closingObject['DATA'],
-                        cpf: closingObject['CPF'],
-                        cashierName: closingObject['NOME DO CAIXA'],
-                        numeroMaquina: closingObject['Nº MÁQUINA'],
-                        valorTotalVenda: parseFloat(closingObject['VENDA TOTAL'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        credito: parseFloat(closingObject['CRÉDITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        debito: parseFloat(closingObject['DÉBITO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        pix: parseFloat(closingObject['PIX'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        cashless: parseFloat(closingObject['CASHLESS'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        temEstorno: (parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0) > 0,
-                        valorEstorno: parseFloat(closingObject['DEVOLUÇÃO ESTORNO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        valorTroco: parseFloat(closingObject['TROCO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        dinheiroFisico: parseFloat(closingObject['DINHEIRO FÍSICO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        valorAcerto: parseFloat(closingObject['VALOR ACERTO'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                        diferenca: parseFloat(closingObject['DIFERENÇA'].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-                    });
+                        protocol,
+                        eventName,
+                        operatorName: rowObj['OPERADOR'],
+                        timestamp: rowObj['DATA'],
+                        cpf: rowObj['CPF'],
+                        cashierName: rowObj['NOME DO CAIXA'],
+                        numeroMaquina: rowObj['Nº MÁQUINA'],
+                        valorTotalVenda: parseCurrency(rowObj['VENDA TOTAL']),
+                        credito: parseCurrency(rowObj['CRÉDITO']),
+                        debito: parseCurrency(rowObj['DÉBITO']),
+                        pix: parseCurrency(rowObj['PIX']),
+                        cashless: parseCurrency(rowObj['CASHLESS']),
+                        valorTroco: parseCurrency(rowObj['TROCO']),
+                        temEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']) > 0,
+                        valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
+                        dinheiroFisico: parseCurrency(rowObj['DINHEIRO FÍSICO']),
+                        valorAcerto: parseCurrency(rowObj['VALOR ACERTO']),
+                        diferenca: parseCurrency(rowObj['DIFERENÇA']),
+                    };
                 }
             });
-
-            groupMap.forEach(group => {
-                const totalDiferencaGrupo = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
-                group.diferencaCaixa = totalDiferencaGrupo;
-                allClosings.push(group);
-            });
+            allClosings.push(...data.filter(Boolean));
         }
     }
 
