@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 // --- CONFIGURAÇÃO DE CORS MAIS ROBUSTA ---
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://seu-frontend.onrender.com' // SUBSTITUA PELO SEU ENDEREÇO QUANDO TIVER
+  'https://sisfo-backend.onrender.com' // SUBSTITUA PELO SEU ENDEREÇO QUANDO TIVER
 ];
 app.use(cors({
   origin: function (origin, callback) {
