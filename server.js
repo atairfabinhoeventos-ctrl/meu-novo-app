@@ -1,5 +1,5 @@
 // backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com sync de objetos) ---");
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com regex corrigido) ---");
 
 require('dotenv').config();
 
@@ -102,7 +102,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM (ATUALIZADA) ---
+// --- ROTA DE SYNC PARA A NUVEM ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -117,7 +117,6 @@ app.post('/api/cloud-sync', async (req, res) => {
 
     let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
 
-    // Lógica para Garçons (Atualizada)
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "Nome Garçom", "Nº Maquina", "Valor Total Venda", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
@@ -135,7 +134,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
         const toAdd = [], toUpdate = [];
         rows.forEach(row => {
-            const p = row[1] ? String(row[1]).trim() : null; // Protocolo está no índice 1
+            const p = row[1] ? String(row[1]).trim() : null;
             if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
             else toAdd.push(row);
         });
@@ -145,7 +144,6 @@ app.post('/api/cloud-sync', async (req, res) => {
       }
     }
 
-    // Lógica para Caixas (Atualizada)
     if (cashierData && cashierData.length > 0) {
       const sheetName = `Caixas - ${eventName}`;
       const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
@@ -163,7 +161,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
         const toAdd = [], toUpdate = [];
         rows.forEach(row => {
-            const p = row[0] ? String(row[0]).trim() : null; // Protocolo está no índice 0
+            const p = row[0] ? String(row[0]).trim() : null;
             if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
             else toAdd.push(row);
         });
@@ -235,42 +233,77 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
                     const type = rowObj['Tipo'] || '';
                     const protocol = rowObj['Protocolo'] || '';
-
-                    const baseCashierObject = {
-                        protocol,
-                        eventName,
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
-                        cpf: rowObj['CPF'],
-                        cashierName: rowObj['Nome do Caixa'],
-                        numeroMaquina: rowObj['Nº Máquina'],
-                        valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                        credito: parseCurrency(rowObj['Crédito']),
-                        debito: parseCurrency(rowObj['Débito']),
-                        pix: parseCurrency(rowObj['Pix']),
-                        cashless: parseCurrency(rowObj['Cashless']),
-                        valorTroco: parseCurrency(rowObj['Troco']),
-                        temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                        dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
-                        valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                        diferenca: parseCurrency(rowObj['Diferença']),
-                    };
-
+                    
                     if (type === 'Fixo') {
+                        const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
                         return {
-                            ...baseCashierObject,
-                            type: 'individual_fixed_cashier',
-                            groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')),
+                            protocol: groupProtocol,
+                            type: 'fixed_cashier',
+                            eventName: eventName,
+                            operatorName: rowObj['Operador'],
+                            timestamp: rowObj['Data'],
+                            valorTroco: parseCurrency(rowObj['Troco']),
+                            caixas: [{
+                                cpf: rowObj['CPF'],
+                                cashierName: rowObj['Nome do Caixa'],
+                                numeroMaquina: rowObj['Nº Máquina'],
+                                valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+                                credito: parseCurrency(rowObj['Crédito']),
+                                debito: parseCurrency(rowObj['Débito']),
+                                pix: parseCurrency(rowObj['Pix']),
+                                cashless: parseCurrency(rowObj['Cashless']),
+                                temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+                                valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+                                // A LINHA COM ERRO ESTAVA AQUI, AGORA CORRIGIDA
+                                dinheiroFisico: parseFloat(String(rowObj['DINHEIRO FÍSICO'] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
+                                valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+                                diferenca: parseCurrency(rowObj['Diferença'])
+                            }]
                         };
                     } else { // Assume Móvel
                         return {
-                            ...baseCashierObject,
                             type: 'cashier',
+                            protocol,
+                            eventName,
+                            operatorName: rowObj['Operador'],
+                            timestamp: rowObj['Data'],
+                            cpf: rowObj['CPF'],
+                            cashierName: rowObj['Nome do Caixa'],
+                            numeroMaquina: rowObj['Nº Máquina'],
+                            valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+                            credito: parseCurrency(rowObj['Crédito']),
+                            debito: parseCurrency(rowObj['Débito']),
+                            pix: parseCurrency(rowObj['Pix']),
+                            cashless: parseCurrency(rowObj['Cashless']),
+                            temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+                            valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+                            valorTroco: parseCurrency(rowObj['Troco']),
+                            dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
+                            valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+                            diferenca: parseCurrency(rowObj['Diferença']),
                         };
                     }
+                }).filter(Boolean); // Filtra quaisquer linhas que possam ter resultado em nulo
+                
+                // Reagrupa os caixas fixos que foram separados
+                const groupMap = new Map();
+                data.forEach(item => {
+                    if (item.type === 'fixed_cashier') {
+                        if (!groupMap.has(item.protocol)) {
+                            groupMap.set(item.protocol, item);
+                        } else {
+                            groupMap.get(item.protocol).caixas.push(...item.caixas);
+                        }
+                    } else {
+                        allClosings.push(item);
+                    }
                 });
-                allClosings.push(...data.filter(Boolean));
+
+                groupMap.forEach(group => {
+                    const totalDiferencaGrupo = group.caixas.reduce((sum, c) => sum + (c.diferenca || 0), 0);
+                    group.diferencaCaixa = totalDiferencaGrupo;
+                    allClosings.push(group);
+                });
             }
         }
 
@@ -284,7 +317,7 @@ app.post('/api/online-history', async (req, res) => {
                     if (day && month && year) {
                         const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
                         const parsedDate = new Date(isoDateString);
-if (!isNaN(parsedDate)) finalDate = parsedDate;
+                        if (!isNaN(parsedDate)) finalDate = parsedDate;
                     }
                 }
             }
