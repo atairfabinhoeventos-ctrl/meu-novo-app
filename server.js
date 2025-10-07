@@ -1,5 +1,5 @@
 // backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com sync de objetos) ---");
 
 require('dotenv').config();
 
@@ -10,10 +10,7 @@ const path = require('path');
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
-
-// --- CONFIGURAÇÃO DE CORS ABERTA PARA DEBUG ---
-// Lembre-se de restringir isso no futuro, como discutimos
-app.use(cors());
+app.use(cors()); // Permite acesso de qualquer origem
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
@@ -105,7 +102,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM ---
+// --- ROTA DE SYNC PARA A NUVEM (ATUALIZADA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -118,213 +115,192 @@ app.post('/api/cloud-sync', async (req, res) => {
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
 
-    let newWaitersCount = 0, updatedWaitersCount = 0, newCashiersCount = 0, updatedCashiersCount = 0;
+    let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
 
-    if (waiterData?.data?.length > 0) {
+    // Lógica para Garçons (Atualizada)
+    if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
+      const header = [ "Data", "Protocolo", "Nome Garçom", "Nº Maquina", "Valor Total Venda", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
       const sheet = sheets.find(s => s.properties.title === sheetName);
       
+      const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
+
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: waiterData.data } });
-        newWaitersCount = waiterData.data.length;
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
+        newW = rows.length;
       } else {
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!B:B` });
-        const protocolMap = new Map((response.data.values || []).map((row, index) => row[0] ? [row[0].trim(), index + 2] : null).filter(Boolean));
-        
-        const rowsToAppend = [], updatesToPerform = [];
-        waiterData.data.forEach(row => {
-            const protocol = row[1] ? row[1].trim() : null;
-            if (protocol && protocolMap.has(protocol)) {
-                updatesToPerform.push({ range: `${sheetName}!A${protocolMap.get(protocol)}`, values: [row] });
-            } else {
-                rowsToAppend.push(row);
-            }
+        const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
+        const toAdd = [], toUpdate = [];
+        rows.forEach(row => {
+            const p = row[1] ? String(row[1]).trim() : null; // Protocolo está no índice 1
+            if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
+            else toAdd.push(row);
         });
-
-        if (rowsToAppend.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
-        if (updatesToPerform.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform } });
-        
-        newWaitersCount = rowsToAppend.length;
-        updatedWaitersCount = updatesToPerform.length;
+        if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
+        if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
+        newW = toAdd.length; updatedW = toUpdate.length;
       }
     }
 
-    if (cashierData?.data?.length > 0) {
+    // Lógica para Caixas (Atualizada)
+    if (cashierData && cashierData.length > 0) {
       const sheetName = `Caixas - ${eventName}`;
+      const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
       const sheet = sheets.find(s => s.properties.title === sheetName);
+
+      const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: cashierData.data } });
-        newCashiersCount = cashierData.data.length;
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
+        newC = rows.length;
       } else {
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:A` });
-        const protocolMap = new Map((response.data.values || []).map((row, index) => row[0] ? [row[0].trim(), index + 2] : null).filter(Boolean));
-        
-        const rowsToAppend = [], updatesToPerform = [];
-        cashierData.data.forEach(row => {
-            const protocol = row[0] ? row[0].trim() : null;
-            if (protocol && protocolMap.has(protocol)) {
-                updatesToPerform.push({ range: `${sheetName}!A${protocolMap.get(protocol)}`, values: [row] });
-            } else {
-                rowsToAppend.push(row);
-            }
+        const pMap = new Map((response.data.values || []).map((r, i) => r[0] ? [r[0].trim(), i + 2] : null).filter(Boolean));
+        const toAdd = [], toUpdate = [];
+        rows.forEach(row => {
+            const p = row[0] ? String(row[0]).trim() : null; // Protocolo está no índice 0
+            if (p && pMap.has(p)) toUpdate.push({ range: `${sheetName}!A${pMap.get(p)}`, values: [row] });
+            else toAdd.push(row);
         });
-
-        if (rowsToAppend.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
-        if (updatesToPerform.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform } });
-        
-        newCashiersCount = rowsToAppend.length;
-        updatedCashiersCount = updatesToPerform.length;
+        if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
+        if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
+        newC = toAdd.length; updatedC = toUpdate.length;
       }
     }
 
-    res.status(200).json({ newWaiters: newWaitersCount, updatedWaiters: updatedWaitersCount, newCashiers: newCashiersCount, updatedCashiers: updatedCashiersCount });
+    res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao salvar na nuvem.' });
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO COMPLETO RESTAURADO) ---
+
+// --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
-  const { eventName, password } = req.body;
+    const { eventName, password } = req.body;
+    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
 
-  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-    return res.status(401).json({ message: 'Acesso não autorizado.' });
-  }
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const waiterSheetName = `Garçons - ${eventName}`;
+        const cashierSheetName = `Caixas - ${eventName}`;
 
-  try {
-    const googleSheets = await getGoogleSheetsClient();
-    const waiterSheetName = `Garçons - ${eventName}`;
-    const cashierSheetName = `Caixas - ${eventName}`;
+        const [waiterResult, cashierResult] = await Promise.allSettled([
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+        ]);
 
-    const [waiterResult, cashierResult] = await Promise.allSettled([
-      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
-    ]);
+        let allClosings = [];
+        const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
-    let allClosings = [];
-    const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-
-    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
-      const [header, ...rows] = waiterResult.value.data.values;
-      if(header && rows.length > 0) {
-        const data = rows.map(row => {
-          const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-          const closingObject = {
-              type: 'waiter',
-              waiterName: rowObj['NOME GARÇOM'],
-              protocol: rowObj['PROTOCOLO'],
-              valorTotal: parseCurrency(rowObj['VALOR VENDA TOTAL']),
-              valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
-              comissaoTotal: parseCurrency(rowObj['COMISSÃO TOTAL']),
-              diferencaPagarReceber: parseCurrency(rowObj['ACERTO']),
-              credito: parseCurrency(rowObj['CRÉDITO']),
-              debito: parseCurrency(rowObj['DÉBITO']),
-              pix: parseCurrency(rowObj['PIX']),
-              cashless: parseCurrency(rowObj['CASHLESS']),
-              numeroMaquina: rowObj['Nº MÁQUINA'],
-              operatorName: rowObj['OPERADOR'],
-              timestamp: rowObj['DATA'],
-          };
-          closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
-          closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
-          return closingObject;
-        });
-        allClosings.push(...data);
-      }
-    }
-
-    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
-        const [header, ...rows] = cashierResult.value.data.values;
-        if(header && rows.length > 0) {
-            const data = rows.map(row => {
-                const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                const type = rowObj['TIPO'] || '';
-                const protocol = rowObj['PROTOCOLO'] || '';
-
-                if (type === 'Fixo') {
-                    const groupProtocol = protocol.substring(0, protocol.lastIndexOf('-'));
-                    return {
-                        type: 'individual_fixed_cashier',
-                        protocol,
-                        groupProtocol,
-                        eventName,
-                        operatorName: rowObj['OPERADOR'],
-                        timestamp: rowObj['DATA'],
-                        cpf: rowObj['CPF'],
-                        cashierName: rowObj['NOME DO CAIXA'],
-                        numeroMaquina: rowObj['Nº MÁQUINA'],
-                        valorTotalVenda: parseCurrency(rowObj['VENDA TOTAL']),
-                        credito: parseCurrency(rowObj['CRÉDITO']),
-                        debito: parseCurrency(rowObj['DÉBITO']),
-                        pix: parseCurrency(rowObj['PIX']),
-                        cashless: parseCurrency(rowObj['CASHLESS']),
-                        valorTroco: parseCurrency(rowObj['TROCO']),
-                        temEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']) > 0,
-                        valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
-                        dinheiroFisico: parseCurrency(rowObj['DINHEIRO FÍSICO']),
-                        diferenca: parseCurrency(rowObj['DIFERENÇA']),
+        if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
+            const [header, ...rows] = waiterResult.value.data.values;
+            if (header && rows.length > 0) {
+                const data = rows.map(row => {
+                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+                    const closingObject = {
+                        type: 'waiter',
+                        waiterName: rowObj['Nome Garçom'],
+                        protocol: rowObj['Protocolo'],
+                        valorTotal: parseCurrency(rowObj['Valor Total Venda']),
+                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+                        comissaoTotal: parseCurrency(rowObj['Comissão Total']),
+                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
+                        credito: parseCurrency(rowObj['Crédito']),
+                        debito: parseCurrency(rowObj['Débito']),
+                        pix: parseCurrency(rowObj['Pix']),
+                        cashless: parseCurrency(rowObj['Cashless']),
+                        numeroMaquina: rowObj['Nº Maquina'],
+                        operatorName: rowObj['Operador'],
+                        timestamp: rowObj['Data'],
                     };
-                } else { // Assume Móvel
-                    return {
-                        type: 'cashier',
-                        protocol,
-                        eventName,
-                        operatorName: rowObj['OPERADOR'],
-                        timestamp: rowObj['DATA'],
-                        cpf: rowObj['CPF'],
-                        cashierName: rowObj['NOME DO CAIXA'],
-                        numeroMaquina: rowObj['Nº MÁQUINA'],
-                        valorTotalVenda: parseCurrency(rowObj['VENDA TOTAL']),
-                        credito: parseCurrency(rowObj['CRÉDITO']),
-                        debito: parseCurrency(rowObj['DÉBITO']),
-                        pix: parseCurrency(rowObj['PIX']),
-                        cashless: parseCurrency(rowObj['CASHLESS']),
-                        valorTroco: parseCurrency(rowObj['TROCO']),
-                        temEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']) > 0,
-                        valorEstorno: parseCurrency(rowObj['DEVOLUÇÃO ESTORNO']),
-                        dinheiroFisico: parseCurrency(rowObj['DINHEIRO FÍSICO']),
-                        valorAcerto: parseCurrency(rowObj['VALOR ACERTO']),
-                        diferenca: parseCurrency(rowObj['DIFERENÇA']),
-                    };
-                }
-            });
-            allClosings.push(...data.filter(Boolean));
+                    closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
+                    closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
+                    return closingObject;
+                });
+                allClosings.push(...data);
+            }
         }
+
+        if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
+            const [header, ...rows] = cashierResult.value.data.values;
+            if (header && rows.length > 0) {
+                const data = rows.map(row => {
+                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
+                    const type = rowObj['Tipo'] || '';
+                    const protocol = rowObj['Protocolo'] || '';
+
+                    const baseCashierObject = {
+                        protocol,
+                        eventName,
+                        operatorName: rowObj['Operador'],
+                        timestamp: rowObj['Data'],
+                        cpf: rowObj['CPF'],
+                        cashierName: rowObj['Nome do Caixa'],
+                        numeroMaquina: rowObj['Nº Máquina'],
+                        valorTotalVenda: parseCurrency(rowObj['Venda Total']),
+                        credito: parseCurrency(rowObj['Crédito']),
+                        debito: parseCurrency(rowObj['Débito']),
+                        pix: parseCurrency(rowObj['Pix']),
+                        cashless: parseCurrency(rowObj['Cashless']),
+                        valorTroco: parseCurrency(rowObj['Troco']),
+                        temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
+                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
+                        dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
+                        valorAcerto: parseCurrency(rowObj['Valor Acerto']),
+                        diferenca: parseCurrency(rowObj['Diferença']),
+                    };
+
+                    if (type === 'Fixo') {
+                        return {
+                            ...baseCashierObject,
+                            type: 'individual_fixed_cashier',
+                            groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')),
+                        };
+                    } else { // Assume Móvel
+                        return {
+                            ...baseCashierObject,
+                            type: 'cashier',
+                        };
+                    }
+                });
+                allClosings.push(...data.filter(Boolean));
+            }
+        }
+
+        allClosings.forEach(closing => {
+            const dateString = closing.timestamp;
+            let finalDate = new Date(0);
+            if (dateString && typeof dateString === 'string') {
+                const [datePart, timePart] = dateString.split(' ');
+                if (datePart && timePart) {
+                    const [day, month, year] = datePart.split('/');
+                    if (day && month && year) {
+                        const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
+                        const parsedDate = new Date(isoDateString);
+if (!isNaN(parsedDate)) finalDate = parsedDate;
+                    }
+                }
+            }
+            closing.timestamp = finalDate.toISOString();
+        });
+
+        if (allClosings.length === 0) {
+            return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
+        }
+        res.status(200).json(allClosings);
+    } catch (error) {
+        console.error('Erro ao buscar histórico online (versão unificada):', error);
+        res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
     }
-
-    allClosings.forEach(closing => {
-      const dateString = closing.timestamp;
-      let finalDate = new Date(0);
-      if (dateString && typeof dateString === 'string') {
-          const [datePart, timePart] = dateString.split(' ');
-          if (datePart && timePart) {
-              const [day, month, year] = datePart.split('/');
-              if (day && month && year) {
-                const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}`;
-                const parsedDate = new Date(isoDateString);
-                if (!isNaN(parsedDate)) finalDate = parsedDate;
-              }
-          }
-      }
-      closing.timestamp = finalDate.toISOString();
-    });
-
-    if (allClosings.length === 0) {
-      return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
-    }
-
-    res.status(200).json(allClosings);
-
-  } catch (error) {
-    console.error('Erro ao buscar histórico online (versão unificada):', error);
-    res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
-  }
 });
+
 
 // --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {

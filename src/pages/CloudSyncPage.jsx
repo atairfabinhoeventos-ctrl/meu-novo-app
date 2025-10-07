@@ -1,4 +1,4 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA COM FILTRO ROBUSTO)
+// src/pages/CloudSyncPage.jsx (VERSÃO ATUALIZADA COM ENVIO DE OBJETOS)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -24,12 +24,7 @@ function CloudSyncPage() {
 
   const handleCloudSync = async () => {
     if (!activeEvent) {
-      setFeedbackModal({
-        isOpen: true,
-        title: 'Atenção',
-        message: 'Nenhum evento ativo selecionado. Por favor, selecione um evento na tela inicial.',
-        status: 'error'
-      });
+      setFeedbackModal({ isOpen: true, title: 'Atenção', message: 'Nenhum evento ativo selecionado.', status: 'error' });
       return;
     }
     setIsLoading(true);
@@ -39,45 +34,84 @@ function CloudSyncPage() {
       const eventClosings = allClosings.filter(c => c.eventName === activeEvent);
 
       if (eventClosings.length === 0) {
-        setFeedbackModal({
-          isOpen: true,
-          title: 'Nenhuma Ação Necessária',
-          message: `Nenhum fechamento local encontrado para o evento "${activeEvent}". Nada a enviar.`,
-          status: 'success'
-        });
+        setFeedbackModal({ isOpen: true, title: 'Nenhuma Ação Necessária', message: `Nenhum fechamento local para "${activeEvent}".`, status: 'success' });
         setIsLoading(false);
         return;
       }
 
-      const waiterClosings = eventClosings.filter(c => c.type === 'waiter');
-      
-      // --- INÍCIO DA CORREÇÃO ---
-      // Filtro corrigido para incluir Caixas Fixos antigos (sem a propriedade 'type')
-      const cashierClosings = eventClosings.filter(c => c.type === 'cashier' || Array.isArray(c.caixas));
-      // --- FIM DA CORREÇÃO ---
-      
-      const waiterHeader = [ "DATA", "PROTOCOLO", "NOME GARÇOM", "Nº MÁQUINA", "VALOR VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "DEVOLUÇÃO ESTORNO", "COMISSÃO TOTAL", "ACERTO", "OPERADOR"];
-      const waiterData = waiterClosings.map(c => [ new Date(c.timestamp).toLocaleString('pt-BR'), c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.temEstorno ? c.valorEstorno : 0, c.comissaoTotal, c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber, c.operatorName ]);
-      
-      const cashierHeader = [ "PROTOCOLO", "DATA", "TIPO", "CPF", "NOME DO CAIXA", "Nº MÁQUINA", "VENDA TOTAL", "CRÉDITO", "DÉBITO", "PIX", "CASHLESS", "TROCO", "DEVOLUÇÃO ESTORNO", "DINHEIRO FÍSICO", "VALOR ACERTO", "DIFERENÇA", "OPERADOR" ];
-      let cashierData = [];
-      cashierClosings.forEach(c => {
-        // A lógica para desmembrar os caixas fixos continua a mesma e está correta
-        if (Array.isArray(c.caixas)) { // Identifica um caixa fixo (novo ou antigo)
-          c.caixas.forEach((caixa, index) => {
-            const uniqueProtocol = `${c.protocol}-${index}`;
-            const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
-            cashierData.push([ uniqueProtocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Fixo', caixa.cpf, caixa.cashierName, caixa.numeroMaquina, caixa.valorTotalVenda, caixa.credito, caixa.debito, caixa.pix, caixa.cashless, c.valorTroco, caixa.temEstorno ? caixa.valorEstorno : 0, caixa.dinheiroFisico, acertoCaixa, caixa.dinheiroFisico - acertoCaixa, c.operatorName ]);
-          });
-        } else if (c.type === 'cashier') { // Identifica um caixa móvel
-           cashierData.push([ c.protocol, new Date(c.timestamp).toLocaleString('pt-BR'), 'Móvel', c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.temEstorno ? c.valorEstorno : 0, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
-        }
-      });
+      // --- INÍCIO DA MUDANÇA: AGORA ENVIAMOS OBJETOS, NÃO ARRAYS ---
+      const waiterData = eventClosings
+        .filter(c => c.type === 'waiter')
+        .map(c => ({
+            timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
+            protocol: c.protocol,
+            waiterName: c.waiterName,
+            numeroMaquina: c.numeroMaquina,
+            valorTotal: c.valorTotal,
+            credito: c.credito,
+            debito: c.debito,
+            pix: c.pix,
+            cashless: c.cashless,
+            valorEstorno: c.temEstorno ? c.valorEstorno : 0,
+            comissaoTotal: c.comissaoTotal,
+            acerto: c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber,
+            operatorName: c.operatorName
+        }));
+
+      const cashierData = eventClosings
+        .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
+        .flatMap(c => {
+            if (Array.isArray(c.caixas)) { // Caixa Fixo (Grupo)
+                return c.caixas.map((caixa, index) => {
+                    const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
+                    return {
+                        protocol: `${c.protocol}-${index}`,
+                        timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
+                        type: 'Fixo',
+                        cpf: caixa.cpf,
+                        cashierName: caixa.cashierName,
+                        numeroMaquina: caixa.numeroMaquina,
+                        valorTotalVenda: caixa.valorTotalVenda,
+                        credito: caixa.credito,
+                        debito: caixa.debito,
+                        pix: caixa.pix,
+                        cashless: caixa.cashless,
+                        valorTroco: c.valorTroco,
+                        valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0,
+                        dinheiroFisico: caixa.dinheiroFisico,
+                        valorAcerto: acertoCaixa,
+                        diferenca: caixa.dinheiroFisico - acertoCaixa,
+                        operatorName: c.operatorName
+                    };
+                });
+            } else { // Caixa Móvel
+                return [{
+                    protocol: c.protocol,
+                    timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
+                    type: 'Móvel',
+                    cpf: c.cpf,
+                    cashierName: c.cashierName,
+                    numeroMaquina: c.numeroMaquina,
+                    valorTotalVenda: c.valorTotalVenda,
+                    credito: c.credito,
+                    debito: c.debito,
+                    pix: c.pix,
+                    cashless: c.cashless,
+                    valorTroco: c.valorTroco,
+                    valorEstorno: c.temEstorno ? c.valorEstorno : 0,
+                    dinheiroFisico: c.dinheiroFisico,
+                    valorAcerto: c.valorAcerto,
+                    diferenca: c.diferenca,
+                    operatorName: c.operatorName
+                }];
+            }
+        });
+      // --- FIM DA MUDANÇA ---
 
       const response = await axios.post(`${API_URL}/api/cloud-sync`, {
         eventName: activeEvent,
-        waiterData: { header: waiterHeader, data: waiterData },
-        cashierData: { header: cashierHeader, data: cashierData }
+        waiterData: waiterData,   // Envia o array de objetos
+        cashierData: cashierData, // Envia o array de objetos
       });
       
       const { newWaiters, updatedWaiters, newCashiers, updatedCashiers } = response.data;
@@ -89,37 +123,20 @@ function CloudSyncPage() {
       if (updatedCashiers > 0) messageParts.push(`- ${updatedCashiers} fechamento(s) de caixa atualizados.`);
 
       if (messageParts.length === 0) {
-        setFeedbackModal({
-          isOpen: true,
-          title: 'Tudo Certo!',
-          message: 'Todos os dados locais já estavam sincronizados com a nuvem. Nenhuma ação foi necessária.',
-          status: 'success'
-        });
+        setFeedbackModal({ isOpen: true, title: 'Tudo Certo!', message: 'Todos os dados locais já estavam sincronizados.', status: 'success' });
       } else {
-        setFeedbackModal({
-          isOpen: true,
-          title: 'Sincronização Concluída!',
-          message: messageParts.join('<br/>'),
-          status: 'success'
-        });
+        setFeedbackModal({ isOpen: true, title: 'Sincronização Concluída!', message: messageParts.join('<br/>'), status: 'success' });
       }
 
     } catch (error) {
       console.error('Erro ao sincronizar:', error);
       const errorMessage = error.response?.data?.message || 'Falha na comunicação com o servidor.';
-      
-      setFeedbackModal({
-        isOpen: true,
-        title: 'Ocorreu um Erro',
-        message: errorMessage,
-        status: 'error'
-      });
+      setFeedbackModal({ isOpen: true, title: 'Ocorreu um Erro', message: errorMessage, status: 'error' });
     } finally {
       setIsLoading(false);
     }
   };
   
-  // ... (O restante do arquivo continua o mesmo)
   const closeFeedbackModal = () => {
     setFeedbackModal({ isOpen: false, title: '', message: '', status: '' });
   };
@@ -133,30 +150,20 @@ function CloudSyncPage() {
         message={feedbackModal.message}
         status={feedbackModal.status}
       />
-
       <div className="cloud-sync-card">
         <h1>☁️ Enviar Dados para Nuvem</h1>
-        
         {activeEvent ? (
           <>
-            <p>
-              Você está prestes a enviar todos os fechamentos salvos localmente do evento:
-            </p>
-            <div className="active-event-display">
-              {activeEvent}
-            </div>
+            <p>Você está prestes a enviar todos os fechamentos salvos localmente do evento:</p>
+            <div className="active-event-display">{activeEvent}</div>
           </>
         ) : (
-          <p className="error-message">
-            Nenhum evento ativo. Por favor, retorne ao início e selecione um evento para continuar.
-          </p>
+          <p className="error-message">Nenhum evento ativo. Por favor, retorne ao início e selecione um evento.</p>
         )}
-        
         <button onClick={handleCloudSync} disabled={isLoading || !activeEvent}>
           {isLoading ? 'Enviando...' : 'Iniciar Envio para Nuvem'}
         </button>
       </div>
-
       {isLoading && (
         <div className="modal-overlay">
           <div className="loading-container">
