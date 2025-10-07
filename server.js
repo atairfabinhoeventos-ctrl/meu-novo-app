@@ -1,5 +1,5 @@
 // backend/server.js (VERSÃO FINAL E COMPLETA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO ---");
+console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com export e sync) ---");
 
 require('dotenv').config();
 
@@ -10,7 +10,21 @@ const path = require('path');
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
-app.use(cors({ origin: '*' }));
+
+// --- CONFIGURAÇÃO DE CORS MAIS ROBUSTA ---
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://seu-frontend.onrender.com' // SUBSTITUA PELO SEU ENDEREÇO QUANDO TIVER
+];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
@@ -102,7 +116,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA ATUALIZADA: ENVIAR DADOS PARA A NUVEM (COM LÓGICA DE UPDATE) ---
+// --- ROTA DE SYNC PARA A NUVEM (CORRIGIDA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   
@@ -115,93 +129,64 @@ app.post('/api/cloud-sync', async (req, res) => {
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
 
-    let newWaitersCount = 0;
-    let updatedWaitersCount = 0;
-    let newCashiersCount = 0;
-    let updatedCashiersCount = 0;
+    let newWaitersCount = 0, updatedWaitersCount = 0, newCashiersCount = 0, updatedCashiersCount = 0;
 
-    // --- LÓGICA PARA GARÇONS ---
-    if (waiterData && waiterData.data && waiterData.data.length > 0) {
-      const waiterSheetName = `Garçons - ${eventName}`;
-      const sheet = sheets.find(s => s.properties.title === waiterSheetName);
+    if (waiterData?.data?.length > 0) {
+      const sheetName = `Garçons - ${eventName}`;
+      const sheet = sheets.find(s => s.properties.title === sheetName);
       
       if (!sheet) {
-        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: waiterSheetName } } }] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: waiterData.data } });
+        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [waiterData.header] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: waiterData.data } });
         newWaitersCount = waiterData.data.length;
       } else {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!B:B` });
-        const existingProtocols = response.data.values || [];
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!B:B` });
+        const protocolMap = new Map((response.data.values || []).map((row, index) => row[0] ? [row[0].trim(), index + 2] : null).filter(Boolean));
         
-        const protocolMap = new Map();
-        existingProtocols.forEach((row, index) => {
-            if (row[0]) protocolMap.set(row[0].trim(), index + 2);
-        });
-
-        const rowsToAppend = [];
-        const updatesToPerform = [];
+        const rowsToAppend = [], updatesToPerform = [];
         waiterData.data.forEach(row => {
-            const protocol = row[1];
-            if (protocolMap.has(protocol)) {
-                updatesToPerform.push({ range: `${waiterSheetName}!A${protocolMap.get(protocol)}`, values: [row] });
+            const protocol = row[1] ? row[1].trim() : null;
+            if (protocol && protocolMap.has(protocol)) {
+                updatesToPerform.push({ range: `${sheetName}!A${protocolMap.get(protocol)}`, values: [row] });
             } else {
                 rowsToAppend.push(row);
             }
         });
 
-        if (rowsToAppend.length > 0) {
-            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
-        }
+        if (rowsToAppend.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
+        if (updatesToPerform.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform } });
         
-        if (updatesToPerform.length > 0) {
-            await googleSheets.spreadsheets.values.batchUpdate({
-                spreadsheetId: spreadsheetId_cloud_sync,
-                resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform }
-            });
-        }
         newWaitersCount = rowsToAppend.length;
         updatedWaitersCount = updatesToPerform.length;
       }
     }
 
-    // --- LÓGICA PARA CAIXAS ---
-    if (cashierData && cashierData.data && cashierData.data.length > 0) {
-      const cashierSheetName = `Caixas - ${eventName}`;
-      const sheet = sheets.find(s => s.properties.title === cashierSheetName);
+    if (cashierData?.data?.length > 0) {
+      const sheetName = `Caixas - ${eventName}`;
+      const sheet = sheets.find(s => s.properties.title === sheetName);
       if (!sheet) {
-        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: cashierSheetName } } }] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: cashierData.data } });
+        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [cashierData.header] } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: cashierData.data } });
         newCashiersCount = cashierData.data.length;
       } else {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:A` });
-        const existingProtocols = response.data.values || [];
-        const protocolMap = new Map();
-        existingProtocols.forEach((row, index) => {
-            if (row[0]) protocolMap.set(row[0].trim(), index + 2);
-        });
-
-        const rowsToAppend = [];
-        const updatesToPerform = [];
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:A` });
+        const protocolMap = new Map((response.data.values || []).map((row, index) => row[0] ? [row[0].trim(), index + 2] : null).filter(Boolean));
+        
+        const rowsToAppend = [], updatesToPerform = [];
         cashierData.data.forEach(row => {
-            const protocol = row[0];
-            if (protocolMap.has(protocol)) {
-                updatesToPerform.push({ range: `${cashierSheetName}!A${protocolMap.get(protocol)}`, values: [row] });
+            const protocol = row[0] ? row[0].trim() : null;
+            if (protocol && protocolMap.has(protocol)) {
+                updatesToPerform.push({ range: `${sheetName}!A${protocolMap.get(protocol)}`, values: [row] });
             } else {
                 rowsToAppend.push(row);
             }
         });
 
-        if (rowsToAppend.length > 0) {
-            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
-        }
-        if (updatesToPerform.length > 0) {
-            await googleSheets.spreadsheets.values.batchUpdate({
-                spreadsheetId: spreadsheetId_cloud_sync,
-                resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform }
-            });
-        }
+        if (rowsToAppend.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rowsToAppend } });
+        if (updatesToPerform.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: updatesToPerform } });
+        
         newCashiersCount = rowsToAppend.length;
         updatedCashiersCount = updatesToPerform.length;
       }
@@ -214,16 +199,12 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-
-// --- ROTA PARA CONSULTAR HISTÓRICO ONLINE (COM REAGRUPAMENTO DE CAIXAS FIXOS) ---
+// --- ROTA DE HISTÓRICO ONLINE (CONTEÚDO RESTAURADO E CORRETO) ---
 app.post('/api/online-history', async (req, res) => {
   const { eventName, password } = req.body;
 
-  if (!eventName || !password) {
-    return res.status(400).json({ message: 'Nome do evento e senha são obrigatórios.' });
-  }
-  if (password !== process.env.ONLINE_HISTORY_PASSWORD) {
-    return res.status(401).json({ message: 'Senha incorreta.' });
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Acesso não autorizado.' });
   }
 
   try {
@@ -395,69 +376,53 @@ app.post('/api/online-history', async (req, res) => {
 });
 
 
-// --- ROTA PARA EXPORTAR DADOS DA NUVEM POR EVENTO ---
+// --- ROTA DE EXPORTAÇÃO (CORRIGIDA) ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
 
-  if (!eventName) {
-    return res.status(400).json({ message: 'O nome do evento é obrigatório.' });
-  }
-  if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-    return res.status(401).json({ message: 'Senha incorreta.' });
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+    return res.status(401).json({ message: 'Acesso não autorizado.' });
   }
 
   try {
     const googleSheets = await getGoogleSheetsClient();
-    
-    const waiterSheetName = `Garçons - ${eventName}`;
-    const cashierSheetName = `Caixas - ${eventName}`;
-    
-    const [waiterResult, cashierResult] = await Promise.allSettled([
-      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-      googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
-    ]);
+    let consolidatedWaiters = [], consolidatedCashiers = [];
 
-    let consolidatedWaiters = [];
-    let consolidatedCashiers = [];
+    try {
+      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Garçons - ${eventName}` });
+      if (response.data.values && response.data.values.length > 1) {
+          const header = response.data.values[0].map(h => String(h).trim());
+          consolidatedWaiters = response.data.values.slice(1).map(row => {
+              const rowData = { eventName };
+              header.forEach((key, index) => rowData[key] = row[index] || '');
+              return rowData;
+          });
+      }
+    } catch (e) { console.log(`Aba de Garçons para o evento "${eventName}" não encontrada. Continuando...`); }
 
-    if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
-        const rows = waiterResult.value.data.values;
-        if (rows.length > 1) {
-            const header = rows[0].map(h => String(h).trim());
-            const data = rows.slice(1);
-            data.forEach(row => {
-                const rowData = { eventName };
-                header.forEach((key, index) => rowData[key] = row[index]);
-                consolidatedWaiters.push(rowData);
-            });
-        }
-    }
-
-    if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
-        const rows = cashierResult.value.data.values;
-        if (rows.length > 1) {
-            const header = rows[0].map(h => String(h).trim());
-            const data = rows.slice(1);
-            data.forEach(row => {
-                const rowData = { eventName };
-                header.forEach((key, index) => rowData[key] = row[index]);
-                consolidatedCashiers.push(rowData);
-            });
-        }
-    }
+    try {
+      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Caixas - ${eventName}` });
+      if (response.data.values && response.data.values.length > 1) {
+          const header = response.data.values[0].map(h => String(h).trim());
+          consolidatedCashiers = response.data.values.slice(1).map(row => {
+              const rowData = { eventName };
+              header.forEach((key, index) => rowData[key] = row[index] || '');
+              return rowData;
+          });
+      }
+    } catch (e) { console.log(`Aba de Caixas para o evento "${eventName}" não encontrada. Continuando...`); }
 
     if (consolidatedWaiters.length === 0 && consolidatedCashiers.length === 0) {
-        return res.status(404).json({ message: 'Nenhum dado de garçom ou caixa foi encontrado para este evento na nuvem.' });
+        return res.status(404).json({ message: 'Nenhum dado encontrado para este evento na nuvem.' });
     }
 
     res.status(200).json({ waiters: consolidatedWaiters, cashiers: consolidatedCashiers });
 
   } catch (error) {
     console.error('Erro ao exportar dados da nuvem por evento:', error);
-    res.status(500).json({ message: 'Erro interno do servidor ao processar os dados da planilha.' });
+    res.status(500).json({ message: 'Erro interno do servidor ao processar os dados.' });
   }
 });
-
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3001;

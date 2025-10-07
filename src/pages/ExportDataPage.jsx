@@ -55,41 +55,82 @@ function ExportDataPage() {
   const generateOnlineExcel = async (waitersData, cashiersData) => {
      setLoadingMessage('Gerando planilha Excel...');
      const workbook = new ExcelJS.Workbook();
-     
-    // A lógica para a aba de Garçons permanece a mesma
+     const moneyFormat = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
+
+    // Função auxiliar para converter string de moeda para número, tratando vários formatos
+    const parseCurrencyString = (value) => {
+        if (typeof value === 'number') return value;
+        if (typeof value !== 'string' || value.trim() === '') return 0;
+        // Remove 'R$', espaços, e troca o separador de milhar por nada e a vírgula por ponto
+        const numberString = value.replace("R$", "").trim().replace(/\./g, "").replace(",", ".");
+        return parseFloat(numberString) || 0;
+    };
+
+    // --- Aba de Garçons (COM FORMATAÇÃO) ---
     const waiterSheet = workbook.addWorksheet('Garçons');
-    if (waitersData.length > 0) {
-        const waiterHeaders = Object.keys(waitersData[0]);
-        waiterSheet.columns = waiterHeaders.map(key => ({ header: key, key, width: 25 }));
-        waiterSheet.addRows(waitersData);
+    if (waitersData && waitersData.length > 0) {
+        const waiterColumns = [
+          { header: 'DATA', key: 'DATA', width: 20 },
+          { header: 'PROTOCOLO', key: 'PROTOCOLO', width: 30 },
+          { header: 'NOME GARÇOM', key: 'NOME GARÇOM', width: 30 },
+          { header: 'Nº MÁQUINA', key: 'Nº MÁQUINA', width: 15 },
+          { header: 'VALOR VENDA TOTAL', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'CRÉDITO', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'DÉBITO', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'PIX', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'CASHLESS', key: 'CASHLESS', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'DEVOLUÇÃO ESTORNO', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'COMISSÃO TOTAL', key: 'COMISSÃO TOTAL', width: 20, style: { numFmt: moneyFormat } },
+          { header: 'ACERTO', key: 'ACERTO', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'OPERADOR', key: 'OPERADOR', width: 25 },
+        ];
+        waiterSheet.columns = waiterColumns;
+        waiterSheet.addRows(waitersData.map(row => {
+          const newRow = {...row};
+          waiterColumns.forEach(col => {
+            if (col.style?.numFmt && newRow[col.key]) {
+              newRow[col.key] = parseCurrencyString(newRow[col.key]);
+            }
+          });
+          return newRow;
+        }));
     }
     
-    // --- INÍCIO DA ALTERAÇÃO PARA A ABA DE CAIXAS ---
+    // --- Aba de Caixas (COM FORMATAÇÃO) ---
     const cashierSheet = workbook.addWorksheet('Caixas');
-    if (cashiersData.length > 0) {
-        // 1. A linha que gerava cabeçalhos automáticos foi removida.
-        // 2. Definimos a estrutura exata das colunas (ordem e títulos) que você pediu.
+    if (cashiersData && cashiersData.length > 0) {
         const cashierColumns = [
-          { header: 'Nome do evento', key: 'eventName', width: 30 },
-          { header: 'Nome do caixa', key: 'NOME DO CAIXA', width: 30 },
-          { header: 'Protocolo', key: 'PROTOCOLO', width: 25 },
-          { header: 'Valor venda total', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Troco', key: 'TROCO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Devolução/Estorno', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Crédito', key: 'CRÉDITO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Débito', key: 'DÉBITO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Pix', key: 'PIX', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Cashless', key: 'CASHLESS', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Dinheiro', key: 'DINHEIRO FÍSICO', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Diferença', key: 'DIFERENÇA', width: 20, style: { numFmt: '"R$"#,##0.00' } },
-          { header: 'Número da máquina', key: 'Nº MÁQUINA', width: 20 },
+            { header: 'PROTOCOLO', key: 'PROTOCOLO', width: 30 },
+            { header: 'DATA', key: 'DATA', width: 20 },
+            { header: 'TIPO', key: 'TIPO', width: 10 },
+            { header: 'CPF', key: 'CPF', width: 20 },
+            { header: 'NOME DO CAIXA', key: 'NOME DO CAIXA', width: 30 },
+            { header: 'Nº MÁQUINA', key: 'Nº MÁQUINA', width: 15 },
+            { header: 'VENDA TOTAL', key: 'VENDA TOTAL', width: 20, style: { numFmt: moneyFormat } },
+            { header: 'CRÉDITO', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'DÉBITO', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'PIX', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'CASHLESS', key: 'CASHLESS', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'TROCO', key: 'TROCO', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'DEVOLUÇÃO ESTORNO', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: moneyFormat } },
+            { header: 'DINHEIRO FÍSICO', key: 'DINHEIRO FÍSICO', width: 20, style: { numFmt: moneyFormat } },
+            { header: 'VALOR ACERTO', key: 'VALOR ACERTO', width: 20, style: { numFmt: moneyFormat } },
+            { header: 'DIFERENÇA', key: 'DIFERENÇA', width: 15, style: { numFmt: moneyFormat } },
+            { header: 'OPERADOR', key: 'OPERADOR', width: 25 },
         ];
-
         cashierSheet.columns = cashierColumns;
-        cashierSheet.addRows(cashiersData);
+        cashierSheet.addRows(cashiersData.map(row => {
+          const newRow = {...row};
+          cashierColumns.forEach(col => {
+            if (col.style?.numFmt && newRow[col.key]) {
+              newRow[col.key] = parseCurrencyString(newRow[col.key]);
+            }
+          });
+          return newRow;
+        }));
     }
-    // --- FIM DA ALTERAÇÃO ---
 
+    // Estiliza o cabeçalho
     [waiterSheet, cashierSheet].forEach(sheet => {
         if (sheet.rowCount > 0) {
             sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
