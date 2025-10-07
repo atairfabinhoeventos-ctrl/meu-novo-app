@@ -57,7 +57,6 @@ function ExportDataPage() {
      const workbook = new ExcelJS.Workbook();
      const moneyFormat = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
 
-    // Função auxiliar para converter string de moeda para número, tratando vários formatos
     const parseCurrencyString = (value) => {
         if (typeof value === 'number') return value;
         if (typeof value !== 'string' || value.trim() === '') return 0;
@@ -65,18 +64,18 @@ function ExportDataPage() {
         return parseFloat(numberString) || 0;
     };
 
-    // --- Aba de Garçons (COM A ORDEM CORRIGIDA) ---
+    // --- Aba de Garçons (COM A ORDEM CORRETA) ---
     const waiterSheet = workbook.addWorksheet('Garçons');
     if (waitersData && waitersData.length > 0) {
         const waiterColumns = [
           { header: 'Data', key: 'DATA', width: 20 },
           { header: 'Protocolo', key: 'PROTOCOLO', width: 30 },
           { header: 'Nome Garçom', key: 'NOME GARÇOM', width: 30 },
-          { header: 'Nº Máquina', key: 'Nº MÁQUINA', width: 15 },
+          { header: 'Nº Maquina', key: 'Nº MÁQUINA', width: 15 },
           { header: 'Valor Total Venda', key: 'VALOR VENDA TOTAL', width: 20, style: { numFmt: moneyFormat } },
           { header: 'Crédito', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
           { header: 'Débito', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
-          { header: 'PIX', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
+          { header: 'Pix', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
           { header: 'Cashless', key: 'CASHLESS', width: 15, style: { numFmt: moneyFormat } },
           { header: 'Devolução/Estorno', key: 'DEVOLUÇÃO ESTORNO', width: 20, style: { numFmt: moneyFormat } },
           { header: 'Comissão Total', key: 'COMISSÃO TOTAL', width: 20, style: { numFmt: moneyFormat } },
@@ -95,7 +94,7 @@ function ExportDataPage() {
         }));
     }
     
-    // --- Aba de Caixas (SEM ALTERAÇÃO NA ORDEM) ---
+    // --- Aba de Caixas (SEM ALTERAÇÃO) ---
     const cashierSheet = workbook.addWorksheet('Caixas');
     if (cashiersData && cashiersData.length > 0) {
         const cashierColumns = [
