@@ -85,22 +85,47 @@ app.post('/api/update-base', async (req, res) => {
         addedWaitersCount = newWaiters.length;
       }
     }
-    if (events && events.length > 0) {
-      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
-      const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
-      const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-      if (newEvents.length > 0) {
-        // LÓGICA CORRETA: Prepara os dados para serem inseridos nas colunas A, B (vazio) e C.
-        const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
-        await googleSheets.spreadsheets.values.append({
-            spreadsheetId: spreadsheetId_sync,
-            range: 'Eventos_Teste!A:C', // O intervalo define que a escrita começa na coluna A.
-            valueInputOption: 'USER_ENTERED',
-            resource: { values }
-        });
-        addedEventsCount = newEvents.length;
-      }
-    }
+    // NO ARQUIVO: server.js
+// SUBSTITUA O BLOCO DE CÓDIGO ABAIXO
+
+if (events && events.length > 0) {
+  const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
+  const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
+  const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
+  
+  if (newEvents.length > 0) {
+    // --- INÍCIO DA CORREÇÃO ---
+    
+    // 1. Descobrir qual é a primeira linha vazia para evitar o erro do 'append'
+    const getSheetData = await googleSheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId_sync,
+        range: 'Eventos!A:A', // Lê a coluna A para contar as linhas existentes
+    });
+    const lastRow = getSheetData.data.values ? getSheetData.data.values.length : 0;
+    const startRow = lastRow + 1; // A primeira linha vazia
+
+    // 2. Preparar os dados para as colunas A, B e C
+    const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
+    
+    // 3. Construir o intervalo exato para a escrita (ex: 'Eventos!A11:C15')
+    const endRow = startRow + newEvents.length - 1;
+    const updateRange = `Eventos!A${startRow}:C${endRow}`;
+
+    // 4. Usar o comando 'update' que é mais preciso e não se confunde
+    await googleSheets.spreadsheets.values.update({
+        spreadsheetId: spreadsheetId_sync,
+        range: updateRange,
+        valueInputOption: 'USER_ENTERED',
+        resource: { values },
+    });
+
+    // --- FIM DA CORREÇÃO ---
+    
+    addedEventsCount = newEvents.length;
+  }
+}
+
+// FIM DO BLOCO A SER SUBSTITUÍDO
     res.status(200).json({ message: `Base de cadastro online atualizada com sucesso!\n- ${addedWaitersCount} novo(s) garçom(ns) adicionado(s).\n- ${addedEventsCount} novo(s) evento(s) adicionado(s).` });
   } catch (error) {
     console.error('Erro ao atualizar base de cadastro online:', error);
