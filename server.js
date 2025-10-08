@@ -1,4 +1,4 @@
-// backend/server.js (VERSÃO FINAL E COMPLETA - CORRIGIDA)
+// backend/server.js (VERSÃO FINAL COMPLETA E CORRIGIDA)
 console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
 
 require('dotenv').config();
@@ -29,16 +29,16 @@ async function getGoogleSheetsClient() {
 }
 
 // --- IDs DAS PLANILHAS ---
-const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; 
+const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
 // --- ROTAS DE SINCRONIZAÇÃO DE CADASTROS ---
 app.get('/api/sync/waiters', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
-        const response = await googleSheets.spreadsheets.values.get({ 
-            spreadsheetId: spreadsheetId_sync, 
-            range: 'Garcons!A2:B' 
+        const response = await googleSheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'Garcons!A2:B'
         });
         const rows = response.data.values || [];
         const waiters = rows.map(row => ({ cpf: row[0], name: row[1] }));
@@ -52,9 +52,9 @@ app.get('/api/sync/waiters', async (req, res) => {
 app.get('/api/sync/events', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
-        const response = await googleSheets.spreadsheets.values.get({ 
-            spreadsheetId: spreadsheetId_sync, 
-            range: 'Eventos!A2:C' 
+        const response = await googleSheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'Eventos!A2:C'
         });
         const rows = response.data.values || [];
         const events = rows.map(row => ({
@@ -90,8 +90,14 @@ app.post('/api/update-base', async (req, res) => {
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
       if (newEvents.length > 0) {
+        // LÓGICA CORRETA: Prepara os dados para serem inseridos nas colunas A, B (vazio) e C.
         const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:C', valueInputOption: 'USER_ENTERED', resource: { values } });
+        await googleSheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'Eventos!A:C', // O intervalo define que a escrita começa na coluna A.
+            valueInputOption: 'USER_ENTERED',
+            resource: { values }
+        });
         addedEventsCount = newEvents.length;
       }
     }
@@ -259,7 +265,7 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
                     const type = rowObj['Tipo'] || '';
                     const protocol = rowObj['Protocolo'] || '';
-                    
+
                     const baseCashierObject = {
                         protocol, eventName,
                         operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'],
@@ -333,7 +339,6 @@ app.post('/api/export-online-data', async (req, res) => {
           const header = response.data.values[0].map(h => String(h).trim());
           consolidatedWaiters = response.data.values.slice(1).map(row => {
               const rowData = { eventName };
-              // ===== CORREÇÃO APLICADA AQUI =====
               header.forEach((key, index) => {
                   rowData[String(key).trim().toUpperCase()] = row[index] || '';
               });
@@ -348,7 +353,6 @@ app.post('/api/export-online-data', async (req, res) => {
           const header = response.data.values[0].map(h => String(h).trim());
           consolidatedCashiers = response.data.values.slice(1).map(row => {
               const rowData = { eventName };
-              // ===== CORREÇÃO APLICADA AQUI =====
               header.forEach((key, index) => {
                   rowData[String(key).trim().toUpperCase()] = row[index] || '';
               });
