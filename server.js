@@ -94,7 +94,7 @@ app.post('/api/update-base', async (req, res) => {
         const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
         await googleSheets.spreadsheets.values.append({
             spreadsheetId: spreadsheetId_sync,
-            range: 'EVENTOS!A:C', // O intervalo define que a escrita começa na coluna A.
+            range: 'Eventos_Teste!A:C', // O intervalo define que a escrita começa na coluna A.
             valueInputOption: 'USER_ENTERED',
             resource: { values }
         });
