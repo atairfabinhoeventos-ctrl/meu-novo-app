@@ -24,7 +24,7 @@
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
-  "main": "build/electron.js",
+  "main": "public/electron.js",
   "homepage": "./",
   "scripts": {
     "start": "react-scripts start",
@@ -70,9 +70,9 @@
     },
     "win": {
       "target": "msix",
-      "icon": "public/icon.ico"
+      "icon": "public/logo512.png"
     },
-    "msix": {
+    "appx": {
       "identityName": "ATAIRLAGARES.SisFO",
       "publisher": "CN=2880B1A4-D1C0-415F-9F38-2E7E1164308F",
       "publisherDisplayName": "ATAIR LAGARES"
