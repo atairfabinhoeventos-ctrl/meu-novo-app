@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // 1. Importado
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
 import ExcelJS from 'exceljs';
@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import './DataUpdatePage.css';
 
 function DataUpdatePage() {
-  const navigate = useNavigate(); // 2. Inicializado
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('import');
   const [waiters, setWaiters] = useState([]);
   const [filteredWaiters, setFilteredWaiters] = useState([]);
@@ -18,28 +18,39 @@ function DataUpdatePage() {
   const [events, setEvents] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUpdatingOnline, setIsUpdatingOnline] = useState(false);
+  const [updatingEvent, setUpdatingEvent] = useState(null); // Para controlar o loading do switch
 
   useEffect(() => {
+    // Carrega os eventos e garçons do localStorage e já aplica a ordenação inicial.
     const storedEvents = JSON.parse(localStorage.getItem('master_events')) || [];
     const cleanEvents = storedEvents.filter(event => event && event.name && event.name.trim() !== '');
+    // Ordena por ativos primeiro, depois por nome alfabético
+    cleanEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name));
     setEvents(cleanEvents);
+
     const storedWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
+    // Ordena por nome alfabético
+    storedWaiters.sort((a, b) => a.name.localeCompare(b.name));
     setWaiters(storedWaiters);
     setFilteredWaiters(storedWaiters);
   }, []);
 
+  // Filtro de busca de garçons corrigido e funcional
   useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredWaiters(waiters);
-    } else {
-      const lowercasedQuery = searchQuery.toLowerCase();
-      const filtered = waiters.filter(waiter => 
-        waiter.name.toLowerCase().includes(lowercasedQuery) ||
-        waiter.cpf.replace(/\D/g, '').includes(lowercasedQuery.replace(/\D/g, ''))
-      );
-      setFilteredWaiters(filtered);
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) {
+      setFilteredWaiters(waiters); // Se a busca está vazia, mostra a lista completa e ordenada
+      return;
     }
+
+    const filtered = waiters.filter(waiter => {
+      const nameMatch = waiter.name?.toLowerCase().includes(query);
+      const cpfMatch = waiter.cpf?.replace(/\D/g, '').includes(query.replace(/\D/g, ''));
+      return nameMatch || cpfMatch;
+    });
+    setFilteredWaiters(filtered);
   }, [searchQuery, waiters]);
+
 
   const handleOnlineSync = async () => {
     setIsSyncing(true);
@@ -174,16 +185,12 @@ function DataUpdatePage() {
     reader.readAsBinaryString(selectedFile);
   };
 
-// COLOQUE ESTE CÓDIGO NO LUGAR DA FUNÇÃO handleUpdateOnlineBase EXISTENTE
-
-const handleUpdateOnlineBase = async () => {
-    // 1. Validação inicial
+  const handleUpdateOnlineBase = async () => {
     if (!selectedFile) {
       alert('Por favor, selecione um arquivo de planilha primeiro.');
       return;
     }
 
-    // 2. Ativa o estado de "carregando"
     setIsUpdatingOnline(true);
 
     const reader = new FileReader();
@@ -195,7 +202,6 @@ const handleUpdateOnlineBase = async () => {
         let waitersToUpdate = [];
         let eventsToUpdate = [];
 
-        // 3. Extrai dados dos Garçons da planilha
         if (workbook.Sheets['Garcons']) {
           const waitersSheet = workbook.Sheets['Garcons'];
           const newWaiters = XLSX.utils.sheet_to_json(waitersSheet);
@@ -210,7 +216,6 @@ const handleUpdateOnlineBase = async () => {
           });
         }
 
-        // 4. Extrai dados dos Eventos da planilha
         if (workbook.Sheets['Eventos']) {
           const eventsSheet = workbook.Sheets['Eventos'];
           const newEvents = XLSX.utils.sheet_to_json(eventsSheet);
@@ -225,20 +230,17 @@ const handleUpdateOnlineBase = async () => {
           });
         }
         
-        // 5. Valida se encontrou algum dado para enviar
         if (waitersToUpdate.length === 0 && eventsToUpdate.length === 0) {
             alert('Nenhum dado de garçom ou evento válido foi encontrado na planilha para enviar.');
-            setIsUpdatingOnline(false); // Desativa o loading
+            setIsUpdatingOnline(false);
             return;
         }
 
-        // 6. Envia os dados extraídos para o backend
         const response = await axios.post(`${API_URL}/api/update-base`, {
           waiters: waitersToUpdate,
           events: eventsToUpdate,
         });
 
-        // 7. Exibe a mensagem de sucesso do backend e limpa o formulário
         alert(response.data.message);
         setFileName('');
         setSelectedFile(null);
@@ -248,22 +250,42 @@ const handleUpdateOnlineBase = async () => {
         const errorMessage = error.response ? error.response.data.message : 'Ocorreu um erro ao se comunicar com o servidor.';
         alert(`Falha na atualização: ${errorMessage}`);
       } finally {
-        // 8. Garante que o estado de "carregando" seja desativado
         setIsUpdatingOnline(false);
       }
     };
     reader.readAsBinaryString(selectedFile);
   };
 
-  const handleToggleEventStatus = (eventName) => {
+  const handleToggleEventStatus = async (eventName) => {
+    setUpdatingEvent(eventName);
+
+    const originalEvents = [...events];
     const updatedEvents = events.map(event => {
       if (event.name === eventName) {
         return { ...event, active: !event.active };
       }
       return event;
     });
+
+    updatedEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name));
     setEvents(updatedEvents);
     localStorage.setItem('master_events', JSON.stringify(updatedEvents));
+
+    try {
+      const eventToUpdate = updatedEvents.find(e => e.name === eventName);
+      await axios.post(`${API_URL}/api/update-event-status`, {
+        name: eventToUpdate.name,
+        active: eventToUpdate.active,
+      });
+
+    } catch (error) {
+      console.error('Erro ao sincronizar status do evento:', error);
+      alert('Falha ao sincronizar a alteração com a base online. O status foi salvo localmente.');
+      setEvents(originalEvents);
+      localStorage.setItem('master_events', JSON.stringify(originalEvents));
+    } finally {
+      setUpdatingEvent(null);
+    }
   };
 
   return (
@@ -340,7 +362,12 @@ const handleUpdateOnlineBase = async () => {
                   <div key={event.name} className="event-item">
                     <span>{event.name}</span>
                     <label className="switch">
-                      <input type="checkbox" checked={event.active} onChange={() => handleToggleEventStatus(event.name)} />
+                      <input 
+                        type="checkbox" 
+                        checked={event.active} 
+                        onChange={() => handleToggleEventStatus(event.name)}
+                        disabled={updatingEvent === event.name} 
+                      />
                       <span className="slider round"></span>
                     </label>
                   </div>
@@ -351,7 +378,6 @@ const handleUpdateOnlineBase = async () => {
         </div>
       )}
       
-      {/* 3. BOTÃO DE VOLTAR ADICIONADO */}
       <button className="back-to-setup-button" onClick={() => navigate('/setup')}>
         Voltar para Seleção de Evento
       </button>

@@ -1,0 +1,18 @@
+/* src/pages/AdminPage.css (Novo Arquivo) */
+.admin-container { padding: 40px; max-width: 1200px; margin: 0 auto; }
+.admin-container h1 { text-align: center; margin-bottom: 40px; }
+.admin-grid { display: grid; grid-template-columns: 1fr; gap: 30px; }
+@media (min-width: 900px) { .admin-grid { grid-template-columns: 1fr 1fr; } }
+
+.admin-card { background-color: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.admin-card h2 { margin-top: 0; }
+.admin-button { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 15px; }
+.admin-button.update-btn { background-color: #5bc0de; color: white; }
+.admin-button.reconcile-btn { background-color: #5cb85c; color: white; }
+.admin-button:disabled { background-color: #ccc; cursor: not-allowed; }
+.file-upload-label { display: block; padding: 15px; border: 2px dashed #ccc; border-radius: 8px; text-align: center; cursor: pointer; background-color: #f8f9fa; }
+#file-upload { display: none; }
+.results-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+.totem-info { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; }
+.divergence-list { list-style-type: none; padding: 0; }
+.divergence-list li { background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 10px; }

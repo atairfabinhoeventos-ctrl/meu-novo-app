@@ -18,6 +18,8 @@ import LocalConfirmationPage from './pages/LocalConfirmationPage.jsx';
 import DataUpdatePage from './pages/DataUpdatePage.jsx';
 import WaiterClosingPage from './pages/WaiterClosingPage.jsx';
 import CloudSyncPage from './pages/CloudSyncPage.jsx';
+import AdminPage from './pages/AdminPage'; // <-- 1. IMPORTAÇÃO DA NOVA PÁGINA
+
 
 // Componente para proteger rotas que exigem login do operador
 const ProtectedRoute = () => {
@@ -63,6 +65,7 @@ export default function App() {
               <Route path="/mobile-cashier-closing" element={<MobileCashierClosingPage />} />
               <Route path="/fixed-cashier-closing" element={<FixedCashierClosingPage />} />
               <Route path="/closing-history" element={<ClosingHistoryPage />} />
+              <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
               <Route path="/export-data" element={<ExportDataPage />} />
               <Route path="/local-confirmation" element={<LocalConfirmationPage />} />
             </Route>

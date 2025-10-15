@@ -1,72 +1,78 @@
 {
-  "name": "meu-novo-app",
-  "productName": "SisFO",
-  "version": "1.0.3",
-  "description": "Sistema de Fechamento Operacional",
-  "main": "src/main.js",
-  "homepage": "./",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "concurrently \"npm:server:dev\" \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
-    "app:dev:vite": "vite",
-    "app:dev:electron": "wait-on tcp:5173 && electron .",
-    "server:dev": "nodemon server.js",
-    "build": "vite build && electron-builder",
-    "lint": "eslint --ext .ts,.tsx ."
-  },
+  "name": "fabinho-eventos-desktop",
+  "version": "0.1.0",
+  "private": true,
   "dependencies": {
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
-    "electron-squirrel-startup": "^1.0.1",
-    "exceljs": "^4.4.0",
+    "electron-is-dev": "^3.0.1",
     "express": "^4.19.2",
-    "file-saver": "^2.0.5",
     "googleapis": "^140.0.1",
     "jspdf": "^2.5.1",
-    "jspdf-autotable": "^5.0.2",
+    "jspdf-autotable": "^3.8.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.1",
+    "react-router-dom": "^6.24.1",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
+  "main": "public/electron.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron:start": "concurrently -k \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "electron-builder"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
   "devDependencies": {
-    "@electron/fuses": "^1.8.0",
-    "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
-    "electron": "31.0.2",
+    "electron": "^31.1.0",
     "electron-builder": "^24.13.3",
-    "eslint": "^8.57.0",
-    "eslint-plugin-import": "^2.29.1",
-    "nodemon": "^3.1.10",
-    "vite": "^5.2.13",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.sisfo.app",
-    "productName": "SisFO",
+    "appId": "com.sisfo.fabinhoeventos",
+    "productName": "SisFO - Fabinho Eventos",
     "files": [
-      "dist/**/*",
-      "node_modules/**/*",
-      "src/main.js",
-      "src/preload.js",
-      "package.json"
+      "build/**/*",
+      "node_modules/**/*"
     ],
     "directories": {
-      "output": "dist"
+      "buildResources": "public"
     },
     "win": {
-      "icon": "assets/icon.ico",
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "installerIcon": "assets/icon.ico",
-      "uninstallerIcon": "assets/icon.ico"
+      "target": "msix",
+      "msix": {
+        "identityName": "ATAIRLAGARES.SisFO",
+        "publisher": "CN=2880B1A4-D1C0-415F-9F38-2E7E1164308F",
+        "publisherDisplayName": "ATAIR LAGARES"
+      }
     }
   }
 }

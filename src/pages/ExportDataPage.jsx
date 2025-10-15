@@ -71,10 +71,10 @@ function ExportDataPage() {
           { header: 'Data', key: 'DATA', width: 20 },
           { header: 'Protocolo', key: 'PROTOCOLO', width: 30 },
           { header: 'Nome Garçom', key: 'NOME GARÇOM', width: 30 },
-          { header: 'Nome Garçom', key: 'NOME GARÇOM', width: 30 },
-           // CORREÇÃO 1: Removido o acento para corresponder ao backend
+          // CORREÇÃO 1: Removido o acento para corresponder ao backend
           { header: 'Nº Maquina', key: 'Nº MAQUINA', width: 15 }, 
-           // CORREÇÃO 2: Invertido 'VENDA TOTAL' para 'TOTAL VENDA'
+          // CORREÇÃO 2: Invertido 'VENDA TOTAL' para 'TOTAL VENDA'
+          { header: 'Valor Total Venda', key: 'VALOR TOTAL VENDA', width: 20, style: { numFmt: moneyFormat } },
           { header: 'Crédito', key: 'CRÉDITO', width: 15, style: { numFmt: moneyFormat } },
           { header: 'Débito', key: 'DÉBITO', width: 15, style: { numFmt: moneyFormat } },
           { header: 'Pix', key: 'PIX', width: 15, style: { numFmt: moneyFormat } },
