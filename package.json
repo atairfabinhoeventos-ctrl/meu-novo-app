@@ -1,76 +1,64 @@
 {
-  "name": "fabinho-eventos-desktop",
-  "version": "0.1.0",
-  "description": "SisFO - Sistema de Fechamento Operacional para eventos.",
+  "name": "meu-novo-app",
+  "productName": "SisFO",
+  "version": "1.0.3",
+  "description": "Sistema de Fechamento Operacional",
   "author": "ATAIR LAGARES",
-  "private": true,
-  "dependencies": {
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
-    "cross-env": "^7.0.3",
-    "dotenv": "^16.4.5",
-    "electron-is-dev": "^3.0.1",
-    "express": "^4.19.2",
-    "googleapis": "^140.0.1",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.24.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4",
-    "xlsx": "^0.18.5"
-  },
-  "main": "public/electron.js",
+  "main": "src/main.js",
   "homepage": "./",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "electron:start": "concurrently -k \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "electron-builder"
+    "start": "node server.js",
+    "dev": "concurrently \"npm:server:dev\" \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
+    "app:dev:vite": "vite",
+    "app:dev:electron": "wait-on tcp:5173 && electron .",
+    "server:dev": "nodemon server.js",
+    "build": "vite build && electron-builder",
+    "lint": "eslint --ext .ts,.tsx ."
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "electron-squirrel-startup": "^1.0.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "file-saver": "^2.0.5",
+    "googleapis": "^140.0.1",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^5.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
-    "electron": "^31.1.0",
+    "electron": "31.0.2",
     "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.1",
+    "nodemon": "^3.1.10",
+    "vite": "^5.2.13",
     "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "ATAIRLAGARES.SisFO",
     "productName": "SisFO",
     "files": [
-      "build/**/*",
-      "node_modules/**/*"
+      "dist/**/*",
+      "node_modules/**/*",
+      "src/main.js",
+      "src/preload.js",
+      "package.json"
     ],
     "directories": {
-      "buildResources": "public"
+      "output": "dist"
     },
     "win": {
-      "target": "msix",
-      "icon": "public/logo512.png"
+      "icon": "assets/icon.ico",
+      "target": "msix"
     },
     "appx": {
       "identityName": "ATAIRLAGARES.SisFO",
