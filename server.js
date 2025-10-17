@@ -1,8 +1,7 @@
-// backend/server.js (VERSÃO COMPLETA E FINAL COM LOGS DE DIAGNÓSTICO)
-console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
+// backend/server.js (VERSÃO DE DIAGNÓSTICO FINAL COM ROTA DE TESTE - COMPLETO)
+console.log("--- EXECUTANDO VERSÃO DE DIAGNÓSTICO COM ROTA DE TESTE ---");
 
 require('dotenv').config();
-
 const express = require('express');
 const { google } = require('googleapis');
 const cors = require('cors');
@@ -12,10 +11,8 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÃO AUXILIAR PARA NORMALIZAR VALORES ---
 const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
-// --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
@@ -31,11 +28,45 @@ async function getGoogleSheetsClient() {
   }
 }
 
-// --- IDs DAS PLANILHAS ---
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
-// --- ROTAS DE SINCRONIZAÇÃO DE CADASTROS ---
+// --- NOVA ROTA DE TESTE (HEALTH CHECK) ---
+console.log("[BACKEND] Definindo a rota de teste GET / ...");
+app.get('/', (req, res) => {
+  res.status(200).send('Servidor SisFO no ar! A rota de teste funciona.');
+});
+console.log("[BACKEND] Rota de teste GET / definida com sucesso.");
+
+// --- ENDPOINT OTIMIZADO ---
+console.log("[BACKEND] Definindo a rota GET /api/sync/master-data ...");
+app.get('/api/sync/master-data', async (req, res) => {
+    console.log('[BACKEND] Requisição recebida em /api/sync/master-data');
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const response = await googleSheets.spreadsheets.values.batchGet({
+            spreadsheetId: spreadsheetId_sync,
+            ranges: ['Garcons!A2:B', 'Eventos!A2:C'],
+        });
+        const valueRanges = response.data.valueRanges || [];
+        const waiterRows = valueRanges[0]?.values || [];
+        const waiters = waiterRows.map(row => ({ cpf: row[0], name: row[1] }));
+        const eventRows = valueRanges[1]?.values || [];
+        const events = eventRows.map(row => ({
+          name: row[0],
+          active: row[2] ? row[2].toUpperCase() === 'ATIVO' : true,
+        })).filter(e => e.name);
+        console.log(`[BACKEND] Encontrados ${waiters.length} garçons e ${events.length} eventos.`);
+        res.status(200).json({ waiters, events });
+    } catch (error) {
+        console.error('Erro ao buscar master-data:', error);
+        res.status(500).json({ message: 'Erro interno do servidor ao buscar dados mestre.' });
+    }
+});
+console.log("[BACKEND] Rota GET /api/sync/master-data definida com sucesso.");
+
+
+// --- ROTAS ANTIGAS MANTIDAS POR COMPATIBILIDADE ---
 app.get('/api/sync/waiters', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -71,7 +102,7 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
-// --- ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
+// --- DEMAIS ROTAS ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -88,36 +119,16 @@ app.post('/api/update-base', async (req, res) => {
         addedWaitersCount = newWaiters.length;
       }
     }
-    
     if (events && events.length > 0) {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-      
       if (newEvents.length > 0) {
-        const getSheetData = await googleSheets.spreadsheets.values.get({
-            spreadsheetId: spreadsheetId_sync,
-            range: 'Eventos!A:A',
-        });
-        const lastRow = getSheetData.data.values ? getSheetData.data.values.length : 0;
-        const startRow = lastRow + 1;
-
         const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
-        
-        const endRow = startRow + newEvents.length - 1;
-        const updateRange = `Eventos!A${startRow}:C${endRow}`;
-
-        await googleSheets.spreadsheets.values.update({
-            spreadsheetId: spreadsheetId_sync,
-            range: updateRange,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values },
-        });
-        
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:C', valueInputOption: 'USER_ENTERED', resource: { values } });
         addedEventsCount = newEvents.length;
       }
     }
-
     res.status(200).json({ message: `Base de cadastro online atualizada com sucesso!\n- ${addedWaitersCount} novo(s) garçom(ns) adicionado(s).\n- ${addedEventsCount} novo(s) evento(s) adicionado(s).` });
   } catch (error) {
     console.error('Erro ao atualizar base de cadastro online:', error);
@@ -125,7 +136,6 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA: ATUALIZAR STATUS DE UM ÚNICO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   if (!name) { return res.status(400).json({ message: 'O nome do evento é obrigatório.' }); }
@@ -152,37 +162,19 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM (COM LOGS DE DIAGNÓSTICO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
-  
-  // LOG 1: Mostra exatamente o que o frontend enviou.
-  console.log('[BACKEND] /api/cloud-sync RECEBEU:', JSON.stringify(req.body, null, 2));
-
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
-
   try {
     const googleSheets = await getGoogleSheetsClient();
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
     let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
-
-    // Lógica para Garçons
     if (waiterData && waiterData.length > 0) {
-      console.log('[BACKEND] Processando dados de GARÇOM...');
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-      
-      const rows = waiterData.map(c => {
-        // --- CORREÇÃO DE SEGURANÇA DEFINITIVA ---
-        const cpfValue = c.cpf || c.CPF || ''; // Pega 'cpf' ou 'CPF', garantindo que não seja undefined
-        console.log(`[BACKEND] Mapeando linha. CPF processado: ${cpfValue}`);
-        
-        return [ c.timestamp, c.protocol, cpfValue, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ];
-      });
-      
+      const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
       const sheet = sheets.find(s => s.properties.title === sheetName);
-
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
@@ -198,7 +190,6 @@ app.post('/api/cloud-sync', async (req, res) => {
             if (protocol) protocolMap.set(protocol.trim(), { row: row, index: index + 2 });
         });
         const toAdd = [], toUpdate = [];
-
         rows.forEach(newRow => {
             const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
             if (p && protocolMap.has(p)) {
@@ -221,13 +212,10 @@ app.post('/api/cloud-sync', async (req, res) => {
         newW = toAdd.length; updatedW = toUpdate.length;
       }
     }
-    
-    // Lógica para Caixas
     if (cashierData && cashierData.length > 0) {
-      console.log('[BACKEND] Processando dados de CAIXA...');
         const sheetName = `Caixas - ${eventName}`;
         const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
-        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, (c.cpf || c.CPF), c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
         const sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
@@ -266,7 +254,6 @@ app.post('/api/cloud-sync', async (req, res) => {
             newC = toAdd.length; updatedC = toUpdate.length;
         }
     }
-    console.log('[BACKEND] Resposta enviada ao frontend.');
     res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
@@ -274,11 +261,9 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
-
     try {
         const googleSheets = await getGoogleSheetsClient();
         const waiterSheetName = `Garçons - ${eventName}`;
@@ -288,29 +273,12 @@ app.post('/api/online-history', async (req, res) => {
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
         ]);
         let allClosings = [];
-        
         if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
             const [header, ...rows] = waiterResult.value.data.values;
             if (header && rows.length > 0) {
                 const data = rows.map(row => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const closingObject = { 
-                        type: 'waiter', 
-                        cpf: rowObj['CPF'], 
-                        waiterName: rowObj['Nome Garçom'], 
-                        protocol: rowObj['Protocolo'], 
-                        valorTotal: parseCurrency(rowObj['Venda Total']), 
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']), 
-                        comissaoTotal: parseCurrency(rowObj['Comissão Total']), 
-                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']), 
-                        credito: parseCurrency(rowObj['Crédito']), 
-                        debito: parseCurrency(rowObj['Débito']), 
-                        pix: parseCurrency(rowObj['Pix']), 
-                        cashless: parseCurrency(rowObj['Cashless']), 
-                        numeroMaquina: rowObj['Nº Máquina'], 
-                        operatorName: rowObj['Operador'], 
-                        timestamp: rowObj['Data'], 
-                    };
+                    const closingObject = { type: 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['Nome Garçom'], protocol: rowObj['Protocolo'], valorTotal: parseCurrency(rowObj['Venda Total']), valorEstorno: parseCurrency(rowObj['Devolução/Estorno']), comissaoTotal: parseCurrency(rowObj['Comissão Total']), diferencaPagarReceber: parseCurrency(rowObj['Acerto']), credito: parseCurrency(rowObj['Crédito']), debito: parseCurrency(rowObj['Débito']), pix: parseCurrency(rowObj['Pix']), cashless: parseCurrency(rowObj['Cashless']), numeroMaquina: rowObj['Nº Máquina'], operatorName: rowObj['Operador'], timestamp: rowObj['Data'], };
                     closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
                     closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
                     return closingObject;
@@ -361,18 +329,14 @@ app.post('/api/online-history', async (req, res) => {
     }
 });
 
-// --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
-
   if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
     return res.status(401).json({ message: 'Acesso não autorizado.' });
   }
-
   try {
     const googleSheets = await getGoogleSheetsClient();
     let consolidatedWaiters = [], consolidatedCashiers = [];
-
     try {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Garçons - ${eventName}` });
       if (response.data.values && response.data.values.length > 1) {
@@ -386,7 +350,6 @@ app.post('/api/export-online-data', async (req, res) => {
           });
       }
     } catch (e) { console.log(`Aba de Garçons para o evento "${eventName}" não encontrada. Continuando...`); }
-
     try {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Caixas - ${eventName}` });
       if (response.data.values && response.data.values.length > 1) {
@@ -400,41 +363,33 @@ app.post('/api/export-online-data', async (req, res) => {
           });
       }
     } catch (e) { console.log(`Aba de Caixas para o evento "${eventName}" não encontrada. Continuando...`); }
-
     if (consolidatedWaiters.length === 0 && consolidatedCashiers.length === 0) {
         return res.status(404).json({ message: 'Nenhum dado encontrado para este evento na nuvem.' });
     }
-
     res.status(200).json({ waiters: consolidatedWaiters, cashiers: consolidatedCashiers });
-
   } catch (error) {
     console.error('Erro ao exportar dados da nuvem por evento:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao processar os dados.' });
   }
 });
 
-// --- ROTA DE CONCILIAÇÃO (versão mais recente) ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) {
     return res.status(400).json({ message: 'Nome do evento e dados da planilha são obrigatórios.' });
   }
-
   try {
     const googleSheets = await getGoogleSheetsClient();
     const waiterSheetName = `Garçons - ${eventName}`;
     const cashierSheetName = `Caixas - ${eventName}`;
-    
     let sisfoData = new Map();
     const getLast8Digits = (serial) => {
         if (!serial) return '';
         const digitsOnly = String(serial).replace(/\D/g, '');
         return digitsOnly.slice(-8);
     };
-
     const processSheet = (response, isWaiterSheet) => {
         if (!response.data.values || response.data.values.length < 2) return;
-        
         const [header, ...rows] = response.data.values;
         const cpfIndex = header.findIndex(h => h.toUpperCase() === 'CPF');
         const nameIndex = header.findIndex(h => isWaiterSheet ? h.toUpperCase() === 'NOME GARÇOM' : h.toUpperCase() === 'NOME DO CAIXA');
@@ -444,28 +399,15 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         const debitIndex = header.findIndex(h => h.toUpperCase() === 'DÉBITO');
         const pixIndex = header.findIndex(h => h.toUpperCase() === 'PIX');
         const cashlessIndex = header.findIndex(h => h.toUpperCase() === 'CASHLESS');
-
         if (cpfIndex === -1 || nameIndex === -1 || machineIndex === -1) return;
-
         rows.forEach(row => {
             const cpf = row[cpfIndex]?.replace(/\D/g, '');
             if (cpf) {
-                if (!sisfoData.has(cpf)) {
-                    sisfoData.set(cpf, []);
-                }
-                sisfoData.get(cpf).push({ 
-                    name: row[nameIndex],
-                    machine: getLast8Digits(row[machineIndex]),
-                    total: parseCurrency(row[totalIndex]), 
-                    credit: parseCurrency(row[creditIndex]), 
-                    debit: parseCurrency(row[debitIndex]), 
-                    pix: parseCurrency(row[pixIndex]), 
-                    cashless: parseCurrency(row[cashlessIndex]) 
-                });
+                if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); }
+                sisfoData.get(cpf).push({ name: row[nameIndex], machine: getLast8Digits(row[machineIndex]), total: parseCurrency(row[totalIndex]), credit: parseCurrency(row[creditIndex]), debit: parseCurrency(row[debitIndex]), pix: parseCurrency(row[pixIndex]), cashless: parseCurrency(row[cashlessIndex]) });
             }
         });
     };
-
     try {
         const [waiterRes, cashierRes] = await Promise.allSettled([
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A:Z` }),
@@ -474,81 +416,45 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         if (waiterRes.status === 'fulfilled') processSheet(waiterRes.value, true);
         if (cashierRes.status === 'fulfilled') processSheet(cashierRes.value, false);
     } catch (e) { console.log(`Abas para o evento "${eventName}" não encontradas.`); }
-    
     console.log(`\n--- INICIANDO CONCILIAÇÃO POR 8 DÍGITOS DA MÁQUINA PARA: ${eventName} ---`);
     console.log(`${sisfoData.size} CPFs distintos carregados do SisFO.`);
-
-    let divergences = [];
-    let totemsFound = 0;
-    let recordsCompared = 0;
-    let unmatchedYuzerRecords = 0;
-
+    let divergences = [], totemsFound = 0, recordsCompared = 0, unmatchedYuzerRecords = 0;
     yuzerData.forEach((yuzerRow) => {
       const operator = yuzerRow['Operador de Caixa'];
-      if (operator && String(operator).toLowerCase().includes('pdv')) {
-        totemsFound++;
-        return;
-      }
-
+      if (operator && String(operator).toLowerCase().includes('pdv')) { totemsFound++; return; }
       const cpf = String(yuzerRow['CPF'] || '').replace(/\D/g, '');
       const serial = yuzerRow['Serial'];
       if (!cpf || !serial) return;
-
       const machineKey = getLast8Digits(serial);
       if (!machineKey) return;
-
-      if (!sisfoData.has(cpf)) {
-        unmatchedYuzerRecords++;
-        return;
-      }
-
+      if (!sisfoData.has(cpf)) { unmatchedYuzerRecords++; return; }
       const sisfoRecordsForCpf = sisfoData.get(cpf);
       const recordIndex = sisfoRecordsForCpf.findIndex(rec => rec.machine === machineKey);
-
       if (recordIndex === -1) {
         unmatchedYuzerRecords++;
         console.log(`--> CPF ${cpf} encontrado, mas NENHUM registro com os 8 últimos dígitos da máquina (${machineKey}) no SisFO.`);
         return;
       }
-
       recordsCompared++;
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
-      const yuzerRecord = {
-          total: parseCurrency(yuzerRow['Total']),
-          credit: parseCurrency(yuzerRow['Crédito']),
-          debit: parseCurrency(yuzerRow['Débito']),
-          pix: parseCurrency(yuzerRow['Pix']),
-          cashless: parseCurrency(yuzerRow['Cashless']),
-      };
-
+      const yuzerRecord = { total: parseCurrency(yuzerRow['Total']), credit: parseCurrency(yuzerRow['Crédito']), debit: parseCurrency(yuzerRow['Débito']), pix: parseCurrency(yuzerRow['Pix']), cashless: parseCurrency(yuzerRow['Cashless']), };
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
       console.log("DADOS YUZER  ->", JSON.stringify(yuzerRecord));
       console.log("DADOS SISFO  ->", JSON.stringify(sisfoRecord));
-
       const checkDiff = (field, yuzerVal, sisfoVal) => {
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
           divergences.push({ name: sisfoRecord.name, cpf, machine: machineKey, field, yuzerValue: yuzerVal.toFixed(2), sisfoValue: sisfoVal.toFixed(2) });
         }
       };
-
       checkDiff('Valor Total', yuzerRecord.total, sisfoRecord.total);
       checkDiff('Crédito', yuzerRecord.credit, sisfoRecord.credit);
       checkDiff('Débito', yuzerRecord.debit, sisfoRecord.debit);
       checkDiff('PIX', yuzerRecord.pix, sisfoRecord.pix);
       checkDiff('Cashless', yuzerRecord.cashless, sisfoRecord.cashless);
-
       sisfoRecordsForCpf.splice(recordIndex, 1);
     });
-
     console.log("\n--- CONCILIAÇÃO FINALIZADA ---");
-    res.status(200).json({
-      recordsCompared,
-      totemsFound,
-      unmatchedYuzerRecords,
-      divergencesFound: divergences.length,
-      divergences
-    });
-
+    res.status(200).json({ recordsCompared, totemsFound, unmatchedYuzerRecords, divergencesFound: divergences.length, divergences });
   } catch (error) {
     console.error('Erro na conciliação Yuzer:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao processar a conciliação.' });
@@ -556,8 +462,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
 });
 
 
-// --- INICIALIZAÇÃO DO SERVIDOR ---
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor backend rodando na porta ${PORT}`);
 });
