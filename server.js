@@ -1,7 +1,8 @@
-// backend/server.js (VERSÃO DE DIAGNÓSTICO FINAL COM ROTA DE TESTE - COMPLETO)
-console.log("--- EXECUTANDO VERSÃO DE DIAGNÓSTICO COM ROTA DE TESTE ---");
+// backend/server.js (VERSÃO FINAL, COMPLETA E CORRIGIDA)
+console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
 
 require('dotenv').config();
+
 const express = require('express');
 const { google } = require('googleapis');
 const cors = require('cors');
@@ -11,8 +12,10 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
+// --- FUNÇÃO AUXILIAR PARA NORMALIZAR VALORES ---
 const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
+// --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
@@ -28,15 +31,9 @@ async function getGoogleSheetsClient() {
   }
 }
 
+// --- IDs DAS PLANILHAS ---
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
-
-// --- NOVA ROTA DE TESTE (HEALTH CHECK) ---
-console.log("[BACKEND] Definindo a rota de teste GET / ...");
-app.get('/', (req, res) => {
-  res.status(200).send('Servidor SisFO no ar! A rota de teste funciona.');
-});
-console.log("[BACKEND] Rota de teste GET / definida com sucesso.");
 
 // --- ENDPOINT OTIMIZADO ---
 console.log("[BACKEND] Definindo a rota GET /api/sync/master-data ...");
@@ -102,7 +99,7 @@ app.get('/api/sync/events', async (req, res) => {
     }
 });
 
-// --- DEMAIS ROTAS ---
+// --- ROTA: ATUALIZAR BASE DE CADASTRO ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -136,6 +133,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
+// --- ROTA: ATUALIZAR STATUS DE UM ÚNICO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   if (!name) { return res.status(400).json({ message: 'O nome do evento é obrigatório.' }); }
@@ -162,19 +160,31 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
+// --- ROTA DE SYNC PARA A NUVEM (COM LOGS DE DIAGNÓSTICO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
+  console.log('[BACKEND] /api/cloud-sync RECEBEU:', JSON.stringify(req.body, null, 2));
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
+
   try {
     const googleSheets = await getGoogleSheetsClient();
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
     let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
+
     if (waiterData && waiterData.length > 0) {
+      console.log('[BACKEND] Processando dados de GARÇOM...');
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-      const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
+      
+      const rows = waiterData.map(c => {
+        const cpfValue = c.cpf || c.CPF || '';
+        console.log(`[BACKEND] Mapeando linha. CPF processado: ${cpfValue}`);
+        return [ c.timestamp, c.protocol, cpfValue, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ];
+      });
+      
       const sheet = sheets.find(s => s.properties.title === sheetName);
+
       if (!sheet) {
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
@@ -190,6 +200,7 @@ app.post('/api/cloud-sync', async (req, res) => {
             if (protocol) protocolMap.set(protocol.trim(), { row: row, index: index + 2 });
         });
         const toAdd = [], toUpdate = [];
+
         rows.forEach(newRow => {
             const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
             if (p && protocolMap.has(p)) {
@@ -212,10 +223,12 @@ app.post('/api/cloud-sync', async (req, res) => {
         newW = toAdd.length; updatedW = toUpdate.length;
       }
     }
+    
     if (cashierData && cashierData.length > 0) {
+      console.log('[BACKEND] Processando dados de CAIXA...');
         const sheetName = `Caixas - ${eventName}`;
         const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
-        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, (c.cpf || c.CPF), c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
         const sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
@@ -254,6 +267,7 @@ app.post('/api/cloud-sync', async (req, res) => {
             newC = toAdd.length; updatedC = toUpdate.length;
         }
     }
+    console.log('[BACKEND] Resposta enviada ao frontend.');
     res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
@@ -454,7 +468,13 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       sisfoRecordsForCpf.splice(recordIndex, 1);
     });
     console.log("\n--- CONCILIAÇÃO FINALIZADA ---");
-    res.status(200).json({ recordsCompared, totemsFound, unmatchedYuzerRecords, divergencesFound: divergences.length, divergences });
+    res.status(200).json({
+      recordsCompared,
+      totemsFound,
+      unmatchedYuzerRecords,
+      divergencesFound: divergences.length,
+      divergences
+    });
   } catch (error) {
     console.error('Erro na conciliação Yuzer:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao processar a conciliação.' });
