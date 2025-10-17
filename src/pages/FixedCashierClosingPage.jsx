@@ -1,9 +1,9 @@
-// src/pages/FixedCashierClosingPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO CORRIGIDA COM BOTÃO DE REMOVER APARECENDO)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveFixedCashierClosing } from '../services/apiService';
-import { attemptBackgroundSync } from '../services/syncService'; // 1. IMPORTA O SERVIÇO DE SYNC
+import { attemptBackgroundSync } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
@@ -18,7 +18,8 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs, isEditing }) => {
+// --- COMPONENTE INTERNO PARA CADA CAIXA ---
+const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs, isEditing, onRemoveCaixa, showRemoveButton }) => {
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
@@ -35,8 +36,8 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
         const query = searchInput.trim().toLowerCase();
         if (query.length > 0 && !selectedCashier) {
             const results = personnelList.filter(person => {
-                const personName = person.name.toLowerCase();
-                const personCpf = person.cpf.replace(/\D/g, '');
+                const personName = (person.name || '').toLowerCase();
+                const personCpf = (person.cpf || '').replace(/\D/g, '');
                 const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
                 if (isNumericQuery) { return personCpf.startsWith(query.replace(/\D/g, '')); } 
                 else { return personName.includes(query); }
@@ -68,7 +69,20 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
 
     return (
         <div className="caixa-item-container">
-            <h3 className="caixa-title">Caixa {index + 1}</h3>
+            {/* --- CÓDIGO CORRIGIDO AQUI --- */}
+            <div className="caixa-header">
+                <h3 className="caixa-title">Caixa {index + 1}</h3>
+                {showRemoveButton && (
+                    <button 
+                        type="button" 
+                        className="remove-caixa-button" 
+                        onClick={() => onRemoveCaixa(item.id)}
+                    >
+                        Remover
+                    </button>
+                )}
+            </div>
+
             <div className="form-row">
                 <div className="input-group" style={{ position: 'relative' }}>
                     <label>Buscar Funcionário (Nome ou CPF)</label>
@@ -116,6 +130,7 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
     );
 };
 
+// --- COMPONENTE PRINCIPAL DA PÁGINA ---
 function FixedCashierClosingPage() {
     const navigate = useNavigate();
     const { state } = useLocation();
@@ -207,6 +222,11 @@ function FixedCashierClosingPage() {
         setCaixasDoGrupo([...caixasDoGrupo, { id: newId, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
     };
 
+    const handleRemoveCaixa = (idToRemove) => {
+        if (caixasDoGrupo.length <= 1) { return; }
+        setCaixasDoGrupo(prevCaixas => prevCaixas.filter(caixa => caixa.id !== idToRemove));
+    };
+
     const handleOpenConfirmation = () => {
         if (caixasDoGrupo.some(caixa => !caixa.name || !caixa.numeroMaquina)) {
             setAlertMessage('Por favor, preencha o nome e o número da máquina para todos os caixas.');
@@ -245,15 +265,12 @@ function FixedCashierClosingPage() {
                 timestamp: closingToEdit?.timestamp
             };
     
-            // 1. Salva localmente
             const response = await saveFixedCashierClosing(closingData);
             const savedData = response.data;
             
-            // 2. Mostra a mensagem de sucesso e prepara para redirecionar
             setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
             setTimeout(() => navigate('/closing-history'), 2000);
 
-            // 3. Inicia a tentativa de envio em segundo plano
             attemptBackgroundSync(savedData);
 
         } catch (error) {
@@ -308,7 +325,7 @@ function FixedCashierClosingPage() {
                     formRefs.current[`valorEstorno_${caixa.id}`] = formRefs.current[`valorEstorno_${caixa.id}`] || React.createRef();
                     formRefs.current.addCaixaButton = formRefs.current.addCaixaButton || React.createRef();
                     formRefs.current.saveButton = formRefs.current.saveButton || React.createRef();
-
+                    
                     return (
                         <CaixaFormItem 
                             key={caixa.id} 
@@ -320,6 +337,8 @@ function FixedCashierClosingPage() {
                             handleKeyDown={handleKeyDown}
                             formRefs={formRefs}
                             isEditing={!!closingToEdit}
+                            onRemoveCaixa={handleRemoveCaixa}
+                            showRemoveButton={caixasDoGrupo.length > 1 && !closingToEdit}
                         />
                     );
                 })}

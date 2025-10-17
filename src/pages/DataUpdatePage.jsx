@@ -1,4 +1,4 @@
-// src/pages/DataUpdatePage.jsx (VERSÃO COM CORREÇÃO DEFINITIVA NA IMPORTAÇÃO)
+// src/pages/DataUpdatePage.jsx (VERSÃO COM SYNC EM SEGUNDO PLANO E OTIMIZADO)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import './DataUpdatePage.css';
+import AlertModal from '../components/AlertModal.jsx'; // Importa o componente de alerta
 
 function DataUpdatePage() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ function DataUpdatePage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUpdatingOnline, setIsUpdatingOnline] = useState(false);
   const [updatingEvent, setUpdatingEvent] = useState(null);
+  const [alertMessage, setAlertMessage] = useState(''); // Estado para o modal de alerta
 
   const normalizeString = (str) => {
     if (!str) return '';
@@ -40,23 +42,77 @@ function DataUpdatePage() {
 
   useEffect(() => {
     const normalizedQuery = normalizeString(searchQuery.trim());
-    
     if (!normalizedQuery) {
-      const sortedWaiters = [...waiters].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
-      setFilteredWaiters(sortedWaiters);
+      setFilteredWaiters(waiters);
       return;
     }
-
     const filtered = waiters.filter(waiter => {
       const nameMatch = normalizeString(waiter.name).includes(normalizedQuery);
       const cpfMatch = waiter.cpf?.replace(/\D/g, '').includes(normalizedQuery.replace(/\D/g, ''));
       return nameMatch || cpfMatch;
     });
-
-    filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
     setFilteredWaiters(filtered);
-    
   }, [searchQuery, waiters]);
+
+  // --- FUNÇÃO DE SINCRONIZAÇÃO EM SEGUNDO PLANO ---
+  const handleOnlineSync = () => {
+    setIsSyncing(true);
+    setAlertMessage('Sincronização iniciada em segundo plano...'); // Feedback imediato
+
+    const performSync = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/sync/master-data`);
+        const { waiters: onlineWaiters, events: onlineEvents } = response.data;
+        
+        const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
+        const localCpfSet = new Set(localWaiters.map(w => w.cpf.trim()));
+        let newWaitersCount = 0;
+        onlineWaiters.forEach(onlineWaiter => {
+          if (onlineWaiter.cpf && !localCpfSet.has(onlineWaiter.cpf.trim())) {
+            localWaiters.push(onlineWaiter);
+            newWaitersCount++;
+          }
+        });
+
+        const localEvents = JSON.parse(localStorage.getItem('master_events')) || [];
+        const localEventsMap = new Map(localEvents.map(e => [e.name, e]));
+        let newEventsCount = 0;
+        let updatedEventsCount = 0;
+        
+        onlineEvents.forEach(onlineEvent => {
+          if (onlineEvent.name) {
+            if (localEventsMap.has(onlineEvent.name)) {
+              const existingEvent = localEventsMap.get(onlineEvent.name);
+              if (existingEvent.active !== onlineEvent.active) {
+                existingEvent.active = onlineEvent.active;
+                updatedEventsCount++;
+              }
+            } else {
+              localEventsMap.set(onlineEvent.name, onlineEvent);
+              newEventsCount++;
+            }
+          }
+        });
+        
+        const mergedEvents = Array.from(localEventsMap.values());
+        
+        localStorage.setItem('master_waiters', JSON.stringify(localWaiters));
+        localStorage.setItem('master_events', JSON.stringify(mergedEvents));
+        setWaiters(localWaiters);
+        setEvents(mergedEvents);
+
+        setAlertMessage(`Sincronização concluída!\n- Garçons: ${newWaitersCount} novo(s) adicionado(s).\n- Eventos: ${newEventsCount} novo(s) adicionado(s) e ${updatedEventsCount} status atualizado(s).`);
+
+      } catch (error) {
+        console.error("Erro na sincronização online:", error);
+        setAlertMessage("Falha ao sincronizar. Verifique o backend e a conexão.");
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    performSync();
+  };
 
   const handleImportData = () => {
     if (!selectedFile) { alert('Por favor, selecione um arquivo de planilha primeiro.'); return; }
@@ -75,16 +131,15 @@ function DataUpdatePage() {
           let addedCount = 0;
           let existingCount = 0;
           
-          newWaitersRaw.forEach(newWaiter => {
-            // --- CORREÇÃO DEFINITIVA APLICADA AQUI ---
-            // Padroniza os dados da planilha para o formato { cpf: '...', name: '...' } em minúsculas
+          newWaitersRaw.forEach(row => {
             const cleanWaiter = {
-                cpf: String(newWaiter.CPF || newWaiter.cpf || '').trim(),
-                name: String(newWaiter.NOME || newWaiter.name || '').trim()
+                cpf: String(row.CPF || row.cpf || '').trim(),
+                name: String(row.NOME || row.name || '').trim()
             };
 
             if (cleanWaiter.cpf && cleanWaiter.name && !existingCpfSet.has(cleanWaiter.cpf)) {
-              existingWaiters.push(cleanWaiter); // Salva o objeto já padronizado
+              existingWaiters.push(cleanWaiter);
+              existingCpfSet.add(cleanWaiter.cpf);
               addedCount++;
             } else if (cleanWaiter.cpf) { 
               existingCount++; 
@@ -120,7 +175,7 @@ function DataUpdatePage() {
         
         setFileName('');
         setSelectedFile(null);
-        document.getElementById('file-upload').value = null; // Limpa o seletor de arquivo
+        document.getElementById('file-upload').value = null;
       } catch (error) { 
           console.error("Erro detalhado ao processar planilha:", error); 
           alert('Ocorreu um erro ao ler o arquivo. Verifique o console para mais detalhes.'); 
@@ -129,64 +184,6 @@ function DataUpdatePage() {
     reader.readAsBinaryString(selectedFile);
   };
   
-  const handleOnlineSync = async () => {
-    setIsSyncing(true);
-    try {
-      const [waitersResponse, eventsResponse] = await Promise.all([
-        axios.get(`${API_URL}/api/sync/waiters`),
-        axios.get(`${API_URL}/api/sync/events`)
-      ]);
-      
-      const onlineWaiters = waitersResponse.data;
-      const onlineEvents = eventsResponse.data;
-      
-      const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-      const localCpfSet = new Set(localWaiters.map(w => w.cpf.trim()));
-      let newWaitersCount = 0;
-      onlineWaiters.forEach(onlineWaiter => {
-        if (onlineWaiter.cpf && !localCpfSet.has(onlineWaiter.cpf.trim())) {
-          localWaiters.push(onlineWaiter);
-          newWaitersCount++;
-        }
-      });
-
-      const localEvents = JSON.parse(localStorage.getItem('master_events')) || [];
-      const localEventsMap = new Map(localEvents.map(e => [e.name, e]));
-      let newEventsCount = 0;
-      let updatedEventsCount = 0;
-      
-      onlineEvents.forEach(onlineEvent => {
-        if (onlineEvent.name) {
-          if (localEventsMap.has(onlineEvent.name)) {
-            const existingEvent = localEventsMap.get(onlineEvent.name);
-            if (existingEvent.active !== onlineEvent.active) {
-              existingEvent.active = onlineEvent.active;
-              updatedEventsCount++;
-            }
-          } else {
-            localEventsMap.set(onlineEvent.name, onlineEvent);
-            newEventsCount++;
-          }
-        }
-      });
-      
-      const mergedEvents = Array.from(localEventsMap.values());
-      
-      localStorage.setItem('master_waiters', JSON.stringify(localWaiters));
-      localStorage.setItem('master_events', JSON.stringify(mergedEvents));
-      setWaiters(localWaiters);
-      setEvents(mergedEvents);
-
-      alert(`Sincronização concluída!\n- Garçons: ${newWaitersCount} novo(s) adicionado(s).\n- Eventos: ${newEventsCount} novo(s) adicionado(s) e ${updatedEventsCount} status atualizado(s).`);
-
-    } catch (error) {
-      console.error("Erro na sincronização online:", error);
-      alert("Falha ao sincronizar. Verifique o backend e a conexão.");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleDownloadTemplate = async () => {
     const workbook = new ExcelJS.Workbook();
     const waitersSheet = workbook.addWorksheet('Garcons');
@@ -301,6 +298,7 @@ function DataUpdatePage() {
 
   return (
     <div className="update-container">
+      <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
       <h1 className="update-title">Atualizar e Gerenciar Dados</h1>
       <div className="online-sync-section">
         <button onClick={handleOnlineSync} className="sync-button" disabled={isSyncing || isUpdatingOnline}>

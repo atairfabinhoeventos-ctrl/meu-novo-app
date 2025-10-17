@@ -1,163 +1,335 @@
-/* src/App.css */
+/* src/App.css (VERSÃO COM BOTÃO VOLTAR REDUZIDO) */
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: #f0f2f5; /* Fundo padrão do corpo */
-  color: #333; /* Cor de texto padrão */
+/* --- REGRA UNIVERSAL DE BOX-SIZING --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* --- ESTILOS GERAIS --- */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f4f7f9;
 }
 
 .app-container {
   display: flex;
   justify-content: center;
-  align-items: flex-start; /* Alinha no topo */
+  align-items: flex-start;
   min-height: 100vh;
   padding: 20px;
-  box-sizing: border-box; /* Garante que o padding não adicione à largura/altura total */
 }
 
-/* Estilos de formulário gerais que podem ser herdados ou sobrescritos */
-.login-form { /* Este nome de classe é reutilizado, mas o LoginPage.css terá prioridade por ser mais específico */
+/* --- ESTILO BASE PARA FORMULÁRIOS/CARDS --- */
+.login-form {
   background-color: #ffffff;
-  padding: 30px;
-  border-radius: 8px;
-  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+  padding: 30px 40px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
   width: 100%;
-  max-width: 600px; /* Largura padrão para outros formulários */
-  margin-top: 20px; /* Espaçamento do topo */
+  max-width: 700px;
 }
 
-/* Botões gerais */
-.login-button { /* Este nome de classe é reutilizado, mas o LoginPage.css terá prioridade */
-  background-color: #1E63B8; /* Azul principal */
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
+.login-form h1 {
+  text-align: center;
+  color: #1E63B8;
+  margin-bottom: 25px;
+  font-size: 2em;
 }
 
-.login-button:hover {
-  background-color: #164a87; /* Azul mais escuro no hover */
-}
-
-/* Seções de formulário */
-.form-section {
-    margin-bottom: 20px;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #eee;
-}
-.form-section:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-    padding-bottom: 0;
-}
-
-/* Estilos para campos de input e label dentro de .input-group */
+/* --- GRUPOS DE INPUT E LABELS --- */
 .input-group {
-    margin-bottom: 15px;
-    text-align: left; /* Garante que labels ficam à esquerda */
+  margin-bottom: 20px;
+  position: relative;
 }
 
 .input-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
-    color: #444;
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
 }
 
 .input-group input,
 .input-group select {
-    width: calc(100% - 20px); /* Ajuste para padding */
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 0.95rem;
-    box-sizing: border-box; /* Inclui padding e borda na largura total */
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .input-group input:focus,
 .input-group select:focus {
-    border-color: #1E63B8;
-    box-shadow: 0 0 0 2px rgba(30, 99, 184, 0.2);
-    outline: none;
+  border-color: #1E63B8;
+  box-shadow: 0 0 0 3px rgba(30, 99, 184, 0.2);
+  outline: none;
 }
 
-
-/* Estilos para a navegação (Header) */
-.header {
-  background-color: #1E63B8; /* Cor principal do SisFO */
+/* --- BOTÕES --- */
+.login-button {
+  background-color: #28a745;
   color: white;
-  padding: 15px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
-}
-
-.header-brand {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: white;
-  text-decoration: none;
-}
-
-.header-nav a {
-  color: white;
-  text-decoration: none;
-  margin-left: 20px;
-  font-weight: 500;
-  transition: color 0.2s;
-}
-
-.header-nav a:hover {
-  color: #fd7e14; /* Laranja no hover */
-}
-
-.logout-button {
-  background-color: #fd7e14; /* Laranja */
-  color: white;
-  padding: 8px 15px;
+  padding: 15px 25px;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  font-weight: bold;
   cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.2s;
+  width: 100%;
+  transition: all 0.2s;
 }
 
-.logout-button:hover {
-  background-color: #e06c00; /* Laranja mais escuro */
+.login-button:hover:not(:disabled) {
+  background-color: #218838;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
 }
 
-/* src/App.css - Substitua a regra .back-button antiga por esta */
+.login-button:disabled {
+  background-color: #adb5bd;
+  cursor: not-allowed;
+}
 
+.link-button {
+  background: none;
+  border: none;
+  color: #007bff;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+}
+
+/* --- DESIGN DO BOTÃO VOLTAR (REDUZIDO EM 25%) --- */
 .back-button {
-  background-color: #6c757d;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 5px;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px; /* Reduzido de 10px 15px */
+  background-color: #e9ecef;
+  border: 1px solid #dee2e6;
+  border-radius: 6px; /* Reduzido de 8px */
+  color: #495057;
+  font-size: 1.2rem; /* Reduzido de 1.6rem */
   font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.2s;
-  /* Remove o posicionamento absoluto e adiciona margem */
-  margin-bottom: 20px;
-  align-self: flex-start; /* Alinha o botão à esquerda dentro do container */
+  margin-bottom: 15px;
+  align-self: flex-start;
+  transition: all 0.2s ease-in-out;
+  line-height: 1;
 }
 
 .back-button:hover {
+  background-color: #1E63B8;
+  color: white;
+  border-color: #1E63B8;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(30, 99, 184, 0.3);
+}
+
+
+/* --- LAYOUT DE FORMULÁRIO --- */
+.form-section {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e9ecef;
+}
+.form-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.form-scrollable {
+  max-height: 90vh;
+  overflow-y: auto;
+  padding-right: 15px;
+}
+
+/* --- UTILITÁRIOS --- */
+.error-message {
+  color: #dc3545;
+  margin-top: 5px;
+  font-size: 0.9rem;
+}
+
+/* --- MODAL --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 500px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.cancel-button {
+  background-color: #6c757d;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.cancel-button:hover {
   background-color: #5a6268;
+}
+
+/* --- ANIMAÇÕES E EFEITOS (SPINNER, CHECKMARK) --- */
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-left-color: #1E63B8;
+  animation: spin 1s ease infinite;
+  margin: 20px auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.success-checkmark {
+  width: 80px;
+  height: 115px;
+  margin: 0 auto;
+}
+
+.check-icon {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  border-radius: 50%;
+  box-sizing: content-box;
+  border: 4px solid #4CAF50;
+  transform: scale(0);
+  animation: scaleUp 0.4s ease-in-out 0.2s forwards;
+}
+
+.check-icon::before {
+  top: 3px;
+  left: -2px;
+  width: 30px;
+  transform-origin: 100% 50%;
+  border-radius: 100px 0 0 100px;
+}
+
+.check-icon::after {
+  top: 0;
+  left: 30px;
+  width: 60px;
+  transform-origin: 0 50%;
+  border-radius: 0 100px 100px 0;
+  animation: rotate-circle 4.25s ease-in;
+}
+
+.check-icon::before, .check-icon::after {
+  content: '';
+  height: 100px;
+  position: absolute;
+  background: #FFFFFF;
+  transform: rotate(-45deg);
+}
+
+.icon-line {
+  height: 5px;
+  background-color: #4CAF50;
+  display: block;
+  border-radius: 2px;
+  position: absolute;
+  z-index: 10;
+}
+
+.icon-line.line-tip {
+  top: 46px;
+  left: 14px;
+  width: 0;
+  transform: rotate(45deg);
+  animation: icon-line-tip 0.75s ease-out 0.6s forwards;
+}
+
+.icon-line.line-long {
+  top: 38px;
+  right: 8px;
+  width: 0;
+  transform: rotate(-45deg);
+  animation: icon-line-long 0.75s ease-out 0.6s forwards;
+}
+
+.icon-circle {
+  top: -4px;
+  left: -4px;
+  z-index: 10;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  position: absolute;
+  box-sizing: content-box;
+  border: 4px solid rgba(76, 175, 80, .5);
+}
+
+.icon-fix {
+  top: 8px;
+  width: 5px;
+  left: 26px;
+  z-index: 1;
+  height: 85px;
+  position: absolute;
+  transform: rotate(-45deg);
+  background-color: #FFFFFF;
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes icon-line-tip {
+  from { width: 0; left: 1px; top: 19px; }
+  to { width: 25px; left: 14px; top: 46px; }
+}
+
+@keyframes icon-line-long {
+  from { width: 0; right: 46px; top: 54px; }
+  to { width: 47px; right: 8px; top: 38px; }
 }

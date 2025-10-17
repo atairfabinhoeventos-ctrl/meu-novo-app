@@ -1,4 +1,4 @@
-// backend/server.js (VERSÃO FINAL E DEFINITIVA COM DUPLA VERIFICAÇÃO)
+// backend/server.js (VERSÃO COMPLETA E FINAL COM LOGS DE DIAGNÓSTICO)
 console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
 
 require('dotenv').config();
