@@ -1,3 +1,4 @@
+// src/pages/DataUpdatePage.jsx (VERSÃO COM CORREÇÃO DEFINITIVA NA IMPORTAÇÃO)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -18,40 +19,116 @@ function DataUpdatePage() {
   const [events, setEvents] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUpdatingOnline, setIsUpdatingOnline] = useState(false);
-  const [updatingEvent, setUpdatingEvent] = useState(null); // Para controlar o loading do switch
+  const [updatingEvent, setUpdatingEvent] = useState(null);
+
+  const normalizeString = (str) => {
+    if (!str) return '';
+    return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  };
 
   useEffect(() => {
-    // Carrega os eventos e garçons do localStorage e já aplica a ordenação inicial.
     const storedEvents = JSON.parse(localStorage.getItem('master_events')) || [];
     const cleanEvents = storedEvents.filter(event => event && event.name && event.name.trim() !== '');
-    // Ordena por ativos primeiro, depois por nome alfabético
-    cleanEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name));
+    cleanEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name, 'pt-BR'));
     setEvents(cleanEvents);
 
     const storedWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-    // Ordena por nome alfabético
-    storedWaiters.sort((a, b) => a.name.localeCompare(b.name));
+    storedWaiters.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
     setWaiters(storedWaiters);
     setFilteredWaiters(storedWaiters);
   }, []);
 
-  // Filtro de busca de garçons corrigido e funcional
   useEffect(() => {
-    const query = searchQuery.toLowerCase().trim();
-    if (!query) {
-      setFilteredWaiters(waiters); // Se a busca está vazia, mostra a lista completa e ordenada
+    const normalizedQuery = normalizeString(searchQuery.trim());
+    
+    if (!normalizedQuery) {
+      const sortedWaiters = [...waiters].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+      setFilteredWaiters(sortedWaiters);
       return;
     }
 
     const filtered = waiters.filter(waiter => {
-      const nameMatch = waiter.name?.toLowerCase().includes(query);
-      const cpfMatch = waiter.cpf?.replace(/\D/g, '').includes(query.replace(/\D/g, ''));
+      const nameMatch = normalizeString(waiter.name).includes(normalizedQuery);
+      const cpfMatch = waiter.cpf?.replace(/\D/g, '').includes(normalizedQuery.replace(/\D/g, ''));
       return nameMatch || cpfMatch;
     });
+
+    filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
     setFilteredWaiters(filtered);
+    
   }, [searchQuery, waiters]);
 
+  const handleImportData = () => {
+    if (!selectedFile) { alert('Por favor, selecione um arquivo de planilha primeiro.'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        let feedbackMessages = [];
 
+        if (workbook.Sheets['Garcons']) {
+          const waitersSheet = workbook.Sheets['Garcons'];
+          const newWaitersRaw = XLSX.utils.sheet_to_json(waitersSheet);
+          const existingWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
+          const existingCpfSet = new Set(existingWaiters.map(w => w.cpf.trim()));
+          let addedCount = 0;
+          let existingCount = 0;
+          
+          newWaitersRaw.forEach(newWaiter => {
+            // --- CORREÇÃO DEFINITIVA APLICADA AQUI ---
+            // Padroniza os dados da planilha para o formato { cpf: '...', name: '...' } em minúsculas
+            const cleanWaiter = {
+                cpf: String(newWaiter.CPF || newWaiter.cpf || '').trim(),
+                name: String(newWaiter.NOME || newWaiter.name || '').trim()
+            };
+
+            if (cleanWaiter.cpf && cleanWaiter.name && !existingCpfSet.has(cleanWaiter.cpf)) {
+              existingWaiters.push(cleanWaiter); // Salva o objeto já padronizado
+              addedCount++;
+            } else if (cleanWaiter.cpf) { 
+              existingCount++; 
+            }
+          });
+
+          localStorage.setItem('master_waiters', JSON.stringify(existingWaiters));
+          setWaiters(existingWaiters);
+          feedbackMessages.push(`${addedCount} novo(s) garçom(ns) adicionado(s). ${existingCount} já possuía(m) cadastro.`);
+        }
+        
+        if (workbook.Sheets['Eventos']) {
+            const eventsSheet = workbook.Sheets['Eventos'];
+            const newEventsData = XLSX.utils.sheet_to_json(eventsSheet);
+            const existingEvents = JSON.parse(localStorage.getItem('master_events')) || [];
+            const existingEventNames = new Set(existingEvents.map(ev => ev.name));
+            let addedCount = 0;
+            newEventsData.forEach(newEvent => {
+              const eventName = String(newEvent['NOME DO EVENTO'] || '').trim();
+              if (eventName && !existingEventNames.has(eventName)) {
+                const status = String(newEvent.STATUS || 'ATIVO').toUpperCase() === 'ATIVO';
+                existingEvents.push({ name: eventName, active: status });
+                addedCount++;
+              }
+            });
+            localStorage.setItem('master_events', JSON.stringify(existingEvents));
+            setEvents(existingEvents);
+            feedbackMessages.push(`${addedCount} novo(s) evento(s) adicionado(s).`);
+        }
+
+        if (feedbackMessages.length > 0) { alert(feedbackMessages.join('\n')); }
+        else { alert('Nenhuma aba válida ("Garcons" ou "Eventos") encontrada na planilha para importar.'); }
+        
+        setFileName('');
+        setSelectedFile(null);
+        document.getElementById('file-upload').value = null; // Limpa o seletor de arquivo
+      } catch (error) { 
+          console.error("Erro detalhado ao processar planilha:", error); 
+          alert('Ocorreu um erro ao ler o arquivo. Verifique o console para mais detalhes.'); 
+      }
+    };
+    reader.readAsBinaryString(selectedFile);
+  };
+  
   const handleOnlineSync = async () => {
     setIsSyncing(true);
     try {
@@ -131,91 +208,32 @@ function DataUpdatePage() {
     }
   };
 
-  const handleImportData = () => {
-    if (!selectedFile) { alert('Por favor, selecione um arquivo de planilha primeiro.'); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        let feedbackMessages = [];
-
-        if (workbook.Sheets['Garcons']) {
-          const waitersSheet = workbook.Sheets['Garcons'];
-          const newWaiters = XLSX.utils.sheet_to_json(waitersSheet);
-          const existingWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-          const existingCpfSet = new Set(existingWaiters.map(w => w.cpf.trim()));
-          let addedCount = 0;
-          let existingCount = 0;
-          newWaiters.forEach(newWaiter => {
-            const cleanCpf = String(newWaiter.CPF || '').trim();
-            if (cleanCpf && !existingCpfSet.has(cleanCpf)) {
-              existingWaiters.push({ cpf: cleanCpf, name: String(newWaiter.NOME || '').trim() });
-              addedCount++;
-            } else { existingCount++; }
-          });
-          localStorage.setItem('master_waiters', JSON.stringify(existingWaiters));
-          setWaiters(existingWaiters);
-          feedbackMessages.push(`${addedCount} novo(s) garçom(ns) adicionado(s). ${existingCount} já possuía(m) cadastro.`);
-        }
-        if (workbook.Sheets['Eventos']) {
-            const eventsSheet = workbook.Sheets['Eventos'];
-            const newEventsData = XLSX.utils.sheet_to_json(eventsSheet);
-            const existingEvents = JSON.parse(localStorage.getItem('master_events')) || [];
-            const existingEventNames = new Set(existingEvents.map(ev => ev.name));
-            let addedCount = 0;
-            newEventsData.forEach(newEvent => {
-              const eventName = String(newEvent['NOME DO EVENTO'] || '').trim();
-              if (eventName && !existingEventNames.has(eventName)) {
-                const status = String(newEvent.STATUS || 'ATIVO').toUpperCase() === 'ATIVO';
-                existingEvents.push({ name: eventName, active: status });
-                addedCount++;
-              }
-            });
-            localStorage.setItem('master_events', JSON.stringify(existingEvents));
-            setEvents(existingEvents);
-            feedbackMessages.push(`${addedCount} novo(s) evento(s) adicionado(s).`);
-        }
-        if (feedbackMessages.length > 0) { alert(feedbackMessages.join('\n')); }
-        else { alert('Nenhuma aba ("Garcons" ou "Eventos") encontrada na planilha para importar.'); }
-        setFileName('');
-        setSelectedFile(null);
-      } catch (error) { console.error("Erro detalhado ao processar planilha:", error); alert('Ocorreu um erro ao ler o arquivo.'); }
-    };
-    reader.readAsBinaryString(selectedFile);
-  };
-
   const handleUpdateOnlineBase = async () => {
     if (!selectedFile) {
       alert('Por favor, selecione um arquivo de planilha primeiro.');
       return;
     }
-
     setIsUpdatingOnline(true);
-
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const data = e.target.result;
         const workbook = XLSX.read(data, { type: 'binary' });
-
         let waitersToUpdate = [];
         let eventsToUpdate = [];
-
         if (workbook.Sheets['Garcons']) {
           const waitersSheet = workbook.Sheets['Garcons'];
           const newWaiters = XLSX.utils.sheet_to_json(waitersSheet);
           newWaiters.forEach(waiter => {
-            const cleanCpf = String(waiter.CPF || '').trim();
+            const cleanCpf = String(waiter.CPF || waiter.cpf || '').trim();
             if (cleanCpf) {
               waitersToUpdate.push({
                 cpf: cleanCpf,
-                name: String(waiter.NOME || '').trim()
+                name: String(waiter.NOME || waiter.name || '').trim()
               });
             }
           });
         }
-
         if (workbook.Sheets['Eventos']) {
           const eventsSheet = workbook.Sheets['Eventos'];
           const newEvents = XLSX.utils.sheet_to_json(eventsSheet);
@@ -229,22 +247,19 @@ function DataUpdatePage() {
             }
           });
         }
-        
         if (waitersToUpdate.length === 0 && eventsToUpdate.length === 0) {
             alert('Nenhum dado de garçom ou evento válido foi encontrado na planilha para enviar.');
             setIsUpdatingOnline(false);
             return;
         }
-
         const response = await axios.post(`${API_URL}/api/update-base`, {
           waiters: waitersToUpdate,
           events: eventsToUpdate,
         });
-
         alert(response.data.message);
         setFileName('');
         setSelectedFile(null);
-
+        document.getElementById('file-upload').value = null;
       } catch (error) {
         console.error("Erro ao atualizar base online:", error);
         const errorMessage = error.response ? error.response.data.message : 'Ocorreu um erro ao se comunicar com o servidor.';
@@ -258,7 +273,6 @@ function DataUpdatePage() {
 
   const handleToggleEventStatus = async (eventName) => {
     setUpdatingEvent(eventName);
-
     const originalEvents = [...events];
     const updatedEvents = events.map(event => {
       if (event.name === eventName) {
@@ -266,18 +280,15 @@ function DataUpdatePage() {
       }
       return event;
     });
-
     updatedEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name));
     setEvents(updatedEvents);
     localStorage.setItem('master_events', JSON.stringify(updatedEvents));
-
     try {
       const eventToUpdate = updatedEvents.find(e => e.name === eventName);
       await axios.post(`${API_URL}/api/update-event-status`, {
         name: eventToUpdate.name,
         active: eventToUpdate.active,
       });
-
     } catch (error) {
       console.error('Erro ao sincronizar status do evento:', error);
       alert('Falha ao sincronizar a alteração com a base online. O status foi salvo localmente.');
@@ -291,19 +302,16 @@ function DataUpdatePage() {
   return (
     <div className="update-container">
       <h1 className="update-title">Atualizar e Gerenciar Dados</h1>
-
       <div className="online-sync-section">
         <button onClick={handleOnlineSync} className="sync-button" disabled={isSyncing || isUpdatingOnline}>
           {isSyncing ? 'Sincronizando...' : '🔄 Sincronizar com Planilha Online'}
         </button>
       </div>
-
       <div className="tab-navigation">
         <button className={`tab-button ${activeTab === 'import' ? 'active' : ''}`} onClick={() => setActiveTab('import')}>Importar de Arquivo</button>
         <button className={`tab-button ${activeTab === 'consult' ? 'active' : ''}`} onClick={() => setActiveTab('consult')}>Consultar Garçons</button>
         <button className={`tab-button ${activeTab === 'events' ? 'active' : ''}`} onClick={() => setActiveTab('events')}>Gerenciar Eventos</button>
       </div>
-
       {activeTab === 'import' && (
         <div className="tab-content">
           <div className="update-card full-width">
@@ -327,7 +335,6 @@ function DataUpdatePage() {
           </div>
         </div>
       )}
-
       {activeTab === 'consult' && (
         <div className="tab-content">
           <div className="update-card full-width">
@@ -343,14 +350,13 @@ function DataUpdatePage() {
                     filteredWaiters.map(waiter => (
                       <tr key={waiter.cpf}><td>{waiter.cpf}</td><td>{waiter.name}</td></tr>
                     ))
-                  ) : ( <tr><td colSpan="2">Nenhum garçom encontrado.</td></tr> )}
+                  ) : ( <tr><td colSpan="2">Nenhum garçom encontrado para a sua busca.</td></tr> )}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
       )}
-      
       {activeTab === 'events' && (
           <div className="tab-content">
             <div className="update-card full-width">
@@ -377,11 +383,9 @@ function DataUpdatePage() {
           </div>
         </div>
       )}
-      
       <button className="back-to-setup-button" onClick={() => navigate('/setup')}>
         Voltar para Seleção de Evento
       </button>
-
     </div>
   );
 }

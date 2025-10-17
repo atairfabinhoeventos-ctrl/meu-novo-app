@@ -1,10 +1,11 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO ATUALIZADA COM ENVIO DE OBJETOS)
-
+// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA - CPF DO GARÇOM INCLUÍDO)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { API_URL } from '../config';
 import './CloudSyncPage.css';
 import FeedbackModal from '../components/FeedbackModal';
+
+// Garanta que a URL do seu servidor backend esteja correta aqui
+const API_URL = 'http://localhost:3001';
 
 function CloudSyncPage() {
   const [activeEvent, setActiveEvent] = useState('');
@@ -39,12 +40,13 @@ function CloudSyncPage() {
         return;
       }
 
-      // --- INÍCIO DA MUDANÇA: AGORA ENVIAMOS OBJETOS, NÃO ARRAYS ---
       const waiterData = eventClosings
         .filter(c => c.type === 'waiter')
         .map(c => ({
             timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
             protocol: c.protocol,
+            // --- LINHA CORRIGIDA ADICIONADA AQUI ---
+            cpf: c.cpf, 
             waiterName: c.waiterName,
             numeroMaquina: c.numeroMaquina,
             valorTotal: c.valorTotal,
@@ -61,58 +63,24 @@ function CloudSyncPage() {
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
         .flatMap(c => {
-            if (Array.isArray(c.caixas)) { // Caixa Fixo (Grupo)
+            if (Array.isArray(c.caixas)) {
                 return c.caixas.map((caixa, index) => {
                     const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
-                    return {
-                        protocol: `${c.protocol}-${index}`,
-                        timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
-                        type: 'Fixo',
-                        cpf: caixa.cpf,
-                        cashierName: caixa.cashierName,
-                        numeroMaquina: caixa.numeroMaquina,
-                        valorTotalVenda: caixa.valorTotalVenda,
-                        credito: caixa.credito,
-                        debito: caixa.debito,
-                        pix: caixa.pix,
-                        cashless: caixa.cashless,
-                        valorTroco: c.valorTroco,
-                        valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0,
-                        dinheiroFisico: caixa.dinheiroFisico,
-                        valorAcerto: acertoCaixa,
-                        diferenca: caixa.dinheiroFisico - acertoCaixa,
-                        operatorName: c.operatorName
-                    };
+                    return { protocol: `${c.protocol}-${index}`, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Fixo', cpf: caixa.cpf, cashierName: caixa.cashierName, numeroMaquina: caixa.numeroMaquina, valorTotalVenda: caixa.valorTotalVenda, credito: caixa.credito, debito: caixa.debito, pix: caixa.pix, cashless: caixa.cashless, valorTroco: c.valorTroco, valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0, dinheiroFisico: caixa.dinheiroFisico, valorAcerto: acertoCaixa, diferenca: caixa.dinheiroFisico - acertoCaixa, operatorName: c.operatorName };
                 });
-            } else { // Caixa Móvel
-                return [{
-                    protocol: c.protocol,
-                    timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
-                    type: 'Móvel',
-                    cpf: c.cpf,
-                    cashierName: c.cashierName,
-                    numeroMaquina: c.numeroMaquina,
-                    valorTotalVenda: c.valorTotalVenda,
-                    credito: c.credito,
-                    debito: c.debito,
-                    pix: c.pix,
-                    cashless: c.cashless,
-                    valorTroco: c.valorTroco,
-                    valorEstorno: c.temEstorno ? c.valorEstorno : 0,
-                    dinheiroFisico: c.dinheiroFisico,
-                    valorAcerto: c.valorAcerto,
-                    diferenca: c.diferenca,
-                    operatorName: c.operatorName
-                }];
+            } else {
+                return [{ protocol: c.protocol, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Móvel', cpf: c.cpf, cashierName: c.cashierName, numeroMaquina: c.numeroMaquina, valorTotalVenda: c.valorTotalVenda, credito: c.credito, debito: c.debito, pix: c.pix, cashless: c.cashless, valorTroco: c.valorTroco, valorEstorno: c.temEstorno ? c.valorEstorno : 0, dinheiroFisico: c.dinheiroFisico, valorAcerto: c.valorAcerto, diferenca: c.diferenca, operatorName: c.operatorName }];
             }
         });
-      // --- FIM DA MUDANÇA ---
 
-      const response = await axios.post(`${API_URL}/api/cloud-sync`, {
+      const url = `${API_URL}/api/cloud-sync`;
+      const payload = {
         eventName: activeEvent,
-        waiterData: waiterData,   // Envia o array de objetos
-        cashierData: cashierData, // Envia o array de objetos
-      });
+        waiterData: waiterData,
+        cashierData: cashierData,
+      };
+
+      const response = await axios.post(url, payload);
       
       const { newWaiters, updatedWaiters, newCashiers, updatedCashiers } = response.data;
       
@@ -129,8 +97,8 @@ function CloudSyncPage() {
       }
 
     } catch (error) {
-      console.error('Erro ao sincronizar:', error);
-      const errorMessage = error.response?.data?.message || 'Falha na comunicação com o servidor.';
+      console.error("[SYNC-FRONTEND-ERRO] Falha ao enviar a requisição:", error);
+      const errorMessage = error.response?.data?.message || 'Falha na comunicação com o servidor. Verifique o console para mais detalhes.';
       setFeedbackModal({ isOpen: true, title: 'Ocorreu um Erro', message: errorMessage, status: 'error' });
     } finally {
       setIsLoading(false);

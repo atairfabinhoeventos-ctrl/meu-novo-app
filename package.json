@@ -58,7 +58,7 @@
     },
     "win": {
       "icon": "assets/icon.ico",
-      "target": "msix"
+      "target": "appx" 
     },
     "appx": {
       "identityName": "ATAIRLAGARES.SisFO",

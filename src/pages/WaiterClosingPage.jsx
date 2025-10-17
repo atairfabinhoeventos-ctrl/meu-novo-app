@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import axios from 'axios';
+import { API_URL } from '../config';
 import { saveWaiterClosing } from '../services/apiService';
+import { attemptBackgroundSync } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -18,7 +21,7 @@ function useDebounce(value, delay) {
 
 function WaiterClosingPage() {
     const navigate = useNavigate();
-    const location = useLocation(); 
+    const location = useLocation();
 
     const formRefs = {
       cpf: useRef(null), numeroCamiseta: useRef(null), numeroMaquina: useRef(null),
@@ -84,7 +87,6 @@ function WaiterClosingPage() {
               if (value === null || value === undefined) return '';
               return String(Math.round(Number(value) * 100));
             };
-
             setProtocol(closingToEdit.protocol);
             setTimestamp(closingToEdit.timestamp);
             const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
@@ -106,8 +108,8 @@ function WaiterClosingPage() {
         const query = searchInput.trim().toLowerCase();
         if (query.length > 0 && !selectedWaiter) {
             const results = waiters.filter(waiter => {
-                const waiterName = waiter.name.toLowerCase();
-                const waiterCpf = waiter.cpf.replace(/\D/g, '');
+                const waiterName = (waiter.name || waiter.NOME || '').toLowerCase();
+                const waiterCpf = (waiter.cpf || waiter.CPF || '').replace(/\D/g, '');
                 const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
                 if (isNumericQuery) { return waiterCpf.startsWith(query.replace(/\D/g, '')); } 
                 else { return waiterName.includes(query); }
@@ -148,8 +150,9 @@ function WaiterClosingPage() {
     }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedValorEstorno, temEstorno]);
 
     const handleSelectWaiter = (waiter) => {
+        console.log("Garçom Selecionado:", waiter);
         setSelectedWaiter(waiter);
-        setSearchInput(waiter.name);
+        setSearchInput(waiter.name || waiter.NOME);
         setFilteredWaiters([]);
     };
 
@@ -169,10 +172,22 @@ function WaiterClosingPage() {
     
     const handleOpenConfirmation = () => {
         if (!selectedWaiter) { setAlertMessage('Por favor, selecione um garçom válido da lista.'); return; }
+        
+        const waiterCpf = selectedWaiter.cpf || selectedWaiter.CPF;
+        const waiterName = selectedWaiter.name || selectedWaiter.NOME;
+
+        if (!waiterCpf) {
+            alert("ERRO: O garçom selecionado não possui um CPF válido. Verifique o cadastro.");
+            return;
+        }
+
         const eventName = localStorage.getItem('activeEvent') || 'N/A';
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
+        
         const closingData = {
-            type: 'waiter', timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, cpf: selectedWaiter.cpf, waiterName: selectedWaiter.name,
+            type: 'waiter', timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, 
+            cpf: waiterCpf,
+            waiterName: waiterName,
             numeroCamiseta, numeroMaquina, valorTotal: getNumericValue(valorTotal), credito: getNumericValue(credito),
             debito: getNumericValue(debito), pix: getNumericValue(pix), cashless: getNumericValue(cashless),
             temEstorno, valorEstorno: getNumericValue(valorEstorno), comissaoTotal, valorTotalAcerto, diferencaLabel, diferencaPagarReceber,
@@ -183,9 +198,12 @@ function WaiterClosingPage() {
     const handleConfirmAndSave = async () => {
         setModalState('saving');
         try {
+            console.log('[WaiterPage] DADOS ENVIADOS PARA SALVAR:', dataToConfirm);
             const response = await saveWaiterClosing(dataToConfirm);
-            setDataToConfirm(prevData => ({...prevData, protocol: response.data.protocol}));
+            const savedData = response.data;
+            setDataToConfirm(savedData);
             setModalState('success');
+            attemptBackgroundSync(savedData);
         } catch (error) {
             setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
             setModalVisible(false);
@@ -209,6 +227,61 @@ function WaiterClosingPage() {
         }
       }
     };
+
+    const handleDirectSendTest = async () => {
+        if (!selectedWaiter) {
+            alert("TESTE: Por favor, selecione um garçom primeiro.");
+            return;
+        }
+        console.log('[TESTE DIRETO] Conteúdo do objeto selectedWaiter:', selectedWaiter);
+
+        const waiterCpf = selectedWaiter.cpf || selectedWaiter.CPF;
+        const waiterName = selectedWaiter.name || selectedWaiter.NOME;
+
+        if (!waiterCpf) {
+            alert("ERRO DE TESTE: O garçom selecionado não possui um CPF válido.");
+            return;
+        }
+
+        const testClosingData = {
+            type: 'waiter',
+            timestamp: new Date().toISOString(),
+            protocol: `TESTE-${Date.now()}`,
+            eventName: localStorage.getItem('activeEvent'),
+            cpf: waiterCpf,
+            waiterName: waiterName,
+            numeroCamiseta,
+            numeroMaquina,
+            valorTotal: getNumericValue(valorTotal),
+            credito: getNumericValue(credito),
+            debito: getNumericValue(debito),
+            pix: getNumericValue(pix),
+            cashless: getNumericValue(cashless),
+            temEstorno,
+            valorEstorno: getNumericValue(valorEstorno),
+            comissaoTotal,
+            diferencaLabel,
+            diferencaPagarReceber,
+            acerto: diferencaLabel === 'Pagar ao Garçom' ? -diferencaPagarReceber : diferencaPagarReceber,
+            operatorName: localStorage.getItem('loggedInUserName')
+        };
+        const payload = {
+            eventName: testClosingData.eventName,
+            waiterData: [{
+                ...testClosingData,
+                timestamp: new Date(testClosingData.timestamp).toLocaleString('pt-BR'),
+            }],
+            cashierData: [],
+        };
+        console.log('[TESTE DIRETO] Payload final que será enviado:', payload);
+        try {
+            await axios.post(`${API_URL}/api/cloud-sync`, payload);
+            alert('TESTE DE ENVIO DIRETO CONCLUÍDO COM SUCESSO! Verifique a planilha.');
+        } catch (error) {
+            alert('TESTE FALHOU! Ocorreu um erro ao enviar diretamente. Verifique o console.');
+            console.error('[TESTE DIRETO] Erro:', error);
+        }
+    };
     
     if (isLoading) { return <LoadingSpinner message="Carregando formulário..." />; }
 
@@ -223,12 +296,35 @@ function WaiterClosingPage() {
                     <div className="form-row">
                         <div className="input-group">
                             <label>Buscar Garçom (Nome ou CPF)</label>
-                            <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} placeholder="Digite o nome ou CPF do garçom" value={searchInput} onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }}  disabled={!!protocol} />
-                            {filteredWaiters.length > 0 && ( <div className="suggestions-list">{filteredWaiters.map(item => (<div key={item.cpf} className="suggestion-item" onClick={() => handleSelectWaiter(item)}>{item.name} - {item.cpf}</div>))}</div>)}
+                            <input 
+                                ref={formRefs.cpf} 
+                                onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} 
+                                placeholder="Digite o nome ou CPF do garçom" 
+                                value={searchInput} 
+                                onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }}  
+                                disabled={!!protocol} 
+                            />
+                            {filteredWaiters.length > 0 && ( 
+                                <div className="suggestions-list">
+                                    {filteredWaiters.map(item => (
+                                        <div 
+                                            key={item.cpf || item.CPF} 
+                                            className="suggestion-item" 
+                                            onClick={() => handleSelectWaiter(item)}>
+                                                {(item.name || item.NOME)} - {(item.cpf || item.CPF)}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         <div className="input-group">
                             <label>Garçom Selecionado</label>
-                            <input type="text" value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} readOnly placeholder="Selecione um garçom da lista" />
+                            <input 
+                                type="text" 
+                                value={selectedWaiter ? `${selectedWaiter.name || selectedWaiter.NOME} - ${selectedWaiter.cpf || selectedWaiter.CPF}` : ''} 
+                                readOnly 
+                                placeholder="Selecione um garçom da lista" 
+                            />
                         </div>
                     </div>
                     {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo garçom?</button>)}
@@ -287,6 +383,10 @@ function WaiterClosingPage() {
                         </strong>
                     </p>
                     <button ref={formRefs.saveButton} className="login-button" onClick={handleOpenConfirmation}>SALVAR E FINALIZAR</button>
+                    
+                    <button onClick={handleDirectSendTest} style={{backgroundColor: '#dc3545', marginTop: '15px'}} className="login-button">
+                        TESTE DE ENVIO DIRETO
+                    </button>
                 </div>
             </div>
 

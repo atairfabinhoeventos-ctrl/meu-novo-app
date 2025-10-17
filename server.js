@@ -1,5 +1,5 @@
-// backend/server.js (VERSÃO FINAL COMPLETA E CORRIGIDA)
-console.log("--- EXECUTANDO A VERSÃO MAIS RECENTE DO CÓDIGO (revisão com todas as rotas completas) ---");
+// backend/server.js (VERSÃO FINAL E DEFINITIVA COM DUPLA VERIFICAÇÃO)
+console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
 
 require('dotenv').config();
 
@@ -10,7 +10,10 @@ const path = require('path');
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
-app.use(cors()); // Permite acesso de qualquer origem
+app.use(cors());
+
+// --- FUNÇÃO AUXILIAR PARA NORMALIZAR VALORES ---
+const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
 
 // --- FUNÇÃO DE AUTENTICAÇÃO ---
 async function getGoogleSheetsClient() {
@@ -125,52 +128,37 @@ app.post('/api/update-base', async (req, res) => {
 // --- ROTA: ATUALIZAR STATUS DE UM ÚNICO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ message: 'O nome do evento é obrigatório.' });
-  }
-
+  if (!name) { return res.status(400).json({ message: 'O nome do evento é obrigatório.' }); }
   try {
     const googleSheets = await getGoogleSheetsClient();
     const range = 'Eventos!A2:C';
-
-    const response = await googleSheets.spreadsheets.values.get({
-      spreadsheetId: spreadsheetId_sync,
-      range: range,
-    });
-
+    const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: range });
     const rows = response.data.values || [];
     const eventIndex = rows.findIndex(row => row[0] && row[0].trim() === name.trim());
-
-    if (eventIndex === -1) {
-      return res.status(404).json({ message: `Evento "${name}" não encontrado na planilha online.` });
-    }
-
+    if (eventIndex === -1) { return res.status(404).json({ message: `Evento "${name}" não encontrado na planilha online.` }); }
     const targetRow = eventIndex + 2;
     const targetRange = `Eventos!C${targetRow}`;
     const newStatus = active ? 'ATIVO' : 'INATIVO';
-
     await googleSheets.spreadsheets.values.update({
       spreadsheetId: spreadsheetId_sync,
       range: targetRange,
       valueInputOption: 'USER_ENTERED',
-      resource: {
-        values: [[newStatus]],
-      },
+      resource: { values: [[newStatus]] },
     });
-
     res.status(200).json({ message: `Status do evento "${name}" atualizado para ${newStatus} com sucesso.` });
-
   } catch (error) {
     console.error('Erro ao atualizar status do evento online:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao atualizar o status do evento.' });
   }
 });
 
-
-// --- ROTA DE SYNC PARA A NUVEM (ROBUSTA E COMPLETA) ---
+// --- ROTA DE SYNC PARA A NUVEM (COM LOGS DE DIAGNÓSTICO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
+  
+  // LOG 1: Mostra exatamente o que o frontend enviou.
+  console.log('[BACKEND] /api/cloud-sync RECEBEU:', JSON.stringify(req.body, null, 2));
+
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
   try {
@@ -179,10 +167,20 @@ app.post('/api/cloud-sync', async (req, res) => {
     const sheets = sheetInfo.data.sheets;
     let newW = 0, updatedW = 0, newC = 0, updatedC = 0;
 
+    // Lógica para Garçons
     if (waiterData && waiterData.length > 0) {
+      console.log('[BACKEND] Processando dados de GARÇOM...');
       const sheetName = `Garçons - ${eventName}`;
-      const header = [ "Data", "Protocolo", "Nome Garçom", "Nº Maquina", "Valor Total Venda", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-      const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
+      const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
+      
+      const rows = waiterData.map(c => {
+        // --- CORREÇÃO DE SEGURANÇA DEFINITIVA ---
+        const cpfValue = c.cpf || c.CPF || ''; // Pega 'cpf' ou 'CPF', garantindo que não seja undefined
+        console.log(`[BACKEND] Mapeando linha. CPF processado: ${cpfValue}`);
+        
+        return [ c.timestamp, c.protocol, cpfValue, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ];
+      });
+      
       const sheet = sheets.find(s => s.properties.title === sheetName);
 
       if (!sheet) {
@@ -193,39 +191,44 @@ app.post('/api/cloud-sync', async (req, res) => {
       } else {
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
-        const protocolColumnIndex = 1;
-
+        const protocolColumnIndex = 1; 
         const protocolMap = new Map();
         existingRows.slice(1).forEach((row, index) => {
             const protocol = row[protocolColumnIndex];
-            if (protocol) protocolMap.set(protocol.trim(), { row: row.map(String), index: index + 2 });
+            if (protocol) protocolMap.set(protocol.trim(), { row: row, index: index + 2 });
         });
-
         const toAdd = [], toUpdate = [];
-        rows.forEach(row => {
-            const p = row[protocolColumnIndex] ? String(row[protocolColumnIndex]).trim() : null;
+
+        rows.forEach(newRow => {
+            const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
             if (p && protocolMap.has(p)) {
                 const existing = protocolMap.get(p);
-                if (JSON.stringify(existing.row) !== JSON.stringify(row.map(String))) {
-                    toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [row] });
+                let hasChanged = false;
+                for (let i = 0; i < newRow.length; i++) {
+                    if ([0, 1, 2, 3, 4, 13].includes(i)) {
+                        if (String(existing.row[i] || '').trim() !== String(newRow[i] || '').trim()) { hasChanged = true; break; }
+                    } else {
+                        if (Math.abs(parseCurrency(existing.row[i]) - parseCurrency(newRow[i])) > 0.01) { hasChanged = true; break; }
+                    }
                 }
+                if (hasChanged) { toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [newRow] }); }
             } else {
-                toAdd.push(row);
+                toAdd.push(newRow);
             }
         });
-
         if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
         if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
         newW = toAdd.length; updatedW = toUpdate.length;
       }
     }
-
+    
+    // Lógica para Caixas
     if (cashierData && cashierData.length > 0) {
+      console.log('[BACKEND] Processando dados de CAIXA...');
         const sheetName = `Caixas - ${eventName}`;
         const header = [ "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador" ];
-        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
+        const rows = cashierData.map(c => [ c.protocol, c.timestamp, c.type, (c.cpf || c.CPF), c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName ]);
         const sheet = sheets.find(s => s.properties.title === sheetName);
-
         if (!sheet) {
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
@@ -235,34 +238,36 @@ app.post('/api/cloud-sync', async (req, res) => {
             const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
             const existingRows = response.data.values || [];
             const protocolColumnIndex = 0;
-
             const protocolMap = new Map();
             existingRows.slice(1).forEach((row, index) => {
                 const protocol = row[protocolColumnIndex];
-                if (protocol) protocolMap.set(protocol.trim(), { row: row.map(String), index: index + 2 });
+                if (protocol) protocolMap.set(protocol.trim(), { row: row, index: index + 2 });
             });
-
             const toAdd = [], toUpdate = [];
-            rows.forEach(row => {
-                const p = row[protocolColumnIndex] ? String(row[protocolColumnIndex]).trim() : null;
+            rows.forEach(newRow => {
+                const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
                 if (p && protocolMap.has(p)) {
                     const existing = protocolMap.get(p);
-                    if (JSON.stringify(existing.row) !== JSON.stringify(row.map(String))) {
-                        toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [row] });
+                     let hasChanged = false;
+                    for (let i = 0; i < newRow.length; i++) {
+                        if ([0, 1, 2, 3, 4, 5, 16].includes(i)) {
+                            if (String(existing.row[i] || '').trim() !== String(newRow[i] || '').trim()) { hasChanged = true; break; }
+                        } else {
+                            if (Math.abs(parseCurrency(existing.row[i]) - parseCurrency(newRow[i])) > 0.01) { hasChanged = true; break; }
+                        }
                     }
+                    if (hasChanged) { toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [newRow] }); }
                 } else {
-                    toAdd.push(row);
+                    toAdd.push(newRow);
                 }
             });
-
             if (toAdd.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
             if (toUpdate.length > 0) await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
             newC = toAdd.length; updatedC = toUpdate.length;
         }
     }
-
+    console.log('[BACKEND] Resposta enviada ao frontend.');
     res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
-
   } catch (error) {
     console.error('Erro ao salvar dados na nuvem:', error);
     res.status(500).json({ message: 'Erro interno do servidor ao salvar na nuvem.' });
@@ -278,35 +283,33 @@ app.post('/api/online-history', async (req, res) => {
         const googleSheets = await getGoogleSheetsClient();
         const waiterSheetName = `Garçons - ${eventName}`;
         const cashierSheetName = `Caixas - ${eventName}`;
-
         const [waiterResult, cashierResult] = await Promise.allSettled([
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
         ]);
-
         let allClosings = [];
-        const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-
+        
         if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
             const [header, ...rows] = waiterResult.value.data.values;
             if (header && rows.length > 0) {
                 const data = rows.map(row => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    const closingObject = {
-                        type: 'waiter',
-                        waiterName: rowObj['Nome Garçom'],
-                        protocol: rowObj['Protocolo'],
-                        valorTotal: parseCurrency(rowObj['Valor Total Venda']),
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                        comissaoTotal: parseCurrency(rowObj['Comissão Total']),
-                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']),
-                        credito: parseCurrency(rowObj['Crédito']),
-                        debito: parseCurrency(rowObj['Débito']),
-                        pix: parseCurrency(rowObj['Pix']),
-                        cashless: parseCurrency(rowObj['Cashless']),
-                        numeroMaquina: rowObj['Nº Maquina'],
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
+                    const closingObject = { 
+                        type: 'waiter', 
+                        cpf: rowObj['CPF'], 
+                        waiterName: rowObj['Nome Garçom'], 
+                        protocol: rowObj['Protocolo'], 
+                        valorTotal: parseCurrency(rowObj['Venda Total']), 
+                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']), 
+                        comissaoTotal: parseCurrency(rowObj['Comissão Total']), 
+                        diferencaPagarReceber: parseCurrency(rowObj['Acerto']), 
+                        credito: parseCurrency(rowObj['Crédito']), 
+                        debito: parseCurrency(rowObj['Débito']), 
+                        pix: parseCurrency(rowObj['Pix']), 
+                        cashless: parseCurrency(rowObj['Cashless']), 
+                        numeroMaquina: rowObj['Nº Máquina'], 
+                        operatorName: rowObj['Operador'], 
+                        timestamp: rowObj['Data'], 
                     };
                     closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
                     closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
@@ -315,7 +318,6 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...data);
             }
         }
-
         if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
             const [header, ...rows] = cashierResult.value.data.values;
             if (header && rows.length > 0) {
@@ -323,24 +325,7 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
                     const type = rowObj['Tipo'] || '';
                     const protocol = rowObj['Protocolo'] || '';
-
-                    const baseCashierObject = {
-                        protocol, eventName,
-                        operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'],
-                        cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'],
-                        valorTotalVenda: parseCurrency(rowObj['Venda Total']),
-                        credito: parseCurrency(rowObj['Crédito']),
-                        debito: parseCurrency(rowObj['Débito']),
-                        pix: parseCurrency(rowObj['Pix']),
-                        cashless: parseCurrency(rowObj['Cashless']),
-                        valorTroco: parseCurrency(rowObj['Troco']),
-                        temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0,
-                        valorEstorno: parseCurrency(rowObj['Devolução/Estorno']),
-                        dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']),
-                        valorAcerto: parseCurrency(rowObj['Valor Acerto']),
-                        diferenca: parseCurrency(rowObj['Diferença']),
-                    };
-
+                    const baseCashierObject = { protocol, eventName, operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'], cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'], valorTotalVenda: parseCurrency(rowObj['Venda Total']), credito: parseCurrency(rowObj['Crédito']), debito: parseCurrency(rowObj['Débito']), pix: parseCurrency(rowObj['Pix']), cashless: parseCurrency(rowObj['Cashless']), valorTroco: parseCurrency(rowObj['Troco']), temEstorno: parseCurrency(rowObj['Devolução/Estorno']) > 0, valorEstorno: parseCurrency(rowObj['Devolução/Estorno']), dinheiroFisico: parseCurrency(rowObj['Dinheiro Físico']), valorAcerto: parseCurrency(rowObj['Valor Acerto']), diferenca: parseCurrency(rowObj['Diferença']), };
                     if (type === 'Fixo') {
                         return { ...baseCashierObject, type: 'individual_fixed_cashier', groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')) };
                     } else {
@@ -350,7 +335,6 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...data);
             }
         }
-
         allClosings.forEach(closing => {
             const dateString = closing.timestamp;
             let finalDate = new Date(0);
@@ -367,7 +351,6 @@ app.post('/api/online-history', async (req, res) => {
             }
             closing.timestamp = finalDate.toISOString();
         });
-
         if (allClosings.length === 0) {
             return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` });
         }
@@ -377,7 +360,6 @@ app.post('/api/online-history', async (req, res) => {
         res.status(500).json({ message: 'Erro interno do servidor ao buscar histórico.' });
     }
 });
-
 
 // --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
@@ -431,7 +413,7 @@ app.post('/api/export-online-data', async (req, res) => {
   }
 });
 
-// --- NOVA ROTA: CONCILIAÇÃO DE DADOS YUZER ---
+// --- ROTA DE CONCILIAÇÃO (versão mais recente) ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) {
@@ -440,105 +422,112 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
 
   try {
     const googleSheets = await getGoogleSheetsClient();
-    
-    // 1. Buscar dados do SisFO (Online)
     const waiterSheetName = `Garçons - ${eventName}`;
     const cashierSheetName = `Caixas - ${eventName}`;
+    
     let sisfoData = new Map();
+    const getLast8Digits = (serial) => {
+        if (!serial) return '';
+        const digitsOnly = String(serial).replace(/\D/g, '');
+        return digitsOnly.slice(-8);
+    };
 
-    const parseCurrency = (val) => parseFloat(String(val || '0').replace("R$", "").trim().replace(/\./g, "").replace(",", ".")) || 0;
+    const processSheet = (response, isWaiterSheet) => {
+        if (!response.data.values || response.data.values.length < 2) return;
+        
+        const [header, ...rows] = response.data.values;
+        const cpfIndex = header.findIndex(h => h.toUpperCase() === 'CPF');
+        const nameIndex = header.findIndex(h => isWaiterSheet ? h.toUpperCase() === 'NOME GARÇOM' : h.toUpperCase() === 'NOME DO CAIXA');
+        const machineIndex = header.findIndex(h => h.toUpperCase() === 'Nº MAQUINA' || h.toUpperCase() === 'Nº MÁQUINA');
+        const totalIndex = header.findIndex(h => h.toUpperCase() === 'VENDA TOTAL' || h.toUpperCase() === 'VALOR TOTAL VENDA');
+        const creditIndex = header.findIndex(h => h.toUpperCase() === 'CRÉDITO');
+        const debitIndex = header.findIndex(h => h.toUpperCase() === 'DÉBITO');
+        const pixIndex = header.findIndex(h => h.toUpperCase() === 'PIX');
+        const cashlessIndex = header.findIndex(h => h.toUpperCase() === 'CASHLESS');
+
+        if (cpfIndex === -1 || nameIndex === -1 || machineIndex === -1) return;
+
+        rows.forEach(row => {
+            const cpf = row[cpfIndex]?.replace(/\D/g, '');
+            if (cpf) {
+                if (!sisfoData.has(cpf)) {
+                    sisfoData.set(cpf, []);
+                }
+                sisfoData.get(cpf).push({ 
+                    name: row[nameIndex],
+                    machine: getLast8Digits(row[machineIndex]),
+                    total: parseCurrency(row[totalIndex]), 
+                    credit: parseCurrency(row[creditIndex]), 
+                    debit: parseCurrency(row[debitIndex]), 
+                    pix: parseCurrency(row[pixIndex]), 
+                    cashless: parseCurrency(row[cashlessIndex]) 
+                });
+            }
+        });
+    };
 
     try {
         const [waiterRes, cashierRes] = await Promise.allSettled([
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A:Z` }),
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:Z` })
         ]);
+        if (waiterRes.status === 'fulfilled') processSheet(waiterRes.value, true);
+        if (cashierRes.status === 'fulfilled') processSheet(cashierRes.value, false);
+    } catch (e) { console.log(`Abas para o evento "${eventName}" não encontradas.`); }
+    
+    console.log(`\n--- INICIANDO CONCILIAÇÃO POR 8 DÍGITOS DA MÁQUINA PARA: ${eventName} ---`);
+    console.log(`${sisfoData.size} CPFs distintos carregados do SisFO.`);
 
-        if (waiterRes.status === 'fulfilled' && waiterRes.value.data.values) {
-            const [header, ...rows] = waiterRes.value.data.values;
-            if (header && rows.length > 0) {
-                const cpfIndex = header.findIndex(h => h.toUpperCase() === 'CPF');
-                const nameIndex = header.findIndex(h => h.toUpperCase() === 'NOME GARÇOM');
-                const totalIndex = header.findIndex(h => h.toUpperCase() === 'VALOR TOTAL VENDA');
-                const creditIndex = header.findIndex(h => h.toUpperCase() === 'CRÉDITO');
-                const debitIndex = header.findIndex(h => h.toUpperCase() === 'DÉBITO');
-                const pixIndex = header.findIndex(h => h.toUpperCase() === 'PIX');
-                const cashlessIndex = header.findIndex(h => h.toUpperCase() === 'CASHLESS');
-                
-                rows.forEach(row => {
-                    const cpf = row[cpfIndex]?.replace(/\D/g, '');
-                    if (cpf) {
-                        sisfoData.set(cpf, { 
-                            name: row[nameIndex], 
-                            total: parseCurrency(row[totalIndex]), 
-                            credit: parseCurrency(row[creditIndex]), 
-                            debit: parseCurrency(row[debitIndex]), 
-                            pix: parseCurrency(row[pixIndex]), 
-                            cashless: parseCurrency(row[cashlessIndex]) 
-                        });
-                    }
-                });
-            }
-        }
-        
-        if (cashierRes.status === 'fulfilled' && cashierRes.value.data.values) {
-            const [header, ...rows] = cashierRes.value.data.values;
-            if (header && rows.length > 0) {
-                const cpfIndex = header.findIndex(h => h.toUpperCase() === 'CPF');
-                const nameIndex = header.findIndex(h => h.toUpperCase() === 'NOME DO CAIXA');
-                const totalIndex = header.findIndex(h => h.toUpperCase() === 'VENDA TOTAL');
-                const creditIndex = header.findIndex(h => h.toUpperCase() === 'CRÉDITO');
-                const debitIndex = header.findIndex(h => h.toUpperCase() === 'DÉBITO');
-                const pixIndex = header.findIndex(h => h.toUpperCase() === 'PIX');
-                const cashlessIndex = header.findIndex(h => h.toUpperCase() === 'CASHLESS');
-                
-                rows.forEach(row => {
-                    const cpf = row[cpfIndex]?.replace(/\D/g, '');
-                    if (cpf && !sisfoData.has(cpf)) { // Não sobrescrever dados de garçom se houver
-                        sisfoData.set(cpf, { 
-                            name: row[nameIndex], 
-                            total: parseCurrency(row[totalIndex]), 
-                            credit: parseCurrency(row[creditIndex]), 
-                            debit: parseCurrency(row[debitIndex]), 
-                            pix: parseCurrency(row[pixIndex]), 
-                            cashless: parseCurrency(row[cashlessIndex]) 
-                        });
-                    }
-                });
-            }
-        }
-    } catch (e) {
-      console.log(`Abas para o evento "${eventName}" não encontradas. A conciliação usará dados vazios.`);
-    }
-
-    // 2. Processar e Comparar
     let divergences = [];
     let totemsFound = 0;
     let recordsCompared = 0;
+    let unmatchedYuzerRecords = 0;
 
-    yuzerData.forEach(yuzerRow => {
+    yuzerData.forEach((yuzerRow) => {
       const operator = yuzerRow['Operador de Caixa'];
       if (operator && String(operator).toLowerCase().includes('pdv')) {
         totemsFound++;
         return;
       }
 
-      const cpf = String(yuzerRow['Documento do Cliente'] || '').replace(/\D/g, '');
-      if (!cpf || !sisfoData.has(cpf)) return;
+      const cpf = String(yuzerRow['CPF'] || '').replace(/\D/g, '');
+      const serial = yuzerRow['Serial'];
+      if (!cpf || !serial) return;
+
+      const machineKey = getLast8Digits(serial);
+      if (!machineKey) return;
+
+      if (!sisfoData.has(cpf)) {
+        unmatchedYuzerRecords++;
+        return;
+      }
+
+      const sisfoRecordsForCpf = sisfoData.get(cpf);
+      const recordIndex = sisfoRecordsForCpf.findIndex(rec => rec.machine === machineKey);
+
+      if (recordIndex === -1) {
+        unmatchedYuzerRecords++;
+        console.log(`--> CPF ${cpf} encontrado, mas NENHUM registro com os 8 últimos dígitos da máquina (${machineKey}) no SisFO.`);
+        return;
+      }
 
       recordsCompared++;
-      const sisfoRecord = sisfoData.get(cpf);
+      const sisfoRecord = sisfoRecordsForCpf[recordIndex];
       const yuzerRecord = {
-          total: parseCurrency(yuzerRow['Valor Bruto (R$)']),
-          credit: parseCurrency(yuzerRow['Cartão de Crédito (R$)']),
-          debit: parseCurrency(yuzerRow['Cartão de Débito (R$)']),
-          pix: parseCurrency(yuzerRow['PIX (R$)']),
-          cashless: parseCurrency(yuzerRow['Voucher (R$)']),
+          total: parseCurrency(yuzerRow['Total']),
+          credit: parseCurrency(yuzerRow['Crédito']),
+          debit: parseCurrency(yuzerRow['Débito']),
+          pix: parseCurrency(yuzerRow['Pix']),
+          cashless: parseCurrency(yuzerRow['Cashless']),
       };
 
+      console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
+      console.log("DADOS YUZER  ->", JSON.stringify(yuzerRecord));
+      console.log("DADOS SISFO  ->", JSON.stringify(sisfoRecord));
+
       const checkDiff = (field, yuzerVal, sisfoVal) => {
-        if (Math.abs(yuzerVal - sisfoVal) > 0.01) { // Tolerância de 1 centavo
-          divergences.push({ name: sisfoRecord.name, cpf, field, yuzerValue: yuzerVal.toFixed(2), sisfoValue: sisfoVal.toFixed(2) });
+        if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
+          divergences.push({ name: sisfoRecord.name, cpf, machine: machineKey, field, yuzerValue: yuzerVal.toFixed(2), sisfoValue: sisfoVal.toFixed(2) });
         }
       };
 
@@ -547,11 +536,15 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       checkDiff('Débito', yuzerRecord.debit, sisfoRecord.debit);
       checkDiff('PIX', yuzerRecord.pix, sisfoRecord.pix);
       checkDiff('Cashless', yuzerRecord.cashless, sisfoRecord.cashless);
+
+      sisfoRecordsForCpf.splice(recordIndex, 1);
     });
 
+    console.log("\n--- CONCILIAÇÃO FINALIZADA ---");
     res.status(200).json({
       recordsCompared,
       totemsFound,
+      unmatchedYuzerRecords,
       divergencesFound: divergences.length,
       divergences
     });

@@ -1,10 +1,11 @@
-// src/pages/AdminPage.jsx (Novo Arquivo)
+// src/pages/AdminPage.jsx (CORRIGIDO)
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
-import { API_URL } from '../config';
-import './AdminPage.css'; // Precisaremos criar este CSS
+import './AdminPage.css';
+
+const API_URL = 'http://localhost:3001';
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ function AdminPage() {
     if (file) {
       setSelectedFile(file);
       setFileName(file.name);
-      setReconciliationResult(null); // Limpa resultados anteriores
+      setReconciliationResult(null);
     }
   };
 
@@ -35,16 +36,19 @@ function AdminPage() {
         const workbook = XLSX.read(data, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(sheet);
+        
+        // --- CORREÇÃO APLICADA AQUI ---
+        // A opção { range: 9 } instrui a biblioteca a ignorar as 9 primeiras linhas
+        // e começar a ler a partir da linha 10, que contém os cabeçalhos corretos.
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { range: 9 });
 
         const activeEvent = localStorage.getItem('activeEvent');
         if (!activeEvent) {
-            alert("Nenhum evento ativo selecionado. Volte e selecione um evento.");
+            alert("Nenhum evento ativo selecionado. Por favor, retorne à tela de setup e selecione um evento.");
             setIsLoading(false);
             return;
         }
 
-        // Envia os dados para o backend processar
         const response = await axios.post(`${API_URL}/api/reconcile-yuzer`, {
             eventName: activeEvent,
             yuzerData: jsonData
@@ -67,14 +71,12 @@ function AdminPage() {
       <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar ao Painel</button>
       <h1>Painel do Administrador</h1>
       <div className="admin-grid">
-        {/* Card 1: Atualização */}
         <div className="admin-card">
           <h2>Atualização do Sistema</h2>
-          <p>Esta função verificará se há uma nova versão do SisFO disponível e, se houver, fará o download para instalar na próxima reinicialização.</p>
-          <button className="admin-button update-btn" disabled>Verificar Atualizações (Em Breve)</button>
+          <p>O aplicativo será atualizado automaticamente através da Microsoft Store quando uma nova versão for publicada.</p>
+          <button className="admin-button update-btn" disabled>Atualizações via Loja</button>
         </div>
 
-        {/* Card 2: Conciliação Yuzer */}
         <div className="admin-card">
           <h2>Conciliação Yuzer</h2>
           <p>Envie o relatório de caixas da Yuzer (.xlsx) para comparar com os dados do SisFO para o evento ativo.</p>
@@ -90,7 +92,7 @@ function AdminPage() {
               <p><strong>Registros Comparados:</strong> {reconciliationResult.recordsCompared}</p>
               <p><strong>Divergências Encontradas:</strong> {reconciliationResult.divergencesFound}</p>
               {reconciliationResult.totemsFound > 0 && 
-                <p className="totem-info"><strong>Totens Ignorados:</strong> {reconciliationResult.totemsFound} registros de totem foram encontrados e não foram comparados.</p>
+                <p className="totem-info"><strong>Totens Ignorados:</strong> {reconciliationResult.totemsFound} registros de totem (PDV) foram encontrados e não foram comparados.</p>
               }
               {reconciliationResult.divergences?.length > 0 && (
                 <ul className="divergence-list">
@@ -98,7 +100,7 @@ function AdminPage() {
                     <li key={index}>
                       <strong>{div.name} (CPF: {div.cpf})</strong>
                       <br/>
-                      Campo: {div.field} | Valor Yuzer: {div.yuzerValue} | Valor SisFO: {div.sisfoValue}
+                      <span className="divergence-detail">Campo: {div.field} | Valor Yuzer: {div.yuzerValue} | Valor SisFO: {div.sisfoValue}</span>
                     </li>
                   ))}
                 </ul>

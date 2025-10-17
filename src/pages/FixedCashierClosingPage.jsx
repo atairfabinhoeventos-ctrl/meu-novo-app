@@ -1,15 +1,14 @@
-// src/pages/FixedCashierClosingPage.jsx (VERSÃO CORRIGIDA COM FUNCIONALIDADE DE EDIÇÃO)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
 
 import React, { useState, useEffect, useRef } from 'react';
-// 1. Importar o hook useLocation para ler os dados da navegação
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveFixedCashierClosing } from '../services/apiService';
-import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
+import { attemptBackgroundSync } from '../services/syncService'; // 1. IMPORTA O SERVIÇO DE SYNC
+import { formatCurrencyInput, formatCurrencyResult } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
 import './FixedCashierClosingPage.css';
 
-// ... (O início do arquivo continua o mesmo)
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -20,7 +19,6 @@ function useDebounce(value, delay) {
 }
 
 const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs, isEditing }) => {
-    // ... (O código do componente CaixaFormItem continua o mesmo)
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
@@ -228,7 +226,7 @@ function FixedCashierClosingPage() {
             const operatorName = localStorage.getItem('loggedInUserName');
             
             const closingData = {
-                type: 'fixed_cashier', // <<--- CORREÇÃO ADICIONADA AQUI
+                type: 'fixed_cashier',
                 eventName, operatorName,
                 valorTroco: parseCurrency(valorTroco),
                 diferencaCaixa: finalDiferenca,
@@ -247,9 +245,17 @@ function FixedCashierClosingPage() {
                 timestamp: closingToEdit?.timestamp
             };
     
+            // 1. Salva localmente
             const response = await saveFixedCashierClosing(closingData);
-            setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${response.data.protocol}`);
+            const savedData = response.data;
+            
+            // 2. Mostra a mensagem de sucesso e prepara para redirecionar
+            setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
             setTimeout(() => navigate('/closing-history'), 2000);
+
+            // 3. Inicia a tentativa de envio em segundo plano
+            attemptBackgroundSync(savedData);
+
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
             setAlertMessage('Ocorreu um erro ao salvar o fechamento de grupo localmente.');
@@ -259,7 +265,6 @@ function FixedCashierClosingPage() {
         }
     };
     
-    // ... (O restante do arquivo JSX e funções continuam aqui)
     const getDiferencaColor = (diff) => {
         if (diff < 0) return 'red';
         if (diff > 0) return 'green';

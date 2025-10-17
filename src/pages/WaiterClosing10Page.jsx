@@ -1,8 +1,9 @@
-// src/pages/WaiterClosing10Page.jsx (VERSÃO COMPLETA COM MELHORIAS)
+// src/pages/WaiterClosing10Page.jsx (VERSÃO COMPLETA E ATUALIZADA)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveWaiterClosing } from '../services/apiService'; // Reutiliza a mesma função de salvar
+import { attemptBackgroundSync } from '../services/syncService'; // 1. IMPORTA O SERVIÇO DE SYNC
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
@@ -73,17 +74,21 @@ function WaiterClosing10Page() {
       const stringValue = String(value);
       const cleanValue = stringValue.replace(/\D/g, '');
       if (cleanValue === '') return 0;
-      if (!stringValue.includes(',') && !stringValue.includes('.')) {
-        return parseInt(cleanValue, 10);
-      }
       return parseInt(cleanValue, 10) / 100;
     };
+
+    const getNumericValue = (digits) => (parseInt(digits || '0', 10)) / 100;
 
     useEffect(() => {
         const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setWaiters(localWaiters);
         const closingToEdit = location.state?.closingToEdit;
         if (closingToEdit) {
+            const toDigits = (value) => {
+              if (value === null || value === undefined) return '';
+              return String(Math.round(Number(value) * 100));
+            };
+
             setProtocol(closingToEdit.protocol);
             setTimestamp(closingToEdit.timestamp);
             const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
@@ -91,14 +96,14 @@ function WaiterClosing10Page() {
             setSearchInput(waiter.name);
             setNumeroMaquina(closingToEdit.numeroMaquina || '');
             setTemEstorno(closingToEdit.temEstorno);
-            setValorEstorno(String(closingToEdit.valorEstorno).replace('.', ','));
-            setValorTotal(String(closingToEdit.valorTotal).replace('.', ','));
-            setCredito(String(closingToEdit.credito).replace('.', ','));
-            setDebito(String(closingToEdit.debito).replace('.', ','));
-            setPix(String(closingToEdit.pix).replace('.', ','));
-            setCashless(String(closingToEdit.cashless).replace('.', ','));
+            setValorEstorno(toDigits(closingToEdit.valorEstorno));
+            setValorTotal(toDigits(closingToEdit.valorTotal));
+            setCredito(toDigits(closingToEdit.credito));
+            setDebito(toDigits(closingToEdit.debito));
+            setPix(toDigits(closingToEdit.pix));
+            setCashless(toDigits(closingToEdit.cashless));
         }
-    }, []);
+    }, [location.state]);
 
     useEffect(() => {
         const query = searchInput.trim().toLowerCase();
@@ -119,12 +124,13 @@ function WaiterClosing10Page() {
     }, [searchInput, waiters, selectedWaiter]);
     
     useEffect(() => {
-        const numValorTotal = parseCurrency(debouncedValorTotal);
-        const numCredito = parseCurrency(debouncedCredito);
-        const numDebito = parseCurrency(debouncedDebito);
-        const numPix = parseCurrency(debouncedPix);
-        const numCashless = parseCurrency(debouncedCashless);
-        const numValorEstorno = parseCurrency(debouncedValorEstorno);
+        const numValorTotal = getNumericValue(debouncedValorTotal);
+        const numCredito = getNumericValue(debouncedCredito);
+        const numDebito = getNumericValue(debouncedDebito);
+        const numPix = getNumericValue(debouncedPix);
+        const numCashless = getNumericValue(debouncedCashless);
+        const numValorEstorno = getNumericValue(debouncedValorEstorno);
+        
         const valorEfetivoVenda = numValorTotal - (temEstorno ? numValorEstorno : 0);
         const baseComissao10 = valorEfetivoVenda - numCashless;
         const c10 = baseComissao10 * 0.10;
@@ -186,10 +192,11 @@ function WaiterClosing10Page() {
         const eventName = localStorage.getItem('activeEvent') || 'N/A';
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
         const closingData = {
+            type: 'waiter', // Adicionado para diferenciação no syncService
             timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, cpf: selectedWaiter.cpf, waiterName: selectedWaiter.name,
-            numeroMaquina, valorTotal: parseCurrency(valorTotal), credito: parseCurrency(credito),
-            debito: parseCurrency(debito), pix: parseCurrency(pix), cashless: parseCurrency(cashless),
-            temEstorno, valorEstorno: parseCurrency(valorEstorno), comissaoTotal, valorTotalAcerto, diferencaLabel, diferencaPagarReceber,
+            numeroMaquina, valorTotal: getNumericValue(valorTotal), credito: getNumericValue(credito),
+            debito: getNumericValue(debito), pix: getNumericValue(pix), cashless: getNumericValue(cashless),
+            temEstorno, valorEstorno: getNumericValue(valorEstorno), comissaoTotal, valorTotalAcerto, diferencaLabel, diferencaPagarReceber,
         };
         setDataToConfirm(closingData); setModalState('confirm'); setModalVisible(true); 
     };
@@ -197,9 +204,17 @@ function WaiterClosing10Page() {
     const handleConfirmAndSave = async () => {
         setModalState('saving');
         try {
-            const response = await saveWaiterClosing(dataToConfirm); // Reutiliza a mesma função
-            setDataToConfirm(prevData => ({...prevData, protocol: response.data.protocol}));
+            // Salva o fechamento localmente primeiro
+            const response = await saveWaiterClosing(dataToConfirm);
+            
+            // Atualiza o estado da UI para mostrar a tela de sucesso
+            const savedData = response.data;
+            setDataToConfirm(savedData);
             setModalState('success');
+
+            // 2. CHAMA A FUNÇÃO DE SYNC EM SEGUNDO PLANO
+            attemptBackgroundSync(savedData);
+
         } catch (error) {
             setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
             setModalVisible(false);
@@ -261,7 +276,7 @@ function WaiterClosing10Page() {
                      {temEstorno && ( 
                         <div className="input-group" style={{marginTop: '15px'}}>
                             <label>Valor do Estorno</label>
-                            <input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => setValorEstorno(e.target.value)} />
+                            <input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} />
                         </div>
                     )}
                 </div>
@@ -269,7 +284,7 @@ function WaiterClosing10Page() {
                 <div className="form-section" style={{ display: 'block' }}>
                     <div className="input-group">
                       <label>Valor Total da Venda</label>
-                      <input ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTotal)} onChange={(e) => setValorTotal(e.target.value)} />
+                      <input ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorTotal)} onChange={(e) => handleCurrencyChange(setValorTotal, e.target.value)} />
                     </div>
                     <div className="form-row">
                         <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => handlePaymentChange(setCredito, e.target.value, 'credito')} /></div>
