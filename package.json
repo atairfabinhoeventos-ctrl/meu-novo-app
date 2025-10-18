@@ -1,7 +1,7 @@
 {
   "name": "meu-novo-app",
   "productName": "SisFO",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Sistema de Fechamento Operacional",
   "author": "ATAIR LAGARES",
   "main": "src/main.js",
