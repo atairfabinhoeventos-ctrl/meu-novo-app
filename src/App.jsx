@@ -1,6 +1,7 @@
-// src/App.jsx (VERSÃO FINAL RECOMENDADA)
+// src/App.jsx (VERSÃO ATUALIZADA COM HASHROUTER PARA COMPATIBILIDADE)
+
 import React from 'react';
-// Para máxima compatibilidade com Electron, HashRouter é recomendado
+// --- CORREÇÃO 1: Importa o HashRouter no lugar do BrowserRouter ---
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 
@@ -18,7 +19,7 @@ import LocalConfirmationPage from './pages/LocalConfirmationPage.jsx';
 import DataUpdatePage from './pages/DataUpdatePage.jsx';
 import WaiterClosingPage from './pages/WaiterClosingPage.jsx';
 import CloudSyncPage from './pages/CloudSyncPage.jsx';
-import AdminPage from './pages/AdminPage.jsx';
+import AdminPage from './pages/AdminPage';
 
 
 // Componente para proteger rotas que exigem login do operador
@@ -41,6 +42,7 @@ const EventSelectedRoute = () => {
 
 export default function App() {
   return (
+    // --- CORREÇÃO 2: Usa o Router (que agora é o HashRouter) ---
     <Router>
       <Routes>
         {/* Rota inicial pública: Tela de login do operador (sem layout) */}
@@ -51,12 +53,12 @@ export default function App() {
           {/* O Layout agora envolve todas as telas após o login */}
           <Route element={<Layout />}>
             
-            {/* Telas que NÃO exigem um evento selecionado */}
+            {/* Telas de configuração que não exigem evento selecionado */}
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/update-data" element={<DataUpdatePage />} />
-            <Route path="/admin" element={<AdminPage />} /> {/* <-- CORREÇÃO APLICADA AQUI */}
+            <Route path="/admin" element={<AdminPage />} />
 
-            {/* GRUPO DE ROTAS QUE EXIGEM um evento selecionado */}
+            {/* GRUPO DE ROTAS QUE EXIGEM LOGIN E SELEÇÃO DE EVENTO */}
             <Route element={<EventSelectedRoute />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cloud-sync" element={<CloudSyncPage />} />

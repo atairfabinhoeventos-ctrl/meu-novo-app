@@ -1,83 +1,44 @@
-const { app, BrowserWindow, protocol, ipcMain, dialog } = require('electron');
-const fs = require('fs');
+// src/main.js (VERSÃO MODIFICADA PARA INCLUIR O SERVIDOR)
+
+const { app, BrowserWindow } = require('electron');
 const path = require('path');
+const server = require('../server.js'); // <-- PASSO 1: Importe seu servidor
 
-app.disableHardwareAcceleration();
-
-if (require('electron-squirrel-startup')) {
-  app.quit();
-}
-
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'app', privileges: { secure: true, standard: true } },
-]);
-
-const createWindow = () => {
+// ... (resto da função createWindow não muda)
+function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1280,
     height: 800,
-    autoHideMenuBar: true,
     webPreferences: {
-      // ===== INÍCIO DA CORREÇÃO =====
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,  // Habilitado para segurança e para o preload funcionar
-      nodeIntegration: false,  // Desabilitado por segurança quando contextIsolation é true
-      // ===== FIM DA CORREÇÃO =====
-      webSecurity: true, 
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
 
-  if (app.isPackaged) {
-    mainWindow.loadURL(`app://./index.html`);
-  } else {
+  if (process.env.NODE_ENV !== 'production') {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
-  
-  mainWindow.maximize();
-};
+}
 
 app.whenReady().then(() => {
-  if (app.isPackaged) {
-    protocol.registerFileProtocol('app', (request, callback) => {
-      const url = request.url.substr(6);
-      callback({ path: path.join(__dirname, '../dist', url) });
-    });
-  }
-  
-  createWindow();
+  // <-- PASSO 2: Inicie o servidor antes de criar a janela.
+  // Você pode adicionar uma lógica para pegar a porta do .env se necessário
+  const PORT = process.env.PORT || 3001; 
+  server.listen(PORT, () => {
+    console.log(`Servidor Express rodando na porta ${PORT}`);
+    createWindow(); // Crie a janela APÓS o servidor iniciar
+  });
+
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-
-ipcMain.handle('save-pdf', async (event, pdfData, defaultPath) => {
-  const { filePath } = await dialog.showSaveDialog({
-    title: 'Salvar Recibo em PDF',
-    defaultPath: defaultPath,
-    filters: [
-      { name: 'Arquivos PDF', extensions: ['pdf'] }
-    ]
-  });
-
-  if (filePath) {
-    try {
-      fs.writeFileSync(filePath, pdfData);
-      return { success: true, path: filePath };
-    } catch (error) {
-      console.error('Falha ao salvar o PDF:', error);
-      return { success: false, error: error.message };
-    }
-  }
-  
-  return { success: false, error: 'Salvamento cancelado pelo usuário.' };
 });

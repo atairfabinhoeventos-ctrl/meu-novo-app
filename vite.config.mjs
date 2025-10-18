@@ -1,4 +1,4 @@
-// vite.config.js
+// vite.config.js (VERSÃO CORRETA PARA ELECTRON)
 
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -6,9 +6,13 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  
-  // --- A CORREÇÃO CRÍTICA ESTÁ AQUI ---
-  // Esta linha força o Vite a usar caminhos relativos nos arquivos de build,
-  // o que permite que o Electron os encontre no modo de produção.
+
+  // --- CORREÇÃO ADICIONADA AQUI ---
+  // Esta linha é a mais importante. Ela força o Vite a usar caminhos relativos.
   base: './', 
+
+  build: {
+    // Define o diretório de saída como 'dist', que o electron-builder já espera.
+    outDir: 'dist'
+  }
 });

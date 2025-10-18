@@ -1,10 +1,13 @@
 # Dependency directories
 node_modules/
+backend/
 
 # Build output
 out/
 dist/
 build/
+build-react/
+release/
 
 # Vite
 .vite/

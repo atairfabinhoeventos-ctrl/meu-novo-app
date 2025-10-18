@@ -1,15 +1,14 @@
 {
   "name": "meu-novo-app",
   "productName": "SisFO",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "description": "Sistema de Fechamento Operacional",
   "author": "ATAIR LAGARES",
   "main": "src/main.js",
   "homepage": "./",
   "scripts": {
     "start": "node server.js",
-    "dev": "concurrently \"npm:server:dev\" \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
-    "app:dev:vite": "vite",
+    "dev": "concurrently \"npm:app:dev:vite\" \"npm:app:dev:electron\"",    "app:dev:vite": "vite",
     "app:dev:electron": "wait-on tcp:5173 && electron .",
     "server:dev": "nodemon server.js",
     "build": "vite build && electron-builder",
@@ -38,32 +37,36 @@
     "electron": "31.0.2",
     "electron-builder": "^24.13.3",
     "eslint": "^8.57.0",
-    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-import": "^2.2.1",
     "nodemon": "^3.1.10",
     "vite": "^5.2.13",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "ATAIRLAGARES.SisFO",
+    "appId": "com.sisfo.app",
     "productName": "SisFO",
     "files": [
       "dist/**/*",
-      "node_modules/**/*",
       "src/main.js",
       "src/preload.js",
+      "server.js",
       "package.json"
     ],
     "directories": {
-      "output": "dist"
+      "output": "release"
     },
     "win": {
       "icon": "assets/icon.ico",
-      "target": "appx" 
+      "target": "nsis"
     },
-    "appx": {
-      "identityName": "ATAIRLAGARES.SisFO",
-      "publisher": "CN=2880B1A4-D1C0-415F-9F38-2E7E1164308F",
-      "publisherDisplayName": "ATAIR LAGARES"
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
     }
   }
 }
