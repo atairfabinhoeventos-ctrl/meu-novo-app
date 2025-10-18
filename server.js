@@ -1,4 +1,4 @@
-// backend/server.js (VERSÃO FINAL, COMPLETA E CORRIGIDA PARA ELECTRON)
+// server.js (VERSÃO HÍBRIDA FINAL - FUNCIONA NO RENDER E NO ELECTRON)
 console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
 
 const express = require('express');
@@ -7,12 +7,18 @@ const cors = require('cors');
 const path = require('path');
 const app = express();
 
-// --- CORREÇÃO 1: LÓGICA DE CAMINHO PARA PRODUÇÃO ---
-// Em produção (instalado), os arquivos .env e credentials.json não estão
-// dentro do 'app.asar' (onde o __dirname aponta), mas sim um nível acima,
-// na pasta 'resources'.
-const isProd = process.env.NODE_ENV === 'production';
-const resourcesPath = isProd ? path.join(__dirname, '..') : __dirname;
+// --- CORREÇÃO 1: LÓGICA DE CAMINHO UNIVERSAL ---
+// Detecta se estamos rodando dentro do Electron (seja em dev ou .exe)
+const isRunningInElectron = !!process.versions['electron'];
+// Detecta se estamos em modo de produção (seja no Render ou no .exe)
+const isProduction = process.env.NODE_ENV === 'production';
+
+// O caminho dos recursos só muda se for a versão .exe (Electron E Produção)
+const isProdElectron = isRunningInElectron && isProduction;
+
+// Se for produção Electron, suba um nível (para /resources).
+// Em TODOS os outros casos (Render, dev Electron), use o diretório atual.
+const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
 
 // Carrega as variáveis de ambiente do caminho correto
 require('dotenv').config({ path: path.join(resourcesPath, '.env') });
@@ -30,7 +36,7 @@ async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
       credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
-      // CORRIGIDO AQUI: Usa o 'resourcesPath' para encontrar o credentials.json
+      // Usa o 'resourcesPath' corrigido para encontrar o credentials.json
       keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
       scopes: 'https://www.googleapis.com/auth/spreadsheets',
     });
@@ -494,11 +500,16 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
 });
 
 
-// --- CORREÇÃO 2: ESTA SEÇÃO SERÁ REMOVIDA ---
-// const PORT = process.env.PORT || 10000;
-// app.listen(PORT, '0.0.0.0', () => {
-//  console.log(`Servidor backend rodando na porta ${PORT}`);
-// });
+// --- CORREÇÃO 2: INICIALIZAÇÃO CONDICIONAL ---
 
-// --- CORREÇÃO 2: ADICIONAR ESTA LINHA ---
+// Exporta o app para ser importado pelo main.js (Electron)
 module.exports = app;
+
+// Inicia o servidor APENAS se este arquivo for executado diretamente
+// (ex: 'node server.js' no Render) e NÃO estiver rodando dentro do Electron.
+if (!isRunningInElectron) {
+  const PORT = process.env.PORT || 10000;
+  app.listen(PORT, '0.0.0.0', () => { // Adicionado '0.0.0.0' para o Render
+    console.log(`Servidor backend (Render) rodando na porta ${PORT}`);
+  });
+}
