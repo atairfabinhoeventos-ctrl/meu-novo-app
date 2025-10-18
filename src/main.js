@@ -1,4 +1,4 @@
-// src/main.js (VERSÃO FINAL COM app.isPackaged)
+// src/main.js (VERSÃO FINAL COM '127.0.0.1')
 
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
@@ -19,17 +19,14 @@ function createWindow() {
     },
   });
 
-  // --- AQUI ESTÁ A CORREÇÃO 1 ---
-  // Trocamos 'process.env.NODE_ENV !== 'production'' por '!app.isPackaged'
+  // --- Verificação de ambiente ---
   if (!app.isPackaged) {
     // Modo Desenvolvimento (npm run dev)
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools(); 
   } else {
     // Modo Produção (.exe)
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
-  // --- FIM DA CORREÇÃO 1 ---
   
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -53,10 +50,15 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     const PORT = process.env.PORT || 10000;
 
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`Servidor Express iniciado pelo Electron na porta ${PORT}`);
+    // --- AQUI ESTÁ A CORREÇÃO ---
+    // Trocamos '0.0.0.0' por '127.0.0.1' (localhost explícito)
+    // Isso evita problemas de firewall e garante que o front-end
+    // (chamando localhost:10000) consiga se conectar.
+    server.listen(PORT, '127.0.0.1', () => {
+      console.log(`Servidor Express iniciado pelo Electron (localhost) na porta ${PORT}`);
       createWindow(); 
     });
+    // --- FIM DA CORREÇÃO ---
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
