@@ -8,7 +8,7 @@ const server = require('../server.js'); // Importa o app Express exportado
 // Adicionamos uma variável global para guardar a janela principal
 let mainWindow;
 
-// Função para criar a janela (levemente modificada)
+// Função para criar a janela
 function createWindow() {
   mainWindow = new BrowserWindow({ // Salva na variável global
     width: 1280,
@@ -20,6 +20,7 @@ function createWindow() {
     },
   });
 
+  // Lógica para carregar dev (vite) ou produção (arquivo)
   if (process.env.NODE_ENV !== 'production') {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -56,6 +57,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     const PORT = process.env.PORT || 10000;
 
+    // O main.js inicia o servidor e, SÓ DEPOIS, cria a janela
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor Express iniciado pelo Electron na porta ${PORT}`);
       createWindow(); // Cria a janela DEPOIS que o servidor iniciou
