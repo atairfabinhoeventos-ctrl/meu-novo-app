@@ -8,7 +8,8 @@
   "homepage": "./",
   "scripts": {
     "start": "node server.js",
-    "dev": "concurrently \"npm:app:dev:vite\" \"npm:app:dev:electron\"",    "app:dev:vite": "vite",
+    "dev": "concurrently \"npm:app:dev:vite\" \"npm:app:dev:electron\"",
+    "app:dev:vite": "vite",
     "app:dev:electron": "wait-on tcp:5173 && electron .",
     "server:dev": "nodemon server.js",
     "build": "vite build && electron-builder",
@@ -50,7 +51,9 @@
       "src/main.js",
       "src/preload.js",
       "server.js",
-      "package.json"
+      "package.json",
+      "credentials.json",
+      ".env"
     ],
     "directories": {
       "output": "release"
