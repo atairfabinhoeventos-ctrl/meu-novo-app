@@ -1,16 +1,15 @@
-// src/main.js (VERSÃO FINAL COM CONTROLE DE INSTÂNCIA ÚNICA)
+// src/main.js (VERSÃO FINAL COM app.isPackaged)
 
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const server = require('../server.js'); // Importa o app Express exportado
 
 // --- CONTROLE DE JANELA ÚNICA ---
-// Adicionamos uma variável global para guardar a janela principal
 let mainWindow;
 
 // Função para criar a janela
 function createWindow() {
-  mainWindow = new BrowserWindow({ // Salva na variável global
+  mainWindow = new BrowserWindow({ 
     width: 1280,
     height: 800,
     webPreferences: {
@@ -20,47 +19,43 @@ function createWindow() {
     },
   });
 
-  // Lógica para carregar dev (vite) ou produção (arquivo)
-  if (process.env.NODE_ENV !== 'production') {
+  // --- AQUI ESTÁ A CORREÇÃO 1 ---
+  // Trocamos 'process.env.NODE_ENV !== 'production'' por '!app.isPackaged'
+  if (!app.isPackaged) {
+    // Modo Desenvolvimento (npm run dev)
     mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools(); 
   } else {
+    // Modo Produção (.exe)
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+  // --- FIM DA CORREÇÃO 1 ---
   
-  // Limpa a variável ao fechar
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
 // --- CONTROLE DE INSTÂNCIA ÚNICA ---
-// Solicitamos um "bloqueio" para garantir que esta é a única instância
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  // Se não conseguimos o bloqueio, outra instância já está rodando.
-  // Então, fechamos esta nova instância imediatamente.
   app.quit();
 } else {
-  // Esta é a primeira instância.
-  // Configuramos um "ouvinte" para quando uma segunda instância tentar abrir.
   app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Alguém tentou rodar uma segunda instância.
-    // Nós devemos focar a nossa janela que já está aberta.
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
 
-  // --- INICIALIZAÇÃO PRINCIPAL (SÓ RODA NA PRIMEIRA INSTÂNCIA) ---
+  // --- INICIALIZAÇÃO PRINCIPAL ---
   app.whenReady().then(() => {
     const PORT = process.env.PORT || 10000;
 
-    // O main.js inicia o servidor e, SÓ DEPOIS, cria a janela
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor Express iniciado pelo Electron na porta ${PORT}`);
-      createWindow(); // Cria a janela DEPOIS que o servidor iniciou
+      createWindow(); 
     });
 
     app.on('activate', function () {
