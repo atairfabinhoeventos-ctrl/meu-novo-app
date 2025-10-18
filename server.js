@@ -1,13 +1,23 @@
-// backend/server.js (VERSÃO FINAL, COMPLETA E CORRIGIDA)
+// backend/server.js (VERSÃO FINAL, COMPLETA E CORRIGIDA PARA ELECTRON)
 console.log("--- EXECUTANDO A VERSÃO FINAL E DEFINITIVA ---");
-
-require('dotenv').config();
 
 const express = require('express');
 const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
 const app = express();
+
+// --- CORREÇÃO 1: LÓGICA DE CAMINHO PARA PRODUÇÃO ---
+// Em produção (instalado), os arquivos .env e credentials.json não estão
+// dentro do 'app.asar' (onde o __dirname aponta), mas sim um nível acima,
+// na pasta 'resources'.
+const isProd = process.env.NODE_ENV === 'production';
+const resourcesPath = isProd ? path.join(__dirname, '..') : __dirname;
+
+// Carrega as variáveis de ambiente do caminho correto
+require('dotenv').config({ path: path.join(resourcesPath, '.env') });
+// --- FIM DA CORREÇÃO 1 ---
+
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
@@ -20,13 +30,15 @@ async function getGoogleSheetsClient() {
   try {
     const auth = new google.auth.GoogleAuth({
       credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
-      keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(__dirname, 'credentials.json'),
+      // CORRIGIDO AQUI: Usa o 'resourcesPath' para encontrar o credentials.json
+      keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
       scopes: 'https://www.googleapis.com/auth/spreadsheets',
     });
     const client = await auth.getClient();
     return google.sheets({ version: 'v4', auth: client });
   } catch (error) {
     console.error('Erro na autenticação com a Google Sheets API:', error);
+    console.error('Caminho procurado para credentials.json:', path.join(resourcesPath, 'credentials.json'));
     throw new Error('Falha na autenticação da API do Google Sheets.');
   }
 }
@@ -482,7 +494,11 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor backend rodando na porta ${PORT}`);
-});
+// --- CORREÇÃO 2: ESTA SEÇÃO SERÁ REMOVIDA ---
+// const PORT = process.env.PORT || 10000;
+// app.listen(PORT, '0.0.0.0', () => {
+//  console.log(`Servidor backend rodando na porta ${PORT}`);
+// });
+
+// --- CORREÇÃO 2: ADICIONAR ESTA LINHA ---
+module.exports = app;
