@@ -1,4 +1,4 @@
-// src/pages/DataUpdatePage.jsx (VERSÃO COM SYNC EM SEGUNDO PLANO E OTIMIZADO)
+// src/pages/DataUpdatePage.jsx (VERSÃO COM FILTRO DE NOME/CPF CORRIGIDO)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -7,13 +7,15 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import './DataUpdatePage.css';
-import AlertModal from '../components/AlertModal.jsx'; // Importa o componente de alerta
+import AlertModal from '../components/AlertModal.jsx'; 
 
 function DataUpdatePage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('import');
-  const [waiters, setWaiters] = useState([]);
-  const [filteredWaiters, setFilteredWaiters] = useState([]);
+  
+  const [personnel, setPersonnel] = useState([]);
+  const [filteredPersonnel, setFilteredPersonnel] = useState([]);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
@@ -21,7 +23,7 @@ function DataUpdatePage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUpdatingOnline, setIsUpdatingOnline] = useState(false);
   const [updatingEvent, setUpdatingEvent] = useState(null);
-  const [alertMessage, setAlertMessage] = useState(''); // Estado para o modal de alerta
+  const [alertMessage, setAlertMessage] = useState('');
 
   const normalizeString = (str) => {
     if (!str) return '';
@@ -34,43 +36,62 @@ function DataUpdatePage() {
     cleanEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name, 'pt-BR'));
     setEvents(cleanEvents);
 
-    const storedWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-    storedWaiters.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
-    setWaiters(storedWaiters);
-    setFilteredWaiters(storedWaiters);
+    const storedPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
+    
+    storedPersonnel.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+    
+    setPersonnel(storedPersonnel);
+    setFilteredPersonnel(storedPersonnel);
   }, []);
 
+  // --- FILTRO INTELIGENTE (VERSÃO CORRIGIDA) ---
   useEffect(() => {
+    // 1. Normaliza a busca (remove acentos, minúsculas)
     const normalizedQuery = normalizeString(searchQuery.trim());
     if (!normalizedQuery) {
-      setFilteredWaiters(waiters);
+      setFilteredPersonnel(personnel);
       return;
     }
-    const filtered = waiters.filter(waiter => {
-      const nameMatch = normalizeString(waiter.name).includes(normalizedQuery);
-      const cpfMatch = waiter.cpf?.replace(/\D/g, '').includes(normalizedQuery.replace(/\D/g, ''));
+    
+    // 2. Cria uma versão da busca SÓ com dígitos para o CPF
+    const normalizedQueryCpf = normalizedQuery.replace(/\D/g, '');
+
+    const filtered = personnel.filter(person => {
+      // 3. Compara o NOME
+      const nameMatch = normalizeString(person.name).includes(normalizedQuery);
+      
+      // 4. Compara o CPF (com a correção)
+      let cpfMatch = false; // Começa como falso
+      
+      // 5. SÓ tenta buscar no CPF se a busca com dígitos (normalizedQueryCpf) não for vazia
+      if (normalizedQueryCpf.length > 0) { 
+        cpfMatch = (person.cpf || '').replace(/\D/g, '').includes(normalizedQueryCpf);
+      }
+      
+      // Retorna verdadeiro se achar no NOME ou no CPF
       return nameMatch || cpfMatch;
     });
-    setFilteredWaiters(filtered);
-  }, [searchQuery, waiters]);
+    setFilteredPersonnel(filtered);
+  }, [searchQuery, personnel]);
 
   // --- FUNÇÃO DE SINCRONIZAÇÃO EM SEGUNDO PLANO ---
   const handleOnlineSync = () => {
     setIsSyncing(true);
-    setAlertMessage('Sincronização iniciada em segundo plano...'); // Feedback imediato
+    setAlertMessage('Sincronização iniciada em segundo plano...'); 
 
     const performSync = async () => {
       try {
         const response = await axios.get(`${API_URL}/api/sync/master-data`);
-        const { waiters: onlineWaiters, events: onlineEvents } = response.data;
+        const { waiters: onlinePersonnel, events: onlineEvents } = response.data;
         
-        const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-        const localCpfSet = new Set(localWaiters.map(w => w.cpf.trim()));
-        let newWaitersCount = 0;
-        onlineWaiters.forEach(onlineWaiter => {
-          if (onlineWaiter.cpf && !localCpfSet.has(onlineWaiter.cpf.trim())) {
-            localWaiters.push(onlineWaiter);
-            newWaitersCount++;
+        const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
+        const localCpfSet = new Set(localPersonnel.map(w => w.cpf.trim()));
+        let newPersonnelCount = 0;
+        
+        onlinePersonnel.forEach(onlinePerson => {
+          if (onlinePerson.cpf && !localCpfSet.has(onlinePerson.cpf.trim())) {
+            localPersonnel.push(onlinePerson);
+            newPersonnelCount++;
           }
         });
 
@@ -96,12 +117,16 @@ function DataUpdatePage() {
         
         const mergedEvents = Array.from(localEventsMap.values());
         
-        localStorage.setItem('master_waiters', JSON.stringify(localWaiters));
+        localStorage.setItem('master_waiters', JSON.stringify(localPersonnel)); 
         localStorage.setItem('master_events', JSON.stringify(mergedEvents));
-        setWaiters(localWaiters);
+        
+        localPersonnel.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+        setPersonnel(localPersonnel); 
+        
+        mergedEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name, 'pt-BR'));
         setEvents(mergedEvents);
 
-        setAlertMessage(`Sincronização concluída!\n- Garçons: ${newWaitersCount} novo(s) adicionado(s).\n- Eventos: ${newEventsCount} novo(s) adicionado(s) e ${updatedEventsCount} status atualizado(s).`);
+        setAlertMessage(`Sincronização concluída!\n- Funcionários: ${newPersonnelCount} novo(s) adicionado(s).\n- Eventos: ${newEventsCount} novo(s) adicionado(s) e ${updatedEventsCount} status atualizado(s).`);
 
       } catch (error) {
         console.error("Erro na sincronização online:", error);
@@ -123,32 +148,34 @@ function DataUpdatePage() {
         const workbook = XLSX.read(data, { type: 'binary' });
         let feedbackMessages = [];
 
-        if (workbook.Sheets['Garcons']) {
-          const waitersSheet = workbook.Sheets['Garcons'];
-          const newWaitersRaw = XLSX.utils.sheet_to_json(waitersSheet);
-          const existingWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-          const existingCpfSet = new Set(existingWaiters.map(w => w.cpf.trim()));
+        const personnelSheet = workbook.Sheets['Funcionarios'] || workbook.Sheets['Garcons'];
+
+        if (personnelSheet) {
+          const newPersonnelRaw = XLSX.utils.sheet_to_json(personnelSheet);
+          const existingPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
+          const existingCpfSet = new Set(existingPersonnel.map(w => w.cpf.trim()));
           let addedCount = 0;
           let existingCount = 0;
           
-          newWaitersRaw.forEach(row => {
-            const cleanWaiter = {
+          newPersonnelRaw.forEach(row => {
+            const cleanPersonnel = {
                 cpf: String(row.CPF || row.cpf || '').trim(),
                 name: String(row.NOME || row.name || '').trim()
             };
 
-            if (cleanWaiter.cpf && cleanWaiter.name && !existingCpfSet.has(cleanWaiter.cpf)) {
-              existingWaiters.push(cleanWaiter);
-              existingCpfSet.add(cleanWaiter.cpf);
+            if (cleanPersonnel.cpf && cleanPersonnel.name && !existingCpfSet.has(cleanPersonnel.cpf)) {
+              existingPersonnel.push(cleanPersonnel);
+              existingCpfSet.add(cleanPersonnel.cpf);
               addedCount++;
-            } else if (cleanWaiter.cpf) { 
+            } else if (cleanPersonnel.cpf) { 
               existingCount++; 
             }
           });
 
-          localStorage.setItem('master_waiters', JSON.stringify(existingWaiters));
-          setWaiters(existingWaiters);
-          feedbackMessages.push(`${addedCount} novo(s) garçom(ns) adicionado(s). ${existingCount} já possuía(m) cadastro.`);
+          localStorage.setItem('master_waiters', JSON.stringify(existingPersonnel));
+          existingPersonnel.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+          setPersonnel(existingPersonnel); 
+          feedbackMessages.push(`${addedCount} novo(s) funcionário(s) adicionado(s). ${existingCount} já possuía(m) cadastro.`);
         }
         
         if (workbook.Sheets['Eventos']) {
@@ -166,12 +193,15 @@ function DataUpdatePage() {
               }
             });
             localStorage.setItem('master_events', JSON.stringify(existingEvents));
+            existingEvents.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name, 'pt-BR'));
             setEvents(existingEvents);
             feedbackMessages.push(`${addedCount} novo(s) evento(s) adicionado(s).`);
         }
 
         if (feedbackMessages.length > 0) { alert(feedbackMessages.join('\n')); }
-        else { alert('Nenhuma aba válida ("Garcons" ou "Eventos") encontrada na planilha para importar.'); }
+        else { 
+            alert('Nenhuma aba válida ("Funcionarios", "Garcons" ou "Eventos") encontrada na planilha para importar.'); 
+        }
         
         setFileName('');
         setSelectedFile(null);
@@ -186,15 +216,15 @@ function DataUpdatePage() {
   
   const handleDownloadTemplate = async () => {
     const workbook = new ExcelJS.Workbook();
-    const waitersSheet = workbook.addWorksheet('Garcons');
-    waitersSheet.columns = [{ header: 'CPF', key: 'cpf', width: 20 }, { header: 'NOME', key: 'name', width: 40 }];
-    waitersSheet.addRow({ cpf: '111.222.333-44', name: 'Exemplo de Garçom 1' });
+    const personnelSheet = workbook.addWorksheet('Funcionarios');
+    personnelSheet.columns = [{ header: 'CPF', key: 'cpf', width: 20 }, { header: 'NOME', key: 'name', width: 40 }];
+    personnelSheet.addRow({ cpf: '111.222.333-44', name: 'Exemplo de Funcionário 1' });
     const eventsSheet = workbook.addWorksheet('Eventos');
     eventsSheet.columns = [{ header: 'NOME DO EVENTO', key: 'name', width: 50 }, { header: 'STATUS', key: 'status', width: 20}];
     eventsSheet.addRow({ name: 'Exemplo de Evento A', status: 'ATIVO' });
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(blob, 'Modelo_Cadastro_Garçons_Eventos.xlsx');
+    saveAs(blob, 'Modelo_Cadastro_Funcionarios_Eventos.xlsx');
   };
 
   const handleFileChange = (e) => {
@@ -216,17 +246,19 @@ function DataUpdatePage() {
       try {
         const data = e.target.result;
         const workbook = XLSX.read(data, { type: 'binary' });
-        let waitersToUpdate = [];
+        let personnelToUpdate = []; 
         let eventsToUpdate = [];
-        if (workbook.Sheets['Garcons']) {
-          const waitersSheet = workbook.Sheets['Garcons'];
-          const newWaiters = XLSX.utils.sheet_to_json(waitersSheet);
-          newWaiters.forEach(waiter => {
-            const cleanCpf = String(waiter.CPF || waiter.cpf || '').trim();
+
+        const personnelSheet = workbook.Sheets['Funcionarios'] || workbook.Sheets['Garcons'];
+        
+        if (personnelSheet) {
+          const newPersonnel = XLSX.utils.sheet_to_json(personnelSheet);
+          newPersonnel.forEach(person => {
+            const cleanCpf = String(person.CPF || person.cpf || '').trim();
             if (cleanCpf) {
-              waitersToUpdate.push({
+              personnelToUpdate.push({
                 cpf: cleanCpf,
-                name: String(waiter.NOME || waiter.name || '').trim()
+                name: String(person.NOME || person.name || '').trim()
               });
             }
           });
@@ -244,16 +276,18 @@ function DataUpdatePage() {
             }
           });
         }
-        if (waitersToUpdate.length === 0 && eventsToUpdate.length === 0) {
-            alert('Nenhum dado de garçom ou evento válido foi encontrado na planilha para enviar.');
+        if (personnelToUpdate.length === 0 && eventsToUpdate.length === 0) {
+            alert('Nenhum dado de funcionário ou evento válido foi encontrado na planilha para enviar.');
             setIsUpdatingOnline(false);
             return;
         }
+        
         const response = await axios.post(`${API_URL}/api/update-base`, {
-          waiters: waitersToUpdate,
+          waiters: personnelToUpdate, // A API ainda espera 'waiters'
           events: eventsToUpdate,
         });
-        alert(response.data.message);
+        
+        alert(response.data.message); 
         setFileName('');
         setSelectedFile(null);
         document.getElementById('file-upload').value = null;
@@ -307,7 +341,7 @@ function DataUpdatePage() {
       </div>
       <div className="tab-navigation">
         <button className={`tab-button ${activeTab === 'import' ? 'active' : ''}`} onClick={() => setActiveTab('import')}>Importar de Arquivo</button>
-        <button className={`tab-button ${activeTab === 'consult' ? 'active' : ''}`} onClick={() => setActiveTab('consult')}>Consultar Garçons</button>
+        <button className={`tab-button ${activeTab === 'consult' ? 'active' : ''}`} onClick={() => setActiveTab('consult')}>Consultar Funcionários</button>
         <button className={`tab-button ${activeTab === 'events' ? 'active' : ''}`} onClick={() => setActiveTab('events')}>Gerenciar Eventos</button>
       </div>
       {activeTab === 'import' && (
@@ -333,10 +367,11 @@ function DataUpdatePage() {
           </div>
         </div>
       )}
+      
       {activeTab === 'consult' && (
         <div className="tab-content">
           <div className="update-card full-width">
-            <h2>Consultar Garçons Cadastrados</h2>
+            <h2>Consultar Funcionários Cadastrados</h2>
             <div className="search-container">
               <input type="text" placeholder="🔎 Buscar por nome ou CPF..." className="search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
@@ -344,11 +379,13 @@ function DataUpdatePage() {
               <table>
                 <thead><tr><th>CPF</th><th>Nome</th></tr></thead>
                 <tbody>
-                  {filteredWaiters.length > 0 ? (
-                    filteredWaiters.map(waiter => (
-                      <tr key={waiter.cpf}><td>{waiter.cpf}</td><td>{waiter.name}</td></tr>
+                  {filteredPersonnel.length > 0 ? (
+                    filteredPersonnel.map(person => (
+                      <tr key={person.cpf}><td>{person.cpf}</td><td>{person.name}</td></tr>
                     ))
-                  ) : ( <tr><td colSpan="2">Nenhum garçom encontrado para a sua busca.</td></tr> )}
+                  ) : ( 
+                    <tr><td colSpan="2">Nenhum funcionário encontrado para a sua busca.</td></tr> 
+                  )}
                 </tbody>
               </table>
             </div>
