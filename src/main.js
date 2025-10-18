@@ -23,6 +23,8 @@ function createWindow() {
   if (!app.isPackaged) {
     // Modo Desenvolvimento (npm run dev)
     mainWindow.loadURL('http://localhost:5173');
+    // Mantenha o DevTools aberto no 'dev' para depurar
+    mainWindow.webContents.openDevTools(); 
   } else {
     // Modo Produção (.exe)
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -50,15 +52,13 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     const PORT = process.env.PORT || 10000;
 
-    // --- AQUI ESTÁ A CORREÇÃO ---
-    // Trocamos '0.0.0.0' por '127.0.0.1' (localhost explícito)
-    // Isso evita problemas de firewall e garante que o front-end
-    // (chamando localhost:10000) consiga se conectar.
+    // --- GARANTA QUE ESTA É A VERSÃO ATUAL ---
+    // Ele DEVE escutar em '127.0.0.1' para corresponder ao config.jsx
     server.listen(PORT, '127.0.0.1', () => {
       console.log(`Servidor Express iniciado pelo Electron (localhost) na porta ${PORT}`);
       createWindow(); 
     });
-    // --- FIM DA CORREÇÃO ---
+    // --- FIM DA VERIFICAÇÃO ---
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
