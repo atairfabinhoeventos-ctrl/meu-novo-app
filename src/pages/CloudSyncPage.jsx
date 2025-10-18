@@ -1,11 +1,12 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO CORRIGIDA - CPF DO GARÇOM INCLUÍDO)
+// src/pages/CloudSyncPage.jsx (VERSÃO FINAL CORRIGIDA - TROCO E API_URL)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './CloudSyncPage.css';
 import FeedbackModal from '../components/FeedbackModal';
+import { API_URL } from '../config'; // 1. IMPORTA A URL DINÂMICA
 
-// Garanta que a URL do seu servidor backend esteja correta aqui
-const API_URL = 'http://localhost:3001';
+// 2. REMOVE A URL FIXA
+// const API_URL = 'http://localhost:3001';
 
 function CloudSyncPage() {
   const [activeEvent, setActiveEvent] = useState('');
@@ -45,7 +46,6 @@ function CloudSyncPage() {
         .map(c => ({
             timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
             protocol: c.protocol,
-            // --- LINHA CORRIGIDA ADICIONADA AQUI ---
             cpf: c.cpf, 
             waiterName: c.waiterName,
             numeroMaquina: c.numeroMaquina,
@@ -61,19 +61,61 @@ function CloudSyncPage() {
         }));
 
       const cashierData = eventClosings
-        .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
-        .flatMap(c => {
+        .filter(c => c.type === 'cashier' || Array.isArray(c.caixas)) // Filtra Caixas Móveis E Grupos de Caixas Fixos
+        .flatMap(c => { // 'c' é o objeto de fechamento
+            // --- LÓGICA PARA GRUPO DE CAIXA FIXO ---
             if (Array.isArray(c.caixas)) {
-                return c.caixas.map((caixa, index) => {
+                return c.caixas.map((caixa, index) => { // 'caixa' é o sub-objeto de um caixa individual
                     const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
-                    return { protocol: `${c.protocol}-${index}`, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Fixo', cpf: caixa.cpf, cashierName: caixa.cashierName, numeroMaquina: caixa.numeroMaquina, valorTotalVenda: caixa.valorTotalVenda, credito: caixa.credito, debito: caixa.debito, pix: caixa.pix, cashless: caixa.cashless, valorTroco: c.valorTroco, valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0, dinheiroFisico: caixa.dinheiroFisico, valorAcerto: acertoCaixa, diferenca: caixa.dinheiroFisico - acertoCaixa, operatorName: c.operatorName };
+                    return { 
+                        protocol: `${c.protocol}-${index}`, 
+                        timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), 
+                        type: 'Fixo', 
+                        cpf: caixa.cpf, 
+                        cashierName: caixa.cashierName, 
+                        numeroMaquina: caixa.numeroMaquina, 
+                        valorTotalVenda: caixa.valorTotalVenda, 
+                        credito: caixa.credito, 
+                        debito: caixa.debito, 
+                        pix: caixa.pix, 
+                        cashless: caixa.cashless, 
+                        
+                        // --- 3. CORREÇÃO DA LÓGICA DO TROCO APLICADA AQUI ---
+                        // O 'valorTroco' (do grupo 'c') só é aplicado ao primeiro caixa (index === 0)
+                        valorTroco: index === 0 ? c.valorTroco : 0, 
+                        
+                        valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0, 
+                        dinheiroFisico: caixa.dinheiroFisico, 
+                        valorAcerto: acertoCaixa, 
+                        diferenca: caixa.dinheiroFisico - acertoCaixa, 
+                        operatorName: c.operatorName 
+                    };
                 });
             } else {
-                return [{ protocol: c.protocol, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Móvel', cpf: c.cpf, cashierName: c.cashierName, numeroMaquina: c.numeroMaquina, valorTotalVenda: c.valorTotalVenda, credito: c.credito, debito: c.debito, pix: c.pix, cashless: c.cashless, valorTroco: c.valorTroco, valorEstorno: c.temEstorno ? c.valorEstorno : 0, dinheiroFisico: c.dinheiroFisico, valorAcerto: c.valorAcerto, diferenca: c.diferenca, operatorName: c.operatorName }];
+                // --- LÓGICA PARA CAIXA MÓVEL (Individual) ---
+                return [{ 
+                    protocol: c.protocol, 
+                    timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), 
+                    type: 'Móvel', 
+                    cpf: c.cpf, 
+                    cashierName: c.cashierName, 
+                    numeroMaquina: c.numeroMaquina, 
+                    valorTotalVenda: c.valorTotalVenda, 
+                    credito: c.credito, 
+                    debito: c.debito, 
+                    pix: c.pix, 
+                    cashless: c.cashless, 
+                    valorTroco: c.valorTroco, // Caixa móvel tem seu próprio troco
+                    valorEstorno: c.temEstorno ? c.valorEstorno : 0, 
+                    dinheiroFisico: c.dinheiroFisico, 
+                    valorAcerto: c.valorAcerto, 
+                    diferenca: c.diferenca, 
+                    operatorName: c.operatorName 
+                }];
             }
         });
 
-      const url = `${API_URL}/api/cloud-sync`;
+      const url = `${API_URL}/api/cloud-sync`; // 4. Agora usa a URL dinâmica
       const payload = {
         eventName: activeEvent,
         waiterData: waiterData,

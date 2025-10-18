@@ -1,4 +1,4 @@
-// src/services/syncService.js (VERSÃO FINAL, COMPLETA E CORRIGIDA)
+// src/services/syncService.js (VERSÃO COM TROCO DO GRUPO CORRIGIDO)
 import axios from 'axios';
 import { API_URL } from '../config';
 
@@ -44,8 +44,6 @@ export const attemptBackgroundSync = async (closingData) => {
 const formatWaiterForApi = (c) => ({
   timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
   protocol: c.protocol,
-  // --- PONTO CRÍTICO DA CORREÇÃO ---
-  // Garante que o CPF seja incluído no payload.
   cpf: c.cpf,
   waiterName: c.waiterName,
   numeroMaquina: c.numeroMaquina,
@@ -82,7 +80,11 @@ const formatCashierForApi = (closing) => {
                 debito: caixa.debito, 
                 pix: caixa.pix, 
                 cashless: caixa.cashless, 
-                valorTroco: closing.valorTroco, 
+                
+                // --- CORREÇÃO APLICADA AQUI ---
+                // O 'valorTroco' (do grupo 'closing') só é aplicado ao primeiro caixa (index === 0)
+                valorTroco: index === 0 ? closing.valorTroco : 0, 
+
                 valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0, 
                 dinheiroFisico: caixa.dinheiroFisico, 
                 valorAcerto: acertoCaixa, 

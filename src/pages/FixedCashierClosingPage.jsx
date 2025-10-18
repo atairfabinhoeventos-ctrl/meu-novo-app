@@ -1,4 +1,4 @@
-// src/pages/FixedCashierClosingPage.jsx (VERSÃO CORRIGIDA COM BOTÃO DE REMOVER APARECENDO)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO COM DIFERENÇA CENTRALIZADA NO CAIXA 1)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -19,7 +19,12 @@ function useDebounce(value, delay) {
 }
 
 // --- COMPONENTE INTERNO PARA CADA CAIXA ---
-const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, personnelList, handleKeyDown, formRefs, isEditing, onRemoveCaixa, showRemoveButton }) => {
+// (Sem alterações aqui, continua sem o campo de dinheiro físico)
+const CaixaFormItem = ({ 
+    item, index, handleInputChange, handleSelectCashier, personnelList, 
+    handleKeyDown, formRefs, isEditing, onRemoveCaixa, showRemoveButton,
+    valorTroco, setValorTroco 
+}) => {
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
@@ -69,7 +74,6 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
 
     return (
         <div className="caixa-item-container">
-            {/* --- CÓDIGO CORRIGIDO AQUI --- */}
             <div className="caixa-header">
                 <h3 className="caixa-title">Caixa {index + 1}</h3>
                 {showRemoveButton && (
@@ -82,6 +86,36 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
                     </button>
                 )}
             </div>
+
+            {index === 0 && (
+                <div className="form-section form-row" style={{ padding: '10px', background: '#f9f9f9', borderRadius: '8px', border: '1px solid #ddd' }}>
+                    <div className="switch-container">
+                        <label>Recebeu Troco (Fundo de Caixa)?</label>
+                        <label className="switch">
+                            <input 
+                                type="checkbox" 
+                                checked={valorTroco !== ''} 
+                                onChange={(e) => setValorTroco(e.target.checked ? '0' : '')} 
+                                disabled={isEditing}
+                            />
+                            <span className="slider round"></span>
+                        </label>
+                    </div>
+                    {valorTroco !== '' && (
+                        <div className="input-group">
+                            <label>Valor do Troco (Fundo)</label>
+                            <input 
+                                ref={formRefs.current.valorTroco}
+                                onKeyDown={(e) => handleKeyDown(e, `cpf_${item.id}`)}
+                                value={formatCurrencyInput(valorTroco)} 
+                                onChange={(e) => setValorTroco(String(e.target.value).replace(/\D/g, ''))}
+                                disabled={isEditing}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
 
             <div className="form-row">
                 <div className="input-group" style={{ position: 'relative' }}>
@@ -112,11 +146,7 @@ const CaixaFormItem = ({ item, index, handleInputChange, handleSelectCashier, pe
                 </div>
                 <div className="form-row">
                     <div className="input-group"><label>PIX</label><input ref={formRefs.current[`pix_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `cashless_${item.id}`)} value={formatCurrencyInput(item.pix)} onChange={(e) => cleanAndSet('pix', e.target.value)} /></div>
-                    <div className="input-group"><label>Cashless</label><input ref={formRefs.current[`cashless_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `dinheiroFisico_${item.id}`)} value={formatCurrencyInput(item.cashless)} onChange={(e) => cleanAndSet('cashless', e.target.value)} /></div>
-                </div>
-                 <div className="input-group">
-                    <label>Dinheiro Físico (Contado)</label>
-                    <input ref={formRefs.current[`dinheiroFisico_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, item.temEstorno ? `valorEstorno_${item.id}` : `addCaixaButton`)} value={formatCurrencyInput(item.dinheiroFisico)} onChange={(e) => cleanAndSet('dinheiroFisico', e.target.value)} />
+                    <div className="input-group"><label>Cashless</label><input ref={formRefs.current[`cashless_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, item.temEstorno ? `valorEstorno_${item.id}` : `addCaixaButton`)} value={formatCurrencyInput(item.cashless)} onChange={(e) => cleanAndSet('cashless', e.target.value)} /></div>
                 </div>
             </div>
              <div className="form-row" style={{ alignItems: 'center' }}>
@@ -140,8 +170,9 @@ function FixedCashierClosingPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [dataToConfirm, setDataToConfirm] = useState(null);
-    const [valorTroco, setValorTroco] = useState('');
-    const [caixasDoGrupo, setCaixasDoGrupo] = useState([{ id: 1, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
+    const [valorTroco, setValorTroco] = useState(''); 
+    const [totalDinheiroFisico, setTotalDinheiroFisico] = useState('');
+    const [caixasDoGrupo, setCaixasDoGrupo] = useState([{ id: 1, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '' }]);
     const [alertMessage, setAlertMessage] = useState('');
     const [finalDiferenca, setFinalDiferenca] = useState(0);
     const [protocol, setProtocol] = useState(null);
@@ -149,7 +180,8 @@ function FixedCashierClosingPage() {
     const formRefs = useRef({});
 
     const debouncedCaixas = useDebounce(caixasDoGrupo, 500);
-    const debouncedValorTroco = useDebounce(valorTroco, 500);
+    const debouncedValorTroco = useDebounce(valorTroco, 500); 
+    const debouncedTotalDinheiroFisico = useDebounce(totalDinheiroFisico, 500); 
     
     const parseCurrency = (value) => {
       const stringValue = String(value);
@@ -157,28 +189,33 @@ function FixedCashierClosingPage() {
       if (cleanValue === '') return 0;
       return parseInt(cleanValue, 10) / 100;
     };
+
+    const formatForInput = (value) => String(Math.round((value || 0) * 100));
     
     useEffect(() => {
         if (closingToEdit) {
             setProtocol(closingToEdit.protocol);
-            const formatForInput = (value) => String(Math.round((value || 0) * 100));
-            setValorTroco(formatForInput(closingToEdit.valorTroco));
+            setValorTroco(formatForInput(closingToEdit.valorTroco)); 
 
-            const caixasEdit = closingToEdit.caixas.map((caixa, index) => ({
-                id: index + 1,
-                cpf: caixa.cpf,
-                name: caixa.cashierName,
-                numeroMaquina: caixa.numeroMaquina,
-                temEstorno: caixa.temEstorno,
-                valorEstorno: formatForInput(caixa.valorEstorno),
-                valorTotalVenda: formatForInput(caixa.valorTotalVenda),
-                credito: formatForInput(caixa.credito),
-                debito: formatForInput(caixa.debito),
-                pix: formatForInput(caixa.pix),
-                cashless: formatForInput(caixa.cashless),
-                dinheiroFisico: formatForInput(caixa.dinheiroFisico),
-            }));
+            let totalDinheiroFisicoSalvo = 0;
+            const caixasEdit = closingToEdit.caixas.map((caixa, index) => {
+                totalDinheiroFisicoSalvo += (caixa.dinheiroFisico || 0);
+                return {
+                    id: index + 1,
+                    cpf: caixa.cpf,
+                    name: caixa.cashierName,
+                    numeroMaquina: caixa.numeroMaquina,
+                    temEstorno: caixa.temEstorno,
+                    valorEstorno: formatForInput(caixa.valorEstorno),
+                    valorTotalVenda: formatForInput(caixa.valorTotalVenda),
+                    credito: formatForInput(caixa.credito),
+                    debito: formatForInput(caixa.debito),
+                    pix: formatForInput(caixa.pix),
+                    cashless: formatForInput(caixa.cashless),
+                };
+            });
             setCaixasDoGrupo(caixasEdit);
+            setTotalDinheiroFisico(formatForInput(totalDinheiroFisicoSalvo));
         }
     }, [closingToEdit]);
 
@@ -188,10 +225,12 @@ function FixedCashierClosingPage() {
         setPersonnelList(localPersonnel);
     }, []);
 
+    // --- LÓGICA DE CÁLCULO TOTAL (sem alteração) ---
     useEffect(() => {
-        const numValorTrocoGrupo = parseCurrency(debouncedValorTroco);
-        let totalDinheiroFisico = 0;
-        let totalAcerto = 0;
+        const numValorTrocoGrupo = parseCurrency(debouncedValorTroco); 
+        const numTotalDinheiroFisico = parseCurrency(debouncedTotalDinheiroFisico); 
+        
+        let totalAcerto = 0; 
 
         debouncedCaixas.forEach(caixa => {
             const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda);
@@ -201,12 +240,12 @@ function FixedCashierClosingPage() {
             const numPix = parseCurrency(caixa.pix);
             const numCashless = parseCurrency(caixa.cashless);
             
-            totalDinheiroFisico += parseCurrency(caixa.dinheiroFisico);
             totalAcerto += (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
         });
 
-        setFinalDiferenca(totalDinheiroFisico - (totalAcerto + numValorTrocoGrupo));
-    }, [debouncedCaixas, debouncedValorTroco]);
+        setFinalDiferenca(numTotalDinheiroFisico - (totalAcerto + numValorTrocoGrupo));
+        
+    }, [debouncedCaixas, debouncedValorTroco, debouncedTotalDinheiroFisico]);
 
     const handleInputChange = (caixaId, field, value) => {
         setCaixasDoGrupo(prev => prev.map(caixa => caixa.id === caixaId ? { ...caixa, [field]: value } : caixa));
@@ -219,7 +258,7 @@ function FixedCashierClosingPage() {
 
     const handleAddCaixa = () => {
         const newId = caixasDoGrupo.length > 0 ? Math.max(...caixasDoGrupo.map(c => c.id)) + 1 : 1;
-        setCaixasDoGrupo([...caixasDoGrupo, { id: newId, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '', dinheiroFisico: '' }]);
+        setCaixasDoGrupo([...caixasDoGrupo, { id: newId, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '' }]);
     };
 
     const handleRemoveCaixa = (idToRemove) => {
@@ -232,6 +271,10 @@ function FixedCashierClosingPage() {
             setAlertMessage('Por favor, preencha o nome e o número da máquina para todos os caixas.');
             return;
         }
+        if (totalDinheiroFisico === '') {
+            setAlertMessage('Por favor, preencha o "Total de Dinheiro Físico Contado (Grupo)".');
+            return;
+        }
         setDataToConfirm({
             totalDiferenca: finalDiferenca,
             cashierNames: caixasDoGrupo.map(c => c.name),
@@ -239,19 +282,47 @@ function FixedCashierClosingPage() {
         setModalVisible(true);
     };
 
+    // --- LÓGICA DE SALVAMENTO ATUALIZADA (CENTRALIZADA NO CAIXA 1) ---
     const handleFinalSave = async () => {
         setIsSaving(true);
         try {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
-            
-            const closingData = {
-                type: 'fixed_cashier',
-                eventName, operatorName,
-                valorTroco: parseCurrency(valorTroco),
-                diferencaCaixa: finalDiferenca,
-                caixas: caixasDoGrupo.map(caixa => ({
-                    cpf: caixa.cpf, cashierName: caixa.name, numeroMaquina: caixa.numeroMaquina,
+
+            // 1. Calcula o 'acertoIndividual' (valor esperado) para cada caixa
+            const caixasComAcerto = caixasDoGrupo.map(caixa => {
+                const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda);
+                const numValorEstorno = parseCurrency(caixa.valorEstorno);
+                const numCredito = parseCurrency(caixa.credito);
+                const numDebito = parseCurrency(caixa.debito);
+                const numPix = parseCurrency(caixa.pix);
+                const numCashless = parseCurrency(caixa.cashless);
+                
+                const acertoIndividual = (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
+                return { ...caixa, acertoIndividual };
+            });
+
+            // 2. A 'finalDiferenca' (total do grupo) já está calculada no state
+
+            // 3. Mapeia os caixas para salvar
+            const caixasParaSalvar = caixasComAcerto.map((caixa, index) => {
+                
+                let dinheiroFisicoParaSalvar;
+
+                if (index === 0) {
+                    // É o Caixa 1: O dinheiro físico dele é o seu "acerto" + a DIFERENÇA TOTAL do grupo
+                    const valor = caixa.acertoIndividual + finalDiferenca;
+                    dinheiroFisicoParaSalvar = Math.round(valor * 100) / 100;
+                } else {
+                    // É o Caixa 2, 3, etc.: O dinheiro físico dele é EXATAMENTE o seu "acerto"
+                    // Isso garante que a diferença individual deles seja ZERO
+                    dinheiroFisicoParaSalvar = Math.round(caixa.acertoIndividual * 100) / 100;
+                }
+
+                return {
+                    cpf: caixa.cpf, 
+                    cashierName: caixa.name, 
+                    numeroMaquina: caixa.numeroMaquina,
                     temEstorno: caixa.temEstorno,
                     valorEstorno: parseCurrency(caixa.valorEstorno),
                     valorTotalVenda: parseCurrency(caixa.valorTotalVenda),
@@ -259,8 +330,16 @@ function FixedCashierClosingPage() {
                     debito: parseCurrency(caixa.debito),
                     pix: parseCurrency(caixa.pix),
                     cashless: parseCurrency(caixa.cashless),
-                    dinheiroFisico: parseCurrency(caixa.dinheiroFisico),
-                })),
+                    dinheiroFisico: dinheiroFisicoParaSalvar, // Salva o valor calculado
+                };
+            });
+            
+            const closingData = {
+                type: 'fixed_cashier',
+                eventName, operatorName,
+                valorTroco: parseCurrency(valorTroco), 
+                diferencaCaixa: finalDiferenca, // Salva a diferença TOTAL do grupo
+                caixas: caixasParaSalvar, // Salva os caixas com a diferença centralizada no primeiro
                 protocol: protocol,
                 timestamp: closingToEdit?.timestamp
             };
@@ -271,6 +350,7 @@ function FixedCashierClosingPage() {
             setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
             setTimeout(() => navigate('/closing-history'), 2000);
 
+            // O syncService receberá os dados já formatados (Caixa 1 com a diferença)
             attemptBackgroundSync(savedData);
 
         } catch (error) {
@@ -298,6 +378,25 @@ function FixedCashierClosingPage() {
       }
     };
 
+    useEffect(() => {
+        formRefs.current.valorTroco = formRefs.current.valorTroco || React.createRef();
+        formRefs.current.totalDinheiroFisico = formRefs.current.totalDinheiroFisico || React.createRef();
+        formRefs.current.addCaixaButton = formRefs.current.addCaixaButton || React.createRef();
+        formRefs.current.saveButton = formRefs.current.saveButton || React.createRef();
+
+        caixasDoGrupo.forEach(caixa => {
+            formRefs.current[`cpf_${caixa.id}`] = formRefs.current[`cpf_${caixa.id}`] || React.createRef();
+            formRefs.current[`numeroMaquina_${caixa.id}`] = formRefs.current[`numeroMaquina_${caixa.id}`] || React.createRef();
+            formRefs.current[`valorTotalVenda_${caixa.id}`] = formRefs.current[`valorTotalVenda_${caixa.id}`] || React.createRef();
+            formRefs.current[`credito_${caixa.id}`] = formRefs.current[`credito_${caixa.id}`] || React.createRef();
+            formRefs.current[`debito_${caixa.id}`] = formRefs.current[`debito_${caixa.id}`] || React.createRef();
+            formRefs.current[`pix_${caixa.id}`] = formRefs.current[`pix_${caixa.id}`] || React.createRef();
+            formRefs.current[`cashless_${caixa.id}`] = formRefs.current[`cashless_${caixa.id}`] || React.createRef();
+            formRefs.current[`valorEstorno_${caixa.id}`] = formRefs.current[`valorEstorno_${caixa.id}`] || React.createRef();
+        });
+    }, [caixasDoGrupo]);
+
+
     return (
         <div className="app-container">
             <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
@@ -305,27 +404,7 @@ function FixedCashierClosingPage() {
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>{closingToEdit ? 'Editar Fechamento de Caixa Fixo' : 'Fechamento Caixa Fixo (Grupo)'}</h1>
 
-                <div className="form-section form-row">
-                    <div className="switch-container">
-                        <label>Recebeu Troco (para o grupo)?</label>
-                        <label className="switch"><input type="checkbox" checked={valorTroco !== ''} onChange={(e) => setValorTroco(e.target.checked ? '0' : '')} /><span className="slider round"></span></label>
-                    </div>
-                    {valorTroco !== '' && <div className="input-group"><label>Valor do Troco</label><input value={formatCurrencyInput(valorTroco)} onChange={(e) => setValorTroco(e.target.value)} /></div>}
-                </div>
-
                 {caixasDoGrupo.map((caixa, index) => {
-                    formRefs.current[`cpf_${caixa.id}`] = formRefs.current[`cpf_${caixa.id}`] || React.createRef();
-                    formRefs.current[`numeroMaquina_${caixa.id}`] = formRefs.current[`numeroMaquina_${caixa.id}`] || React.createRef();
-                    formRefs.current[`valorTotalVenda_${caixa.id}`] = formRefs.current[`valorTotalVenda_${caixa.id}`] || React.createRef();
-                    formRefs.current[`credito_${caixa.id}`] = formRefs.current[`credito_${caixa.id}`] || React.createRef();
-                    formRefs.current[`debito_${caixa.id}`] = formRefs.current[`debito_${caixa.id}`] || React.createRef();
-                    formRefs.current[`pix_${caixa.id}`] = formRefs.current[`pix_${caixa.id}`] || React.createRef();
-                    formRefs.current[`cashless_${caixa.id}`] = formRefs.current[`cashless_${caixa.id}`] || React.createRef();
-                    formRefs.current[`dinheiroFisico_${caixa.id}`] = formRefs.current[`dinheiroFisico_${caixa.id}`] || React.createRef();
-                    formRefs.current[`valorEstorno_${caixa.id}`] = formRefs.current[`valorEstorno_${caixa.id}`] || React.createRef();
-                    formRefs.current.addCaixaButton = formRefs.current.addCaixaButton || React.createRef();
-                    formRefs.current.saveButton = formRefs.current.saveButton || React.createRef();
-                    
                     return (
                         <CaixaFormItem 
                             key={caixa.id} 
@@ -339,14 +418,31 @@ function FixedCashierClosingPage() {
                             isEditing={!!closingToEdit}
                             onRemoveCaixa={handleRemoveCaixa}
                             showRemoveButton={caixasDoGrupo.length > 1 && !closingToEdit}
+                            valorTroco={valorTroco}
+                            setValorTroco={setValorTroco}
                         />
                     );
                 })}
 
+
                 <div className="footer-actions">
-                     <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'saveButton')} className="add-button" onClick={handleAddCaixa} disabled={!!closingToEdit}>Adicionar Novo Caixa</button>
-                    <div className="results-container">
-                        <p className="total-text">Diferença Final do Grupo: 
+                     <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'totalDinheiroFisico')} className="add-button" onClick={handleAddCaixa} disabled={!!closingToEdit}>Adicionar Novo Caixa</button>
+                    
+                     {/* --- CAMPO TOTAL DE DINHEIRO (sem alteração) --- */}
+                    <div className="results-container" style={{borderTop: '2px solid #007bff', paddingTop: '20px'}}>
+                         <div className="input-group" style={{maxWidth: '300px', margin: '0 auto 20px auto'}}>
+                            <label style={{fontSize: '1.1rem', fontWeight: 'bold'}}>Total de Dinheiro Físico Contado (Grupo)</label>
+                            <input 
+                                ref={formRefs.current.totalDinheiroFisico}
+                                onKeyDown={(e) => handleKeyDown(e, 'saveButton')}
+                                value={formatCurrencyInput(totalDinheiroFisico)} 
+                                onChange={(e) => setTotalDinheiroFisico(String(e.target.value).replace(/\D/g, ''))}
+                                style={{textAlign: 'center', fontSize: '1.2rem'}}
+                                placeholder="R$ 0,00"
+                            />
+                        </div>
+
+                        <p className="total-text">Diferença Final (Sobra/Falta): 
                             <strong style={{ color: getDiferencaColor(finalDiferenca), marginLeft: '10px' }}>
                                 {formatCurrencyResult(finalDiferenca)}
                             </strong>
@@ -369,7 +465,7 @@ function FixedCashierClosingPage() {
                                     {dataToConfirm.cashierNames.map(name => <li key={name}>{name}</li>)}
                                 </ul>
                                 <hr/>
-                                <p className="total-text">Diferença Total do Grupo: 
+                                <p className="total-text">Diferença (Sobra/Falta): 
                                     <strong style={{color: getDiferencaColor(dataToConfirm.totalDiferenca), marginLeft: '10px' }}>
                                         {formatCurrencyResult(dataToConfirm.totalDiferenca)}
                                     </strong>
