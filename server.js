@@ -469,7 +469,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       }
       recordsCompared++;
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
-      const yuzerRecord = { total: parseCurrency(yuzerRow['Total']), credit: parseCurrency(yuzerRow['Crédito']), debit: parseCurrency(yuzerRow['Débito']), pix: parseCurrency(yuzerRow['Pix']), cashless: parseCurrency(yuzerRow['Cashless']), };
+      const yuzerRecord = { total: parseCurrency(yuzerRow['Total']), credit: parseCurrency(row[creditIndex]), debit: parseCurrency(row[debitIndex]), pix: parseCurrency(row[pixIndex]), cashless: parseCurrency(row[cashlessIndex]), };
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
       console.log("DADOS YUZER  ->", JSON.stringify(yuzerRecord));
       console.log("DADOS SISFO  ->", JSON.stringify(sisfoRecord));
@@ -509,7 +509,8 @@ module.exports = app;
 // (ex: 'node server.js' no Render) e NÃO estiver rodando dentro do Electron.
 if (!isRunningInElectron) {
   const PORT = process.env.PORT || 10000;
-  app.listen(PORT, '0.0.0.0', () => { // Adicionado '0.0.0.0' para o Render
+  // O Render precisa que o bind seja em '0.0.0.0' para aceitar conexões externas
+  app.listen(PORT, '0.0.0.0', () => { 
     console.log(`Servidor backend (Render) rodando na porta ${PORT}`);
   });
 }

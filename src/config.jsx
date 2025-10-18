@@ -1,4 +1,4 @@
-// src/config.jsx (VERSÃO INTELIGENTE)
+// src/config.jsx (VERSÃO INTELIGENTE FINAL E CORRIGIDA)
 
 // 1. Verifica se a "bandeira" que o preload.js expôs existe.
 const isRunningInElectron = window.electron && window.electron.isElectron;
@@ -7,7 +7,7 @@ const isRunningInElectron = window.electron && window.electron.isElectron;
 //    - Se estiver no .exe (Electron), usa o servidor local.
 //    - Se NÃO estiver (no Render, no navegador), usa o servidor da nuvem.
 export const API_URL = isRunningInElectron
-  ? 'http://localhost:10000'
+  ? 'http://127.0.0.1:10000' // <-- CORREÇÃO: Alterado de 'localhost' para o IP exato
   : 'https://sisfo-backend.onrender.com';
 
 // Log para depuração
