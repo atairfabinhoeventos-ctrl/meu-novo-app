@@ -140,7 +140,7 @@ app.post('/api/update-base', async (req, res) => {
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
       if (newEvents.length > 0) {
         const values = newEvents.map(e => [e.name, '', e.active ? 'ATIVO' : 'INATIVO']);
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:C', valueInputOption: 'USER_ENTERED', resource: { values } });
+        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
         addedEventsCount = newEvents.length;
       }
     }
