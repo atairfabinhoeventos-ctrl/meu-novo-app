@@ -68,20 +68,21 @@ const parseSisfoCurrency = (val) => {
  * Heurística: Se o número tiver casas decimais (ex: 2604.73 ou 18.85), assume que é REAIS e multiplica por 100.
  * Se for um inteiro (ex: 1885 ou 260473), assume que já é CENTAVOS.
  */
+// --- NOVA FUNÇÃO DE NORMALIZAÇÃO CORRIGIDA ---
+/**
+ * Converte um valor (lido pelo parseSisfoCurrency) para CENTAVOS.
+ * A função parseSisfoCurrency primeiro transforma a string (ex: "300" ou "3.002,50") em um número (ex: 300 ou 3002.5).
+ * Esta função então assume que esse número é *SEMPRE* em Reais e o converte para centavos.
+ */
 const normalizeToCentavos = (val) => {
-    // 1. Converte a string para um número (ex: "1.885,00" -> 1885, "2604.73" -> 2604.73, "18.85" -> 18.85)
+    // 1. Converte a string para um número (ex: "300" -> 300, "1109" -> 1109, "3002,5" -> 3002.5)
     const numberValue = parseSisfoCurrency(val);
 
-    // 2. Verifica se o número resultante tem casas decimais
-    // (num % 1 !== 0) é uma forma rápida de checar se há decimais
-    // Usamos Math.abs(numberValue % 1) > 0.001 para segurança com floats
-    if (Math.abs(numberValue % 1) > 0.001) {
-        // Tem decimais (ex: 2604.73 ou 18.85), assume REAIS. Converte para centavos.
-        return Math.round(numberValue * 100);
-    } else {
-        // É um inteiro (ex: 1885 ou 260473), assume que JÁ É centavos.
-        return Math.round(numberValue);
-    }
+    // 2. Assume que o valor é SEMPRE em Reais e multiplica por 100.
+    // Ex: 300 * 100 = 30000 (R$ 300,00)
+    // Ex: 1109 * 100 = 110900 (R$ 1109,00)
+    // Ex: 3002.5 * 100 = 300250 (R$ 3002,50)
+    return Math.round(numberValue * 100);
 };
 
 
@@ -577,7 +578,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         total: normalizeToCentavos(yuzerRow['Total']),
         credit: normalizeToCentavos(yuzerRow['Crédito']),
         debit: normalizeToCentavos(yuzerRow['Débito']),
-        pix: normalizeToCentavos(yuzerRow['PIX']), 
+        pix: normalizeToCentavos(yuzerRow['Pix']), 
         cashless: normalizeToCentavos(yuzerRow['Cashless'])
       };
       // --- FIM DA CORREÇÃO ---
