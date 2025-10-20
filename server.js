@@ -18,14 +18,13 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- parseSisfoCurrency CORRIGIDO ---
+// --- parseSisfoCurrency CORRIGIDO (VERSÃO ROBUSTA) ---
 /**
  * Converte valor de formatos comuns (R$, ',', '.', inteiro) para número decimal.
- * Trata números inteiros como Reais.
- * Ex: "R$ 1.885,00" -> 1885.00 | "1885.00" -> 1885.00 | "1885" -> 1885.00 | 1885 -> 1885.00
+ * Trata formatos brasileiros ("1.234,56") e americanos ("1234.56").
  */
 const parseSisfoCurrency = (val) => {
-    if (val === null || val === undefined || String(val).trim() === '') return 0; // Retorna 0 se for vazio ou nulo
+    if (val === null || val === undefined || String(val).trim() === '') return 0;
 
     let stringValue = String(val).trim();
 
@@ -34,13 +33,25 @@ const parseSisfoCurrency = (val) => {
         stringValue = stringValue.substring(2).trim();
     }
 
-    // Remove pontos de milhar ANTES de substituir a vírgula
-    stringValue = stringValue.replace(/\./g, '');
+    const lastPointIndex = stringValue.lastIndexOf('.');
+    const lastCommaIndex = stringValue.lastIndexOf(',');
 
-    // Substitui a vírgula decimal por ponto decimal
-    stringValue = stringValue.replace(/,/g, '.');
+    // Se a vírgula vem DEPOIS do ponto (ex: "1.234,56")
+    // ou se SÓ tem vírgula (ex: "1234,56")
+    // -> É formato brasileiro.
+    if (lastCommaIndex > lastPointIndex) {
+        stringValue = stringValue.replace(/\./g, ''); // Remove pontos de milhar
+        stringValue = stringValue.replace(/,/g, '.'); // Troca vírgula decimal
+    }
+    // Se o ponto vem DEPOIS da vírgula (ex: "1,234.56")
+    // -> É formato americano com vírgula de milhar.
+    else if (lastPointIndex > lastCommaIndex) {
+         stringValue = stringValue.replace(/,/g, ''); // Remove vírgulas de milhar
+    }
+    // Se não tem vírgula (ex: "1234.56" ou "1234"), 
+    // assume que o formato está correto (ponto é decimal ou não há decimal).
 
-    // Remove quaisquer outros caracteres não numéricos (exceto o ponto decimal já tratado)
+    // Remove quaisquer outros caracteres não numéricos (exceto o ponto decimal)
     stringValue = stringValue.replace(/[^0-9.]/g, '');
 
     // Tenta converter para float
@@ -455,7 +466,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return digitsOnly.slice(-8);
     };
 
-    // --- processSheet AGORA USA parseSisfoCurrency ---
+    // --- processSheet AGORA USA parseSisfoCurrency (CORRIGIDO) ---
     const processSheet = (response, isWaiterSheet) => {
         if (!response.data.values || response.data.values.length < 2) return;
         const [header, ...rows] = response.data.values;
@@ -475,7 +486,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             const cpf = row[cpfIndex]?.replace(/\D/g, '');
             if (cpf) {
                 if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); }
-                // Aplica parseSisfoCurrency aos valores lidos da planilha SisFO
+                // Aplica parseSisfoCurrency (CORRIGIDO) aos valores lidos da planilha SisFO
                 sisfoData.get(cpf).push({
                     name: row[nameIndex],
                     machine: getLast8Digits(row[machineIndex]),
@@ -529,26 +540,27 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return;
       }
       recordsCompared++;
-      // sisfoRecord já foi parseado com parseSisfoCurrency
+      // sisfoRecord já foi parseado com parseSisfoCurrency (CORRIGIDO)
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CRIAÇÃO DO yuzerRecord AGORA USA parseSisfoCurrency TAMBÉM ---
-      // A função parseSisfoCurrency foi corrigida para lidar com "18.85" corretamente
+      // --- CORREÇÃO: CRIAÇÃO DO yuzerRecord ---
+      // 1. Aplica o parseSisfoCurrency (CORRIGIDO)
+      // 2. Divide os valores do Yuzer por 100 para normalizar (ex: 260473.00 -> 2604.73)
       const yuzerRecord = {
-        total: parseSisfoCurrency(yuzerRow['Total']),
-        credit: parseSisfoCurrency(yuzerRow['Crédito']),
-        debit: parseSisfoCurrency(yuzerRow['Débito']),
-        pix: parseSisfoCurrency(yuzerRow['PIX']),
-        cashless: parseSisfoCurrency(yuzerRow['Cashless'])
+        total: parseSisfoCurrency(yuzerRow['Total']) / 100,
+        credit: parseSisfoCurrency(yuzerRow['Crédito']) / 100,
+        debit: parseSisfoCurrency(yuzerRow['Débito']) / 100,
+        pix: parseSisfoCurrency(yuzerRow['PIX']) / 100, // Dividindo PIX também, caso venha em centavos
+        cashless: parseSisfoCurrency(yuzerRow['Cashless']) / 100
       };
-      // --- FIM DA ATUALIZAÇÃO DO yuzerRecord ---
+      // --- FIM DA CORREÇÃO ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
       console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
       console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord)); // Valores SisFO CORRIGIDOS
 
       const checkDiff = (field, yuzerVal, sisfoVal) => {
-        // A comparação agora é entre números corretamente parseados
+        // A comparação agora é entre números corretamente parseados e na mesma unidade (Reais)
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
           console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerVal.toFixed(2)}, SisFO=${sisfoVal.toFixed(2)}`);
           divergences.push({ name: sisfoRecord.name, cpf, machine: machineKey, field, yuzerValue: yuzerVal.toFixed(2), sisfoValue: sisfoVal.toFixed(2) });
