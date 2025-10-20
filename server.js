@@ -323,8 +323,8 @@ app.post('/api/export-online-data', async (req, res) => {
           const idxProtocolo = header.indexOf('PROTOCOLO');
           const idxCpf = header.indexOf('CPF');
           const idxNome = header.indexOf('NOME GARÇOM');
-          const idxMaquina = header.findIndex(h => h === 'Nº MÁQUINA' || h === 'Nº MAQUINA');
-          const idxVendaTotal = header.findIndex(h => h === 'VENDA TOTAL' || h === 'VALOR TOTAL VENDA');
+          const idxMaquina = header.findIndex(h => h === 'Nº Máquina' || h === 'Nº MAQUINA');
+          const idxVendaTotal = header.findIndex(h => h === 'Venda Total' || h === 'VALOR TOTAL VENDA');
           const idxCredito = header.indexOf('CRÉDITO');
           const idxDebito = header.indexOf('DÉBITO');
           const idxPix = header.indexOf('PIX');
