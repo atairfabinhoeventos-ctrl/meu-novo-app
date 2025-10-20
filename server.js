@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL COM CORREÇÃO NA CONCILIAÇÃO YUZER)
-console.log("--- EXECUTANDO A VERSÃO FINAL COM CORREÇÃO NA CONCILIAÇÃO YUZER ---");
+// server.js (VERSÃO FINAL COM CORREÇÃO FINAL NA CONCILIAÇÃO YUZER)
+console.log("--- EXECUTANDO A VERSÃO FINAL COM CORREÇÃO FINAL NA CONCILIAÇÃO YUZER ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,7 +18,19 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-const parseCurrency = (val) => parseFloat(String(val || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+// --- FUNÇÃO parseCurrency ---
+// Transforma strings como "R$ 1.234,56" ou números como 123456 em 1234.56
+const parseCurrency = (val) => {
+    // 1. Converte para string, tratando nulo/undefined como '0'
+    const stringValue = String(val || '0');
+    // 2. Remove tudo exceto dígitos (0-9)
+    const cleanValue = stringValue.replace(/\D/g, '');
+    // 3. Se não sobrar nenhum dígito, retorna 0
+    if (cleanValue === '') return 0;
+    // 4. Converte para inteiro e divide por 100 para obter o valor decimal
+    return parseInt(cleanValue, 10) / 100;
+};
+
 
 async function getGoogleSheetsClient() {
   try {
@@ -161,14 +173,12 @@ app.post('/api/cloud-sync', async (req, res) => {
         rows.forEach(newRow => {
             const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
             if (p && protocolMap.has(p)) {
-                // (Lógica de atualização de linha existente...)
                 const existing = protocolMap.get(p);
                 let hasChanged = false;
                 for (let i = 0; i < newRow.length; i++) {
-                    // Comparar strings para colunas de texto/código
                     if ([0, 1, 2, 3, 4, 13].includes(i)) {
                         if (String(existing.row[i] || '').trim() !== String(newRow[i] || '').trim()) { hasChanged = true; break; }
-                    } else { // Comparar números para colunas de valor
+                    } else {
                          if (Math.abs(parseCurrency(existing.row[i]) - parseCurrency(newRow[i])) > 0.01) { hasChanged = true; break; }
                     }
                 }
@@ -191,7 +201,6 @@ app.post('/api/cloud-sync', async (req, res) => {
             if (rows.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
             newC = rows.length;
         } else {
-             // (Lógica de atualização de linha existente...)
             const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
             const existingRows = response.data.values || [];
             const protocolColumnIndex = 0;
@@ -207,9 +216,9 @@ app.post('/api/cloud-sync', async (req, res) => {
                     const existing = protocolMap.get(p);
                      let hasChanged = false;
                     for (let i = 0; i < newRow.length; i++) {
-                        if ([0, 1, 2, 3, 4, 5, 16].includes(i)) { // Comparar strings
+                        if ([0, 1, 2, 3, 4, 5, 16].includes(i)) {
                             if (String(existing.row[i] || '').trim() !== String(newRow[i] || '').trim()) { hasChanged = true; break; }
-                        } else { // Comparar números
+                        } else {
                             if (Math.abs(parseCurrency(existing.row[i]) - parseCurrency(newRow[i])) > 0.01) { hasChanged = true; break; }
                         }
                     }
@@ -466,7 +475,8 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       recordsCompared++;
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CORREÇÃO DA LINHA 472 APLICADA AQUI ---
+      // --- CORREÇÃO APLICADA ---
+      // Aplica parseCurrency aos valores lidos da yuzerRow
       const yuzerRecord = {
         total: parseCurrency(yuzerRow['Total']),
         credit: parseCurrency(yuzerRow['Crédito']),   // Usa 'yuzerRow' e nome da coluna Yuzer
@@ -477,8 +487,9 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       // --- FIM DA CORREÇÃO ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
-      console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord));
+      console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord)); // Agora mostrará valores corretos
       console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord));
+
       const checkDiff = (field, yuzerVal, sisfoVal) => {
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
           console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerVal.toFixed(2)}, SisFO=${sisfoVal.toFixed(2)}`);
