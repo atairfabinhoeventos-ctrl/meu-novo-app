@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL COM PARSERS SEPARADOS PARA YUZER E SISFO)
-console.log("--- EXECUTANDO VERSÃO FINAL COM PARSERS SEPARADOS ---");
+// server.js (VERSÃO FINAL SIMPLIFICADA - USA APENAS parseSisfoCurrency)
+console.log("--- EXECUTANDO VERSÃO FINAL SIMPLIFICADA ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,24 +18,11 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- NOVAS FUNÇÕES DE PARSE ---
-
+// --- ÚNICA FUNÇÃO DE PARSE NECESSÁRIA ---
 /**
- * Converte valor do formato YUZER (inteiro representando centavos) para número decimal.
- * Ex: 12345 -> 123.45
- */
-const parseYuzerCurrency = (val) => {
-    if (val === null || val === undefined) return 0;
-    const stringValue = String(val);
-    const digitsOnly = stringValue.replace(/\D/g, ''); // Remove não-dígitos
-    if (digitsOnly === '') return 0;
-    return parseInt(digitsOnly, 10) / 100; // Divide por 100
-};
-
-/**
- * Converte valor do formato SisFO/Google Sheets (pode ter R$, ',', '.') para número decimal.
- * Trata números inteiros como Reais, não centavos.
- * Ex: "R$ 1.234,56" -> 1234.56 | "1234.56" -> 1234.56 | "1234" -> 1234.00
+ * Converte valor de formatos comuns (R$, ',', '.', inteiro) para número decimal.
+ * Trata números inteiros como Reais.
+ * Ex: "R$ 1.234,56" -> 1234.56 | "1234.56" -> 1234.56 | "1234" -> 1234.00 | 1234 -> 1234.00
  */
 const parseSisfoCurrency = (val) => {
     if (val === null || val === undefined) return 0;
@@ -50,25 +37,21 @@ const parseSisfoCurrency = (val) => {
 
     // Check for Brazilian format (comma as decimal separator)
     if (stringValue.includes(',')) {
-        // Remove thousand separators (.) and replace comma with period (.)
         stringValue = stringValue.replace(/\./g, '').replace(',', '.');
         numberValue = parseFloat(stringValue);
     }
     // Check for US format (period as decimal separator, no comma)
     else if (stringValue.includes('.')) {
-         // Remove any characters that are not digits or the decimal point
          stringValue = stringValue.replace(/[^0-9.]/g, '');
          numberValue = parseFloat(stringValue);
     }
-    // Assume integer represents whole Reais (NÃO divide por 100)
+    // Assume integer represents whole Reais
     else {
-        // Remove all non-digits
         const digitsOnly = stringValue.replace(/\D/g, '');
         if (digitsOnly === '') return 0;
         numberValue = parseFloat(digitsOnly); // Trata como número inteiro
     }
 
-    // Return 0 if parsing failed (NaN)
     return isNaN(numberValue) ? 0 : numberValue;
 };
 
@@ -187,7 +170,6 @@ app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
   try {
-    // A função parseCurrency global foi removida, usamos as específicas agora
     const googleSheets = await getGoogleSheetsClient();
     const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
     const sheets = sheetInfo.data.sheets;
@@ -195,17 +177,14 @@ app.post('/api/cloud-sync', async (req, res) => {
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-      // Os dados já chegam formatados corretamente do frontend (usando parseCurrency lá)
       const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
       const sheet = sheets.find(s => s.properties.title === sheetName);
       if (!sheet) {
-        // ... (criação da aba) ...
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
         if (rows.length > 0) await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
         newW = rows.length;
       } else {
-        // ... (atualização de linhas existentes, usando parseSisfoCurrency para comparar) ...
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
         const protocolColumnIndex = 1;
@@ -288,7 +267,6 @@ app.post('/api/cloud-sync', async (req, res) => {
 
 // --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
-    // ... (usa parseSisfoCurrency implicitamente ao ler da nuvem e formatar) ...
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
     try {
@@ -305,12 +283,9 @@ app.post('/api/online-history', async (req, res) => {
             if (header && rows.length > 0) {
                 const data = rows.map(row => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    // Usar parseSisfoCurrency ao ler os dados crus da planilha
+                    // Usa parseSisfoCurrency
                     const closingObject = {
-                        type: 'waiter',
-                        cpf: rowObj['CPF'],
-                        waiterName: rowObj['Nome Garçom'],
-                        protocol: rowObj['Protocolo'],
+                        type: 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['Nome Garçom'], protocol: rowObj['Protocolo'],
                         valorTotal: parseSisfoCurrency(rowObj['Venda Total']),
                         valorEstorno: parseSisfoCurrency(rowObj['Devolução/Estorno']),
                         comissaoTotal: parseSisfoCurrency(rowObj['Comissão Total']),
@@ -319,9 +294,7 @@ app.post('/api/online-history', async (req, res) => {
                         debito: parseSisfoCurrency(rowObj['Débito']),
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
-                        numeroMaquina: rowObj['Nº Máquina'],
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
+                        numeroMaquina: rowObj['Nº Máquina'], operatorName: rowObj['Operador'], timestamp: rowObj['Data'],
                     };
                     closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom';
                     closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber);
@@ -337,26 +310,22 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
                     const type = rowObj['Tipo'] || '';
                     const protocol = rowObj['Protocolo'] || '';
-                    // Usar parseSisfoCurrency ao ler os dados crus da planilha
+                    // Usa parseSisfoCurrency
                     const baseCashierObject = {
-                        protocol, eventName,
-                        operatorName: rowObj['Operador'],
-                        timestamp: rowObj['Data'],
-                        cpf: rowObj['CPF'],
-                        cashierName: rowObj['Nome do Caixa'],
-                        numeroMaquina: rowObj['Nº Máquina'],
+                        protocol, eventName, operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'],
+                        cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'],
                         valorTotalVenda: parseSisfoCurrency(rowObj['Venda Total']),
                         credito: parseSisfoCurrency(rowObj['Crédito']),
                         debito: parseSisfoCurrency(rowObj['Débito']),
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
                         valorTroco: parseSisfoCurrency(rowObj['Troco']),
-                        valorEstorno: parseSisfoCurrency(rowObj['Devolução/Estorno']), // Será > 0 se tiver valor
+                        valorEstorno: parseSisfoCurrency(rowObj['Devolução/Estorno']),
                         dinheiroFisico: parseSisfoCurrency(rowObj['Dinheiro Físico']),
                         valorAcerto: parseSisfoCurrency(rowObj['Valor Acerto']),
                         diferenca: parseSisfoCurrency(rowObj['Diferença']),
                     };
-                    baseCashierObject.temEstorno = baseCashierObject.valorEstorno > 0; // Define baseado no valor parseado
+                    baseCashierObject.temEstorno = baseCashierObject.valorEstorno > 0;
 
                     if (type === 'Fixo') {
                         return { ...baseCashierObject, type: 'individual_fixed_cashier', groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')) };
@@ -474,7 +443,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE RECONCILIAÇÃO YUZER (COM OS PARSERS CORRETOS) ---
+// --- ROTA DE RECONCILIAÇÃO YUZER (CORREÇÃO FINAL) ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) {
@@ -511,7 +480,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             const cpf = row[cpfIndex]?.replace(/\D/g, '');
             if (cpf) {
                 if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); }
-                // Aplica parseSisfoCurrency aos valores lidos da planilha
+                // Aplica parseSisfoCurrency aos valores lidos da planilha SisFO
                 sisfoData.get(cpf).push({
                     name: row[nameIndex],
                     machine: getLast8Digits(row[machineIndex]),
@@ -565,22 +534,23 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return;
       }
       recordsCompared++;
-      // sisfoRecord já foi parseado com parseSisfoCurrency dentro de processSheet
+      // sisfoRecord já foi parseado com parseSisfoCurrency
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CRIAÇÃO DO yuzerRecord AGORA USA parseYuzerCurrency ---
+      // --- CRIAÇÃO DO yuzerRecord AGORA USA parseSisfoCurrency ---
+      // A função parseSisfoCurrency lida corretamente com os inteiros do Yuzer
       const yuzerRecord = {
-        total: parseYuzerCurrency(yuzerRow['Total']),
-        credit: parseYuzerCurrency(yuzerRow['Crédito']),
-        debit: parseYuzerCurrency(yuzerRow['Débito']),
-        pix: parseYuzerCurrency(yuzerRow['PIX']),
-        cashless: parseYuzerCurrency(yuzerRow['Cashless'])
+        total: parseSisfoCurrency(yuzerRow['Total']),
+        credit: parseSisfoCurrency(yuzerRow['Crédito']),
+        debit: parseSisfoCurrency(yuzerRow['Débito']),
+        pix: parseSisfoCurrency(yuzerRow['PIX']),
+        cashless: parseSisfoCurrency(yuzerRow['Cashless'])
       };
       // --- FIM DA ATUALIZAÇÃO DO yuzerRecord ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
-      console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord)); // Valores Yuzer corretos
-      console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord)); // Valores SisFO corretos
+      console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
+      console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord)); // Valores SisFO já estavam corretos
 
       const checkDiff = (field, yuzerVal, sisfoVal) => {
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
