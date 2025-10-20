@@ -18,10 +18,11 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- parseSisfoCurrency CORRIGIDO (VERSÃO ROBUSTA) ---
+// --- parseSisfoCurrency CORRIGIDO (VERSÃO ROBUSTA - FUNÇÃO AUXILIAR) ---
 /**
  * Converte valor de formatos comuns (R$, ',', '.', inteiro) para número decimal.
  * Trata formatos brasileiros ("1.234,56") e americanos ("1234.56").
+ * Esta função APENAS converte a string para número, ela NÃO normaliza a unidade.
  */
 const parseSisfoCurrency = (val) => {
     if (val === null || val === undefined || String(val).trim() === '') return 0;
@@ -37,7 +38,7 @@ const parseSisfoCurrency = (val) => {
     const lastCommaIndex = stringValue.lastIndexOf(',');
 
     // Se a vírgula vem DEPOIS do ponto (ex: "1.234,56")
-    // ou se SÓ tem vírgula (ex: "1234,56")
+    // ou se SÓ tem vírgula (ex: "1234,56" ou "4549,55")
     // -> É formato brasileiro.
     if (lastCommaIndex > lastPointIndex) {
         stringValue = stringValue.replace(/\./g, ''); // Remove pontos de milhar
@@ -59,6 +60,28 @@ const parseSisfoCurrency = (val) => {
 
     // Retorna 0 se a conversão falhar (NaN)
     return isNaN(numberValue) ? 0 : numberValue;
+};
+
+// --- NOVA FUNÇÃO DE NORMALIZAÇÃO ---
+/**
+ * Converte um valor (lido pelo parseSisfoCurrency) para CENTAVOS.
+ * Heurística: Se o número tiver casas decimais (ex: 2604.73 ou 18.85), assume que é REAIS e multiplica por 100.
+ * Se for um inteiro (ex: 1885 ou 260473), assume que já é CENTAVOS.
+ */
+const normalizeToCentavos = (val) => {
+    // 1. Converte a string para um número (ex: "1.885,00" -> 1885, "2604.73" -> 2604.73, "18.85" -> 18.85)
+    const numberValue = parseSisfoCurrency(val);
+
+    // 2. Verifica se o número resultante tem casas decimais
+    // (num % 1 !== 0) é uma forma rápida de checar se há decimais
+    // Usamos Math.abs(numberValue % 1) > 0.001 para segurança com floats
+    if (Math.abs(numberValue % 1) > 0.001) {
+        // Tem decimais (ex: 2604.73 ou 18.85), assume REAIS. Converte para centavos.
+        return Math.round(numberValue * 100);
+    } else {
+        // É um inteiro (ex: 1885 ou 260473), assume que JÁ É centavos.
+        return Math.round(numberValue);
+    }
 };
 
 
@@ -183,6 +206,8 @@ app.post('/api/cloud-sync', async (req, res) => {
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
       const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
+      // Os dados do App (waiterData) já estão em Reais (números). 
+      // O parseSisfoCurrency é usado abaixo apenas para comparar com o que está na planilha.
       const rows = waiterData.map(c => [ c.timestamp, c.protocol, c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal, c.credito, c.debito, c.pix, c.cashless, c.valorEstorno, c.comissaoTotal, c.acerto, c.operatorName ]);
       const sheet = sheets.find(s => s.properties.title === sheetName);
       if (!sheet) {
@@ -209,7 +234,8 @@ app.post('/api/cloud-sync', async (req, res) => {
                     if ([0, 1, 2, 3, 4, 13].includes(i)) {
                         if (String(existing.row[i] || '').trim() !== String(newRow[i] || '').trim()) { hasChanged = true; break; }
                     } else {
-                         // Usa parseSisfoCurrency para comparar valores da planilha
+                         // Usa parseSisfoCurrency para comparar o valor da planilha (que pode ser string)
+                         // com o novo valor do App (que é número)
                          if (Math.abs(parseSisfoCurrency(existing.row[i]) - newRow[i]) > 0.01) { hasChanged = true; break; }
                     }
                 }
@@ -289,7 +315,7 @@ app.post('/api/online-history', async (req, res) => {
             if (header && rows.length > 0) {
                 const data = rows.map(row => {
                     const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]]));
-                    // Usa parseSisfoCurrency
+                    // Usa parseSisfoCurrency (aqui os dados já estão em Reais, vindo do /cloud-sync)
                     const closingObject = {
                         type: 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['Nome Garçom'], protocol: rowObj['Protocolo'],
                         valorTotal: parseSisfoCurrency(rowObj['Venda Total']),
@@ -297,7 +323,7 @@ app.post('/api/online-history', async (req, res) => {
                         comissaoTotal: parseSisfoCurrency(rowObj['Comissão Total']),
                         diferencaPagarReceber: parseSisfoCurrency(rowObj['Acerto']),
                         credito: parseSisfoCurrency(rowObj['Crédito']),
-                        debito: parseSisfoCurrency(rowObj['Délito']),
+                        debito: parseSisfoCurrency(rowObj['Débito']), // Corrigido de 'Délito'
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
                         numeroMaquina: rowObj['Nº Máquina'], operatorName: rowObj['Operador'], timestamp: rowObj['Data'],
@@ -322,7 +348,7 @@ app.post('/api/online-history', async (req, res) => {
                         cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'],
                         valorTotalVenda: parseSisfoCurrency(rowObj['Venda Total']),
                         credito: parseSisfoCurrency(rowObj['Crédito']),
-                        debito: parseSisfoCurrency(rowObj['Délito']),
+                        debito: parseSisfoCurrency(rowObj['Débito']), // Corrigido de 'Délito'
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
                         valorTroco: parseSisfoCurrency(rowObj['Troco']),
@@ -466,7 +492,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return digitsOnly.slice(-8);
     };
 
-    // --- processSheet AGORA USA parseSisfoCurrency (CORRIGIDO) ---
+    // --- processSheet AGORA USA normalizeToCentavos ---
     const processSheet = (response, isWaiterSheet) => {
         if (!response.data.values || response.data.values.length < 2) return;
         const [header, ...rows] = response.data.values;
@@ -486,16 +512,16 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             const cpf = row[cpfIndex]?.replace(/\D/g, '');
             if (cpf) {
                 if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); }
-                // Aplica parseSisfoCurrency (CORRIGIDO) aos valores lidos da planilha SisFO
-                // CENÁRIO A: SisFO está em REAIS (ex: 2604.73)
+                // Aplica normalizeToCentavos aos valores lidos da planilha SisFO
+                // Todos os valores SisFO agora serão CENTAVOS
                 sisfoData.get(cpf).push({
                     name: row[nameIndex],
                     machine: getLast8Digits(row[machineIndex]),
-                    total: totalIndex !== -1 ? parseSisfoCurrency(row[totalIndex]) : 0,
-                    credit: creditIndex !== -1 ? parseSisfoCurrency(row[creditIndex]) : 0,
-                    debit: debitIndex !== -1 ? parseSisfoCurrency(row[debitIndex]) : 0,
-                    pix: pixIndex !== -1 ? parseSisfoCurrency(row[pixIndex]) : 0,
-                    cashless: cashlessIndex !== -1 ? parseSisfoCurrency(row[cashlessIndex]) : 0
+                    total: totalIndex !== -1 ? normalizeToCentavos(row[totalIndex]) : 0,
+                    credit: creditIndex !== -1 ? normalizeToCentavos(row[creditIndex]) : 0,
+                    debit: debitIndex !== -1 ? normalizeToCentavos(row[debitIndex]) : 0,
+                    pix: pixIndex !== -1 ? normalizeToCentavos(row[pixIndex]) : 0,
+                    cashless: cashlessIndex !== -1 ? normalizeToCentavos(row[cashlessIndex]) : 0
                 });
             }
         });
@@ -541,40 +567,45 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return;
       }
       recordsCompared++;
-      // sisfoRecord.credit é REAIS (ex: 2604.73)
+      // sisfoRecord.credit é CENTAVOS (ex: 1885 ou 260473)
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CORREÇÃO (CENÁRIO A) ---
-      // 1. Aplica o parseSisfoCurrency (CORRIGIDO) para ler o valor (em CENTAVOS)
-      // 2. Divide por 100 para converter para REAIS, para bater com o SisFO
+      // --- CORREÇÃO: CRIAÇÃO DO yuzerRecord ---
+      // Aplica normalizeToCentavos aos valores do Yuzer
+      // Todos os valores Yuzer agora serão CENTAVOS
       const yuzerRecord = {
-        total: parseSisfoCurrency(yuzerRow['Total']) / 100,
-        credit: parseSisfoCurrency(yuzerRow['Crédito']) / 100,
-        debit: parseSisfoCurrency(yuzerRow['Débito']) / 100,
-        pix: parseSisfoCurrency(yuzerRow['PIX']) / 100, 
-        cashless: parseSisfoCurrency(yuzerRow['Cashless']) / 100
+        total: normalizeToCentavos(yuzerRow['Total']),
+        credit: normalizeToCentavos(yuzerRow['Crédito']),
+        debit: normalizeToCentavos(yuzerRow['Débito']),
+        pix: normalizeToCentavos(yuzerRow['PIX']), 
+        cashless: normalizeToCentavos(yuzerRow['Cashless'])
       };
       // --- FIM DA CORREÇÃO ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
-      console.log("    DADOS YUZER (em Reais) ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
-      console.log("    DADOS SISFO (em Reais) ->", JSON.stringify(sisfoRecord)); // Valores SisFO CORRIGIDOS
+      console.log("    DADOS YUZER (em CENTAVOS) ->", JSON.stringify(yuzerRecord)); // Log corrigido
+      console.log("    DADOS SISFO (em CENTAVOS) ->", JSON.stringify(sisfoRecord)); // Log corrigido
 
-      const checkDiff = (field, yuzerVal, sisfoVal) => {
-        // A comparação agora é entre REAIS (yuzerVal) e REAIS (sisfoVal)
-        if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
-          console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerVal.toFixed(2)}, SisFO=${sisfoVal.toFixed(2)}`);
+      const checkDiff = (field, yuzerVal_centavos, sisfoVal_centavos) => {
+        // A comparação agora é entre CENTAVOS (yuzerVal) e CENTAVOS (sisfoVal)
+        if (Math.abs(yuzerVal_centavos - sisfoVal_centavos) > 0.01) {
+          // Arredonda para o centavo mais próximo para o log
+          const yuzerLog = (yuzerVal_centavos / 100).toFixed(2);
+          const sisfoLog = (sisfoVal_centavos / 100).toFixed(2);
+
+          console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerLog}, SisFO=${sisfoLog}`);
+          // Reporta os valores em REAIS (dividindo por 100) para o usuário final, que é mais legível
           divergences.push({ 
               name: sisfoRecord.name, 
               cpf, 
               machine: machineKey, 
               field, 
-              yuzerValue: yuzerVal.toFixed(2), 
-              sisfoValue: sisfoVal.toFixed(2)
+              yuzerValue: yuzerLog, // Converte de volta para Reais para o Log
+              sisfoValue: sisfoLog  // Converte de volta para Reais para o Log
             });
         }
       };
-
+      
       checkDiff('Valor Total', yuzerRecord.total, sisfoRecord.total);
       checkDiff('Crédito', yuzerRecord.credit, sisfoRecord.credit);
       checkDiff('Débito', yuzerRecord.debit, sisfoRecord.debit);
