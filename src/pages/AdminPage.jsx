@@ -5,7 +5,7 @@ import axios from 'axios';
 import * as XLSX from 'xlsx';
 import './AdminPage.css';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = 'https://sisfo-backend.onrender.com'; // <-- Use a sua URL real do Render
 
 function AdminPage() {
   const navigate = useNavigate();
