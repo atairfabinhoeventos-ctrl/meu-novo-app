@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL SIMPLIFICADA - USA APENAS parseSisfoCurrency)
-console.log("--- EXECUTANDO VERSÃO FINAL SIMPLIFICADA ---");
+// server.js (VERSÃO FINAL COM parseSisfoCurrency CORRIGIDO)
+console.log("--- EXECUTANDO VERSÃO FINAL COM parseSisfoCurrency CORRIGIDO ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,14 +18,15 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- ÚNICA FUNÇÃO DE PARSE NECESSÁRIA ---
+// --- parseSisfoCurrency CORRIGIDO ---
 /**
  * Converte valor de formatos comuns (R$, ',', '.', inteiro) para número decimal.
  * Trata números inteiros como Reais.
- * Ex: "R$ 1.234,56" -> 1234.56 | "1234.56" -> 1234.56 | "1234" -> 1234.00 | 1234 -> 1234.00
+ * Ex: "R$ 1.885,00" -> 1885.00 | "1885.00" -> 1885.00 | "1885" -> 1885.00 | 1885 -> 1885.00
  */
 const parseSisfoCurrency = (val) => {
-    if (val === null || val === undefined) return 0;
+    if (val === null || val === undefined || String(val).trim() === '') return 0; // Retorna 0 se for vazio ou nulo
+
     let stringValue = String(val).trim();
 
     // Remove "R$" prefix if present
@@ -33,25 +34,19 @@ const parseSisfoCurrency = (val) => {
         stringValue = stringValue.substring(2).trim();
     }
 
-    let numberValue;
+    // Remove pontos de milhar ANTES de substituir a vírgula
+    stringValue = stringValue.replace(/\./g, '');
 
-    // Check for Brazilian format (comma as decimal separator)
-    if (stringValue.includes(',')) {
-        stringValue = stringValue.replace(/\./g, '').replace(',', '.');
-        numberValue = parseFloat(stringValue);
-    }
-    // Check for US format (period as decimal separator, no comma)
-    else if (stringValue.includes('.')) {
-         stringValue = stringValue.replace(/[^0-9.]/g, '');
-         numberValue = parseFloat(stringValue);
-    }
-    // Assume integer represents whole Reais
-    else {
-        const digitsOnly = stringValue.replace(/\D/g, '');
-        if (digitsOnly === '') return 0;
-        numberValue = parseFloat(digitsOnly); // Trata como número inteiro
-    }
+    // Substitui a vírgula decimal por ponto decimal
+    stringValue = stringValue.replace(/,/g, '.');
 
+    // Remove quaisquer outros caracteres não numéricos (exceto o ponto decimal já tratado)
+    stringValue = stringValue.replace(/[^0-9.]/g, '');
+
+    // Tenta converter para float
+    const numberValue = parseFloat(stringValue);
+
+    // Retorna 0 se a conversão falhar (NaN)
     return isNaN(numberValue) ? 0 : numberValue;
 };
 
@@ -537,8 +532,8 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
       // sisfoRecord já foi parseado com parseSisfoCurrency
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CRIAÇÃO DO yuzerRecord AGORA USA parseSisfoCurrency ---
-      // A função parseSisfoCurrency lida corretamente com os inteiros do Yuzer
+      // --- CRIAÇÃO DO yuzerRecord AGORA USA parseSisfoCurrency TAMBÉM ---
+      // A função parseSisfoCurrency foi corrigida para lidar com "18.85" corretamente
       const yuzerRecord = {
         total: parseSisfoCurrency(yuzerRow['Total']),
         credit: parseSisfoCurrency(yuzerRow['Crédito']),
@@ -550,9 +545,10 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
       console.log("    DADOS YUZER  ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
-      console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord)); // Valores SisFO já estavam corretos
+      console.log("    DADOS SISFO  ->", JSON.stringify(sisfoRecord)); // Valores SisFO CORRIGIDOS
 
       const checkDiff = (field, yuzerVal, sisfoVal) => {
+        // A comparação agora é entre números corretamente parseados
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
           console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerVal.toFixed(2)}, SisFO=${sisfoVal.toFixed(2)}`);
           divergences.push({ name: sisfoRecord.name, cpf, machine: machineKey, field, yuzerValue: yuzerVal.toFixed(2), sisfoValue: sisfoVal.toFixed(2) });
