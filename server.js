@@ -1,5 +1,5 @@
 // server.js (VERSÃO FINAL COM EXPORTAÇÃO CORRIGIDA POR ÍNDICE)
-console.log("--- EXECUTANDO A VERSÃO FINAL COM EXPORTAÇÃO CORRIGIDA ---");
+console.log("--- EXECUTANDO A VERSÃO FINAL COM EXPORTAÇÃO CORRIGIDA POR ÍNDICE ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -36,7 +36,7 @@ async function getGoogleSheetsClient() {
   }
 }
 
-const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
+const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
 // --- ROTA DE SYNC MASTER-DATA ---
@@ -129,7 +129,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA DE SYNC PARA A NUVEM ---
+// --- ROTA DE SYNC PARA A NUVEM (sem alteração) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -230,7 +230,6 @@ app.post('/api/cloud-sync', async (req, res) => {
 // --- ROTA DE HISTÓRICO ONLINE (sem alteração) ---
 app.post('/api/online-history', async (req, res) => {
     // ... (código existente) ...
-    // (Esta rota não afeta a exportação, pode ser mantida como está)
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
     try {
@@ -314,10 +313,12 @@ app.post('/api/export-online-data', async (req, res) => {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Garçons - ${eventName}` });
       if (response.data.values && response.data.values.length > 1) {
           
-          // 1. Lê os cabeçalhos da planilha (Ex: "Nº MÁQUINA")
+          // 1. Lê os cabeçalhos da planilha (Ex: "Nº MÁQUINA") e normaliza
           const header = response.data.values[0].map(h => String(h).trim().toUpperCase());
           
-          // 2. Encontra o ÍNDICE (posição) de cada cabeçalho lido
+          // 2. Encontra o ÍNDICE (posição) de cada cabeçalho
+          // (Não importa se é 'Nº MÁQUINA' ou 'Nº MAQUINA', o toUpperCase() normaliza,
+          // mas vamos buscar o que está na planilha de destino)
           const idxData = header.indexOf('DATA');
           const idxProtocolo = header.indexOf('PROTOCOLO');
           const idxCpf = header.indexOf('CPF');
@@ -336,26 +337,30 @@ app.post('/api/export-online-data', async (req, res) => {
           // 3. Lê as linhas de dados
           const rows = response.data.values.slice(1);
           
-          // 4. Monta o JSON manualmente, usando as chaves que o ExportDataPage.jsx espera
+          // 4. Monta o JSON manualmente, usando as chaves exatas que o ExportDataPage.jsx espera
           consolidatedWaiters = rows.map(row => {
               const rowData = {
                   eventName: eventName,
                   // As chaves aqui (ex: 'Nº MAQUINA') batem 100% com o ExportDataPage.jsx
-                  'DATA': row[idxData] || '',
-                  'PROTOCOLO': row[idxProtocolo] || '',
-                  'CPF': row[idxCpf] || '',
-                  'NOME GARÇOM': row[idxNome] || '',
-                  'Nº MAQUINA': row[idxMaquina] || '', // Chave SEM acento
-                  'VALOR TOTAL VENDA': row[idxVendaTotal] || '', // Chave com NOME LONGO
-                  'CRÉDITO': row[idxCredito] || '',
-                  'DÉBITO': row[idxDebito] || '',
-                  'PIX': row[idxPix] || '',
-                  'CASHLESS': row[idxCashless] || '',
-                  'DEVOLUÇÃO ESTORNO': row[idxEstorno] || '', // Chave SEM barra
-                  'COMISSÃO TOTAL': row[idxComissao] || '',
-                  'ACERTO': row[idxAcerto] || '',
-                  'OPERADOR': row[idxOperador] || ''
+                  'DATA': idxData !== -1 ? row[idxData] : '',
+                  'PROTOCOLO': idxProtocolo !== -1 ? row[idxProtocolo] : '',
+                  'CPF': idxCpf !== -1 ? row[idxCpf] : '',
+                  'NOME GARÇOM': idxNome !== -1 ? row[idxNome] : '',
+                  'Nº MAQUINA': idxMaquina !== -1 ? row[idxMaquina] : '', // Chave SEM acento
+                  'VALOR TOTAL VENDA': idxVendaTotal !== -1 ? row[idxVendaTotal] : '', // Chave com NOME LONGO
+                  'CRÉDITO': idxCredito !== -1 ? row[idxCredito] : '',
+                  'DÉBITO': idxDebito !== -1 ? row[idxDebito] : '',
+                  'PIX': idxPix !== -1 ? row[idxPix] : '',
+                  'CASHLESS': idxCashless !== -1 ? row[idxCashless] : '',
+                  'DEVOLUÇÃO ESTORNO': idxEstorno !== -1 ? row[idxEstorno] : '', // Chave SEM barra
+                  'COMISSÃO TOTAL': idxComissao !== -1 ? row[idxComissao] : '',
+                  'ACERTO': idxAcerto !== -1 ? row[idxAcerto] : '',
+                  'OPERADOR': idxOperador !== -1 ? row[idxOperador] : ''
               };
+              // Limpa valores indefinidos caso o índice não seja encontrado
+              Object.keys(rowData).forEach(key => {
+                  if (rowData[key] === undefined) { rowData[key] = ''; }
+              });
               return rowData;
           });
       }
