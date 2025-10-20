@@ -297,7 +297,7 @@ app.post('/api/online-history', async (req, res) => {
                         comissaoTotal: parseSisfoCurrency(rowObj['Comissão Total']),
                         diferencaPagarReceber: parseSisfoCurrency(rowObj['Acerto']),
                         credito: parseSisfoCurrency(rowObj['Crédito']),
-                        debito: parseSisfoCurrency(rowObj['Débito']),
+                        debito: parseSisfoCurrency(rowObj['Délito']),
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
                         numeroMaquina: rowObj['Nº Máquina'], operatorName: rowObj['Operador'], timestamp: rowObj['Data'],
@@ -322,7 +322,7 @@ app.post('/api/online-history', async (req, res) => {
                         cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'],
                         valorTotalVenda: parseSisfoCurrency(rowObj['Venda Total']),
                         credito: parseSisfoCurrency(rowObj['Crédito']),
-                        debito: parseSisfoCurrency(rowObj['Débito']),
+                        debito: parseSisfoCurrency(rowObj['Délito']),
                         pix: parseSisfoCurrency(rowObj['Pix']),
                         cashless: parseSisfoCurrency(rowObj['Cashless']),
                         valorTroco: parseSisfoCurrency(rowObj['Troco']),
@@ -487,7 +487,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             if (cpf) {
                 if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); }
                 // Aplica parseSisfoCurrency (CORRIGIDO) aos valores lidos da planilha SisFO
-                // Estes valores estão em CENTAVOS (ex: 1885.00)
+                // CENÁRIO A: SisFO está em REAIS (ex: 2604.73)
                 sisfoData.get(cpf).push({
                     name: row[nameIndex],
                     machine: getLast8Digits(row[machineIndex]),
@@ -541,51 +541,39 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         return;
       }
       recordsCompared++;
-      // sisfoRecord já foi parseado com parseSisfoCurrency (CORRIGIDO)
-      // sisfoRecord.credit é CENTAVOS (ex: 1885.00)
+      // sisfoRecord.credit é REAIS (ex: 2604.73)
       const sisfoRecord = sisfoRecordsForCpf[recordIndex];
 
-      // --- CORREÇÃO: CRIAÇÃO DO yuzerRecord ---
-      // 1. Aplica o parseSisfoCurrency (CORRIGIDO) para ler o valor em REAIS (ex: "18.85")
-      // 2. Multiplica por 100 para converter para CENTAVOS, para bater com o SisFO (ex: 18.85 -> 1885.00)
+      // --- CORREÇÃO (CENÁRIO A) ---
+      // 1. Aplica o parseSisfoCurrency (CORRIGIDO) para ler o valor (em CENTAVOS)
+      // 2. Divide por 100 para converter para REAIS, para bater com o SisFO
       const yuzerRecord = {
-        total: parseSisfoCurrency(yuzerRow['Total']) * 100,
-        credit: parseSisfoCurrency(yuzerRow['Crédito']) * 100,
-        debit: parseSisfoCurrency(yuzerRow['Débito']) * 100,
-        pix: parseSisfoCurrency(yuzerRow['PIX']) * 100, // Multiplica PIX também (0.00 * 100 = 0)
-        cashless: parseSisfoCurrency(yuzerRow['Cashless']) * 100
+        total: parseSisfoCurrency(yuzerRow['Total']) / 100,
+        credit: parseSisfoCurrency(yuzerRow['Crédito']) / 100,
+        debit: parseSisfoCurrency(yuzerRow['Débito']) / 100,
+        pix: parseSisfoCurrency(yuzerRow['PIX']) / 100, 
+        cashless: parseSisfoCurrency(yuzerRow['Cashless']) / 100
       };
       // --- FIM DA CORREÇÃO ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`);
-      console.log("    DADOS YUZER (em centavos) ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
-      console.log("    DADOS SISFO (em centavos) ->", JSON.stringify(sisfoRecord)); // Valores SisFO CORRIGIDOS
+      console.log("    DADOS YUZER (em Reais) ->", JSON.stringify(yuzerRecord)); // Valores Yuzer CORRIGIDOS
+      console.log("    DADOS SISFO (em Reais) ->", JSON.stringify(sisfoRecord)); // Valores SisFO CORRIGIDOS
 
       const checkDiff = (field, yuzerVal, sisfoVal) => {
-        // A comparação agora é entre CENTAVOS (yuzerVal) e CENTAVOS (sisfoVal)
+        // A comparação agora é entre REAIS (yuzerVal) e REAIS (sisfoVal)
         if (Math.abs(yuzerVal - sisfoVal) > 0.01) {
           console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerVal.toFixed(2)}, SisFO=${sisfoVal.toFixed(2)}`);
-          // Reporta os valores em REAIS (dividindo por 100) para o usuário final, que é mais legível
           divergences.push({ 
               name: sisfoRecord.name, 
               cpf, 
               machine: machineKey, 
               field, 
-              yuzerValue: (yuzerVal / 100).toFixed(2), // Converte de volta para Reais para o Log
-              sisfoValue: (sisfoVal / 100).toFixed(2)  // Converte de volta para Reais para o Log
+              yuzerValue: yuzerVal.toFixed(2), 
+              sisfoValue: sisfoVal.toFixed(2)
             });
         }
       };
-      
-      // *** MODIFICAÇÃO BÔNUS: Reportar valores em REAIS ***
-      // Eu modifiquei o `checkDiff` acima para que, ao encontrar uma divergência,
-      // ele salve os valores divididos por 100.
-      // A COMPARAÇÃO é feita em centavos (correto), mas o RELATÓRIO é em Reais (legível).
-      // Se você preferir o relatório em centavos, reverta a alteração no `divergences.push`
-      // para:
-      // yuzerValue: yuzerVal.toFixed(2),
-      // sisfoValue: sisfoVal.toFixed(2)
-      // ****************************************************
 
       checkDiff('Valor Total', yuzerRecord.total, sisfoRecord.total);
       checkDiff('Crédito', yuzerRecord.credit, sisfoRecord.credit);
