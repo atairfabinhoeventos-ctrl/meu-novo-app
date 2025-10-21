@@ -1,9 +1,10 @@
-// src/App.jsx (VERSÃO ATUALIZADA COM HASHROUTER PARA COMPATIBILIDADE)
+// src/App.jsx (VERSÃO COM INTERVALOS DE SYNC DE 1 MINUTO)
 
-import React from 'react';
-// --- CORREÇÃO 1: Importa o HashRouter no lugar do BrowserRouter ---
+import React, { useEffect, useContext } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
+import { SyncContext } from './contexts/SyncContext.jsx';
+import { retryPendingUploads } from './services/syncService'; // Importa apenas upload
 
 // Importando suas páginas
 import OperatorScreen from './pages/OperatorScreen.jsx';
@@ -22,7 +23,7 @@ import CloudSyncPage from './pages/CloudSyncPage.jsx';
 import AdminPage from './pages/AdminPage';
 
 
-// Componente para proteger rotas que exigem login do operador
+// Componentes ProtectedRoute e EventSelectedRoute (sem alterações)
 const ProtectedRoute = () => {
   const operatorName = localStorage.getItem('loggedInUserName');
   if (!operatorName) {
@@ -30,8 +31,6 @@ const ProtectedRoute = () => {
   }
   return <Outlet />;
 };
-
-// Componente para proteger rotas que exigem um evento ativo
 const EventSelectedRoute = () => {
   const activeEvent = localStorage.getItem('activeEvent');
   if (!activeEvent) {
@@ -40,25 +39,60 @@ const EventSelectedRoute = () => {
   return <Outlet />;
 };
 
+
 export default function App() {
+  const { triggerDownloadSync } = useContext(SyncContext);
+
+  useEffect(() => {
+    // --- TEMPOS AJUSTADOS PARA 1 MINUTO (60.000 ms) ---
+    const ONE_MINUTE_MS = 60000; 
+
+    // --- Bloco de Download ---
+    const initialSyncTimeout = setTimeout(() => {
+      console.log("[App.jsx] Disparando download inicial de dados mestre (após 1 min)...");
+      if (triggerDownloadSync) triggerDownloadSync(); 
+    }, ONE_MINUTE_MS); // Primeira execução após 1 minuto
+
+    const downloadIntervalId = setInterval(() => {
+      console.log("[App.jsx] Disparando download periódico de dados mestre (a cada 1 min)...");
+      if (triggerDownloadSync) triggerDownloadSync(); 
+    }, ONE_MINUTE_MS); // Repete a cada 1 minuto
+
+    // --- Bloco de Upload ---
+    const initialUploadTimeout = setTimeout(() => {
+        console.log("[App.jsx] Iniciando verificador inicial de uploads pendentes (após 1 min)...");
+        retryPendingUploads();
+    }, ONE_MINUTE_MS); // Primeira execução após 1 minuto
+
+    const uploadIntervalId = setInterval(() => {
+        console.log("[App.jsx] Iniciando verificador periódico de uploads pendentes (a cada 1 min)...");
+        retryPendingUploads();
+    }, ONE_MINUTE_MS); // Repete a cada 1 minuto
+
+    // Limpa os timers ao desmontar
+    return () => {
+      clearTimeout(initialSyncTimeout);
+      clearInterval(downloadIntervalId);
+      clearTimeout(initialUploadTimeout);
+      clearInterval(uploadIntervalId);
+    };
+  }, [triggerDownloadSync]); 
+
+
   return (
-    // --- CORREÇÃO 2: Usa o Router (que agora é o HashRouter) ---
     <Router>
       <Routes>
-        {/* Rota inicial pública: Tela de login do operador (sem layout) */}
+        {/* Rota inicial pública */}
         <Route path="/" element={<OperatorScreen />} />
 
-        {/* GRUPO DE ROTAS PROTEGIDAS PELO LOGIN DO OPERADOR */}
+        {/* Rotas protegidas */}
         <Route element={<ProtectedRoute />}>
-          {/* O Layout agora envolve todas as telas após o login */}
           <Route element={<Layout />}>
-            
-            {/* Telas de configuração que não exigem evento selecionado */}
+            {/* Rotas sem evento selecionado */}
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/update-data" element={<DataUpdatePage />} />
             <Route path="/admin" element={<AdminPage />} />
-
-            {/* GRUPO DE ROTAS QUE EXIGEM LOGIN E SELEÇÃO DE EVENTO */}
+            {/* Rotas com evento selecionado */}
             <Route element={<EventSelectedRoute />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/cloud-sync" element={<CloudSyncPage />} />
@@ -71,11 +105,10 @@ export default function App() {
               <Route path="/export-data" element={<ExportDataPage />} />
               <Route path="/local-confirmation" element={<LocalConfirmationPage />} />
             </Route>
-
           </Route>
         </Route>
         
-        {/* Rota para qualquer outro caminho não encontrado */}
+        {/* Rota fallback */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>

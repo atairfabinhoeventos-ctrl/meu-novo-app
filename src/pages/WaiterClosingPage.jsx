@@ -1,7 +1,9 @@
+// src/pages/WaiterClosingPage.jsx (REMOVIDO O SYNC IMEDIATO)
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveWaiterClosing } from '../services/apiService';
-import { attemptBackgroundSync } from '../services/syncService';
+// 1. REMOVIDO attemptBackgroundSync (deixada só a de funcionário)
+import { attemptBackgroundSyncNewPersonnel } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -162,6 +164,10 @@ function WaiterClosingPage() {
         localStorage.setItem('master_waiters', JSON.stringify(currentWaiters));
         setWaiters(currentWaiters);
         handleSelectWaiter(newWaiter);
+        
+        // 2. CHAMAR A SINCRONIZAÇÃO DE NOVO FUNCIONÁRIO (ISSO ESTÁ MANTIDO)
+        attemptBackgroundSyncNewPersonnel(newWaiter);
+
         setRegisterModalVisible(false);
         setNewWaiterName('');
         setAlertMessage(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
@@ -203,7 +209,12 @@ function WaiterClosingPage() {
             const savedData = response.data;
             setDataToConfirm(savedData);
             setModalState('success');
-            attemptBackgroundSync(savedData);
+            
+            // 2. LINHA REMOVIDA:
+            // attemptBackgroundSync(savedData); 
+            // O salvamento local em apiService.js já dispara o evento
+            // e o poller em App.jsx cuidará do upload.
+
         } catch (error) {
             setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
             setModalVisible(false);

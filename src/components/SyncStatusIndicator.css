@@ -1,0 +1,90 @@
+/* src/components/SyncStatusIndicator.css (ATUALIZADO para layout horizontal) */
+/* Este CSS é feito para combinar com Header.css */
+
+.sync-status-indicator-wrapper {
+  display: flex;
+  /* --- MODIFICADO --- */
+  flex-direction: row; /* Coloca os indicadores lado a lado */
+  gap: 15px;           /* Espaço ENTRE os dois indicadores */
+  /* align-items: flex-start; REMOVIDO */
+  /* margin-top: 5px; REMOVIDO */
+  /* --- FIM DA MODIFICAÇÃO --- */
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  font-size: 13px; 
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 7px;
+}
+
+/* Animação de pulsação (reutilizável) */
+.pulse-animation {
+  animation: pulse 2s infinite;
+}
+
+/* --- CORES (sem alterações) --- */
+
+/* Verde: 'live' (upload) e 'synced' (download) */
+.status-dot.status-live {
+  background-color: #28a745;
+  box-shadow: 0 0 4px #28a745;
+}
+span.status-live {
+  color: #28a745;
+  font-weight: 600;
+}
+
+/* Amarelo (Aguardando): 'pending' (upload) */
+.status-dot.status-pending {
+  background-color: #ffc107;
+  box-shadow: 0 0 6px #ffc107;
+}
+span.status-pending {
+  color: #ffc107;
+  font-weight: 600;
+}
+
+/* Amarelo (Baixando): 'syncing' (download) - Texto diferente */
+.status-dot.status-syncing {
+  background-color: #ffc107;
+  box-shadow: 0 0 6px #ffc107;
+}
+span.status-syncing {
+  color: #ffc107;
+  font-weight: 600;
+}
+
+/* Vermelho: 'offline' (download) */
+.status-dot.status-offline {
+  background-color: #dc3545;
+  box-shadow: 0 0 5px #dc3545;
+}
+span.status-offline {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+
+/* Animação de pulsação (para 'pending' e 'syncing') (sem alterações) */
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 7px rgba(255, 193, 7, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+  }
+}

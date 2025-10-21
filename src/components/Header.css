@@ -1,12 +1,14 @@
+/* src/components/Header.css (ATUALIZADO para sync abaixo do user/event) */
+
 .app-header {
   padding: 0 30px;
-  background-color: #0D1B2A;
+  background-color: #0D1B2A; /* */
   color: white;
   display: flex;
   justify-content: space-between;
   align-items: center;
   box-sizing: border-box;
-  height: 80px; /* REDUZIDO: Altura do cabeçalho */
+  height: 80px; 
 }
 
 .header-left, .header-right {
@@ -14,14 +16,26 @@
 }
 
 .header-left {
-  text-align: left;
+  /* --- MODIFICADO para alinhar verticalmente --- */
+  display: flex;             /* Ativa Flexbox */
+  flex-direction: column;    /* Empilha os blocos (user/event e sync) */
+  justify-content: center;   /* Centraliza verticalmente no header */
+  align-items: flex-start; /* Alinha os blocos à esquerda */
+  /* gap: 20px; REMOVIDO - O gap agora é controlado pelo margin-top do sync */
+  /* --- FIM DA MODIFICAÇÃO --- */
+}
+
+/* Container para Usuário e Evento (sem alterações) */
+.user-event-details {
+  display: flex;
+  flex-direction: column; 
 }
 
 .header-right {
   text-align: right;
 }
 
-/* Área clicável do logo */
+/* Área clicável do logo (sem alterações) */
 .header-logo-link {
   display: flex;
   align-items: center;
@@ -35,13 +49,14 @@
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Imagem do logo */
+/* Imagem do logo (sem alterações) */
 .header-logo-img {
-  height: 130px; /* REDUZIDO: Tamanho da logo */
+  height: 130px; 
   width: auto;
   cursor: pointer;
 }
 
+/* Botão Logout (sem alterações) */
 .logout-button {
   background-color: #dc3545;
   color: white;
@@ -52,7 +67,14 @@
   font-weight: bold;
 }
 
+/* Info User/Event (sem alterações) */
 .user-info {
-  margin: 2px 0;
-  font-size: 14px;
+  margin: 1px 0; /* Reduzido para ficar mais junto */
+  font-size: 14px; /* */
+}
+
+/* Adiciona um espaço acima do bloco de indicadores */
+/* (A classe .sync-status-indicator-wrapper vem do SyncStatusIndicator.css) */
+.sync-status-indicator-wrapper {
+  margin-top: 6px; 
 }

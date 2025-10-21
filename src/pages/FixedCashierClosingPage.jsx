@@ -1,10 +1,11 @@
-// src/pages/FixedCashierClosingPage.jsx (VERSÃO COM DIFERENÇA CENTRALIZADA NO CAIXA 1)
+// src/pages/FixedCashierClosingPage.jsx (REMOVIDO O SYNC IMEDIATO DO FECHAMENTO)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveFixedCashierClosing } from '../services/apiService';
-import { attemptBackgroundSync } from '../services/syncService';
-import { formatCurrencyInput, formatCurrencyResult } from '../utils/formatters';
+// 1. REMOVIDO attemptBackgroundSync (deixada só a de funcionário)
+import { attemptBackgroundSyncNewPersonnel } from '../services/syncService';
+import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import '../App.css';
 import './FixedCashierClosingPage.css';
@@ -19,15 +20,21 @@ function useDebounce(value, delay) {
 }
 
 // --- COMPONENTE INTERNO PARA CADA CAIXA ---
-// (Sem alterações aqui, continua sem o campo de dinheiro físico)
+// (Modificado para incluir cadastro de funcionário)
 const CaixaFormItem = ({ 
     item, index, handleInputChange, handleSelectCashier, personnelList, 
     handleKeyDown, formRefs, isEditing, onRemoveCaixa, showRemoveButton,
-    valorTroco, setValorTroco 
+    valorTroco, setValorTroco,
+    // Props do pai para cadastro de funcionário
+    addNewPersonnel, setAlertMessage 
 }) => {
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
+
+    const [showRegisterButton, setShowRegisterButton] = useState(false);
+    const [registerModalVisible, setRegisterModalVisible] = useState(false);
+    const [newCashierName, setNewCashierName] = useState('');
 
     useEffect(() => {
         if (isEditing && item.name) {
@@ -48,8 +55,18 @@ const CaixaFormItem = ({
                 else { return personName.includes(query); }
             });
             setFilteredPersonnel(results);
+            
+            const cleanQueryCpf = query.replace(/\D/g, '');
+            const isPotentialCpf = /^\d{11}$/.test(cleanQueryCpf);
+            if (isPotentialCpf && results.length === 0) {
+                setShowRegisterButton(true);
+            } else {
+                setShowRegisterButton(false);
+            }
+
         } else {
             setFilteredPersonnel([]);
+            setShowRegisterButton(false);
         }
     }, [searchInput, personnelList, selectedCashier]);
 
@@ -71,6 +88,23 @@ const CaixaFormItem = ({
         const digitsOnly = String(value).replace(/\D/g, '');
         handleInputChange(item.id, field, digitsOnly);
     };
+
+    const handleRegisterNewCashier = () => {
+        const cleanCpf = searchInput.replace(/\D/g, '');
+        if (!newCashierName.trim()) { 
+            setAlertMessage('Por favor, insira o nome do novo funcionário.'); 
+            return; 
+        }
+        const newCashier = { cpf: formatCpf(cleanCpf), name: newCashierName.trim() };
+        
+        addNewPersonnel(newCashier); // Chama a função do pai para atualizar o localStorage e o state
+        onSelect(newCashier); // Seleciona o novo caixa (função existente)
+
+        setRegisterModalVisible(false);
+        setNewCashierName('');
+        setAlertMessage(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
+    };
+
 
     return (
         <div className="caixa-item-container">
@@ -126,6 +160,16 @@ const CaixaFormItem = ({
                             {filteredPersonnel.map(p => <div key={p.cpf} className="suggestion-item" onClick={() => onSelect(p)}>{p.name} - {p.cpf}</div>)}
                         </div>
                     )}
+                    {showRegisterButton && (
+                        <button 
+                            type="button"
+                            className="login-button" 
+                            style={{marginTop: '10px', backgroundColor: '#5bc0de', width: '100%'}} 
+                            onClick={() => setRegisterModalVisible(true)}
+                        >
+                            CPF não encontrado. Cadastrar novo funcionário?
+                        </button>
+                    )}
                 </div>
                 <div className="input-group">
                     <label>Nº da Máquina</label>
@@ -156,6 +200,31 @@ const CaixaFormItem = ({
                 </div>
                 {item.temEstorno && <div className="input-group" style={{marginBottom: 0}}><label>Valor do Estorno</label><input ref={formRefs.current[`valorEstorno_${item.id}`]} onKeyDown={(e) => handleKeyDown(e, `addCaixaButton`)} value={formatCurrencyInput(item.valorEstorno)} onChange={(e) => cleanAndSet('valorEstorno', e.target.value)} /></div>}
             </div>
+
+            {registerModalVisible && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <h2>Cadastrar Novo Funcionário</h2>
+                        <div className="input-group">
+                            <label>CPF</label>
+                            <input type="text" value={formatCpf(searchInput)} readOnly />
+                        </div>
+                        <div className="input-group">
+                            <label>Nome do Funcionário</label>
+                            <input 
+                                type="text" 
+                                value={newCashierName} 
+                                onChange={(e) => setNewCashierName(e.target.value)} 
+                                placeholder="Digite o nome completo" 
+                            />
+                        </div>
+                        <div className="modal-buttons">
+                            <button type="button" className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button>
+                            <button type="button" className="login-button" onClick={handleRegisterNewCashier}>Salvar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -225,7 +294,17 @@ function FixedCashierClosingPage() {
         setPersonnelList(localPersonnel);
     }, []);
 
-    // --- LÓGICA DE CÁLCULO TOTAL (sem alteração) ---
+    // Função que cadastra novo funcionário e CHAMA O SYNC (MANTIDO)
+    const addNewPersonnel = (newPersonnel) => {
+        const updatedList = [...personnelList, newPersonnel];
+        localStorage.setItem('master_waiters', JSON.stringify(updatedList));
+        setPersonnelList(updatedList);
+        
+        // CHAMA A SINCRONIZAÇÃO DE NOVO FUNCIONÁRIO
+        attemptBackgroundSyncNewPersonnel(newPersonnel);
+    };
+
+    // --- LÓGICA DE CÁLCULO TOTAL ---
     useEffect(() => {
         const numValorTrocoGrupo = parseCurrency(debouncedValorTroco); 
         const numTotalDinheiroFisico = parseCurrency(debouncedTotalDinheiroFisico); 
@@ -282,7 +361,7 @@ function FixedCashierClosingPage() {
         setModalVisible(true);
     };
 
-    // --- LÓGICA DE SALVAMENTO ATUALIZADA (CENTRALIZADA NO CAIXA 1) ---
+    // --- LÓGICA DE SALVAMENTO (REMOVIDO O SYNC IMEDIATO) ---
     const handleFinalSave = async () => {
         setIsSaving(true);
         try {
@@ -315,7 +394,6 @@ function FixedCashierClosingPage() {
                     dinheiroFisicoParaSalvar = Math.round(valor * 100) / 100;
                 } else {
                     // É o Caixa 2, 3, etc.: O dinheiro físico dele é EXATAMENTE o seu "acerto"
-                    // Isso garante que a diferença individual deles seja ZERO
                     dinheiroFisicoParaSalvar = Math.round(caixa.acertoIndividual * 100) / 100;
                 }
 
@@ -330,7 +408,7 @@ function FixedCashierClosingPage() {
                     debito: parseCurrency(caixa.debito),
                     pix: parseCurrency(caixa.pix),
                     cashless: parseCurrency(caixa.cashless),
-                    dinheiroFisico: dinheiroFisicoParaSalvar, // Salva o valor calculado
+                    dinheiroFisico: dinheiroFisicoParaSalvar,
                 };
             });
             
@@ -338,8 +416,8 @@ function FixedCashierClosingPage() {
                 type: 'fixed_cashier',
                 eventName, operatorName,
                 valorTroco: parseCurrency(valorTroco), 
-                diferencaCaixa: finalDiferenca, // Salva a diferença TOTAL do grupo
-                caixas: caixasParaSalvar, // Salva os caixas com a diferença centralizada no primeiro
+                diferencaCaixa: finalDiferenca, 
+                caixas: caixasParaSalvar, 
                 protocol: protocol,
                 timestamp: closingToEdit?.timestamp
             };
@@ -350,8 +428,10 @@ function FixedCashierClosingPage() {
             setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
             setTimeout(() => navigate('/closing-history'), 2000);
 
-            // O syncService receberá os dados já formatados (Caixa 1 com a diferença)
-            attemptBackgroundSync(savedData);
+            // 2. LINHA REMOVIDA:
+            // attemptBackgroundSync(savedData);
+            // O salvamento local em apiService.js já dispara o evento
+            // e o poller em App.jsx cuidará do upload.
 
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
@@ -413,6 +493,8 @@ function FixedCashierClosingPage() {
                             handleInputChange={handleInputChange} 
                             handleSelectCashier={handleSelectCashier} 
                             personnelList={personnelList}
+                            addNewPersonnel={addNewPersonnel}
+                            setAlertMessage={setAlertMessage}
                             handleKeyDown={handleKeyDown}
                             formRefs={formRefs}
                             isEditing={!!closingToEdit}
@@ -428,7 +510,6 @@ function FixedCashierClosingPage() {
                 <div className="footer-actions">
                      <button ref={formRefs.current.addCaixaButton} onKeyDown={(e) => handleKeyDown(e, 'totalDinheiroFisico')} className="add-button" onClick={handleAddCaixa} disabled={!!closingToEdit}>Adicionar Novo Caixa</button>
                     
-                     {/* --- CAMPO TOTAL DE DINHEIRO (sem alteração) --- */}
                     <div className="results-container" style={{borderTop: '2px solid #007bff', paddingTop: '20px'}}>
                          <div className="input-group" style={{maxWidth: '300px', margin: '0 auto 20px auto'}}>
                             <label style={{fontSize: '1.1rem', fontWeight: 'bold'}}>Total de Dinheiro Físico Contado (Grupo)</label>

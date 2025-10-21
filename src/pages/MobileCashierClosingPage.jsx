@@ -1,7 +1,9 @@
+// src/pages/MobileCashierClosingPage.jsx (REMOVIDO O SYNC IMEDIATO)
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
-import { attemptBackgroundSync } from '../services/syncService'; // 1. IMPORTA O SERVIÇO DE SYNC
+// 1. REMOVIDO attemptBackgroundSync (deixada só a de funcionário)
+import { attemptBackgroundSyncNewPersonnel } from '../services/syncService'; 
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -152,6 +154,10 @@ function MobileCashierClosingPage() {
         localStorage.setItem('master_waiters', JSON.stringify(currentPersonnel));
         setPersonnelList(currentPersonnel);
         handleSelectCashier(newCashier);
+        
+        // 2. CHAMAR A SINCRONIZAÇÃO DE NOVO FUNCIONÁRIO (ISSO ESTÁ MANTIDO)
+        attemptBackgroundSyncNewPersonnel(newCashier);
+
         setRegisterModalVisible(false);
         setNewCashierName('');
         setAlertMessage(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
@@ -201,8 +207,10 @@ function MobileCashierClosingPage() {
             setAlertMessage(`Fechamento salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
             setTimeout(() => navigate('/closing-history'), 2000);
 
-            // 3. Inicia a tentativa de envio em segundo plano
-            attemptBackgroundSync(savedData);
+            // 3. LINHA REMOVIDA:
+            // attemptBackgroundSync(savedData);
+            // O salvamento local em apiService.js já dispara o evento
+            // e o poller em App.jsx cuidará do upload.
 
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
