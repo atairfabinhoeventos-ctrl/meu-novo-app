@@ -390,7 +390,15 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
+// ... (Resto das rotas: /api/online-history, /api/export-online-data, /api/reconcile-yuzer) ...
+// ... (Inicialização condicional) ...
+module.exports = app;
 
+if (!isRunningInElectron) {
+  // ... (código listen) ...
+} else {
+  console.log('Servidor Express pronto para ser iniciado pelo Electron.');
+}
 
 // --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => { //
