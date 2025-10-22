@@ -1,80 +1,101 @@
-/* src/components/Header.css (ATUALIZADO para sync abaixo do user/event) */
+/* src/components/Header.css (ATUALIZADO com botão Trocar Evento e layout direito) */
 
 .app-header {
-  padding: 0 30px;
-  background-color: #0D1B2A; /* */
-  color: white;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-sizing: border-box;
-  height: 80px; 
+  padding: 0 30px; /* */
+  background-color: #0D1B2A; /* */ /* */
+  color: white; /* */
+  display: flex; /* */
+  justify-content: space-between; /* */
+  align-items: center; /* */
+  box-sizing: border-box; /* */
+  height: 80px; /* */
 }
 
 .header-left, .header-right {
-  flex: 1;
+  flex: 1; /* */
 }
 
 .header-left {
-  /* --- MODIFICADO para alinhar verticalmente --- */
-  display: flex;             /* Ativa Flexbox */
-  flex-direction: column;    /* Empilha os blocos (user/event e sync) */
-  justify-content: center;   /* Centraliza verticalmente no header */
-  align-items: flex-start; /* Alinha os blocos à esquerda */
-  /* gap: 20px; REMOVIDO - O gap agora é controlado pelo margin-top do sync */
-  /* --- FIM DA MODIFICAÇÃO --- */
+  display: flex;             /* Ativa Flexbox */ /* */
+  flex-direction: column;    /* Empilha os blocos (user/event e sync) */ /* */
+  justify-content: center;   /* Centraliza verticalmente no header */ /* */
+  align-items: flex-start; /* Alinha os blocos à esquerda */ /* */
 }
 
 /* Container para Usuário e Evento (sem alterações) */
 .user-event-details {
-  display: flex;
-  flex-direction: column; 
+  display: flex; /* */
+  flex-direction: column; /* */
 }
 
+/* --- MODIFICAÇÃO: Ajusta o container da direita para espaçar os botões --- */
 .header-right {
-  text-align: right;
+  display: flex; /* Ativa flexbox */ /* */
+  justify-content: flex-end; /* Alinha botões à direita */ /* */
+  align-items: center; /* Centraliza verticalmente */ /* */
+  gap: 15px; /* Espaço entre os botões */ /* */
+  text-align: right; /* Mantém o fallback */ /* */
 }
+/* --- FIM DA MODIFICAÇÃO --- */
 
 /* Área clicável do logo (sem alterações) */
 .header-logo-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  transition: background-color 0.2s ease;
-  text-decoration: none;
+  display: flex; /* */
+  align-items: center; /* */
+  justify-content: center; /* */
+  height: 100%; /* */
+  transition: background-color 0.2s ease; /* */
+  text-decoration: none; /* */
 }
 
 .header-logo-link:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.05); /* */
 }
 
 /* Imagem do logo (sem alterações) */
 .header-logo-img {
-  height: 130px; 
-  width: auto;
-  cursor: pointer;
+  height: 130px; /* */
+  width: auto; /* */
+  cursor: pointer; /* */
 }
 
-/* Botão Logout (sem alterações) */
+/* --- NOVO ESTILO PARA O BOTÃO TROCAR EVENTO --- */
+.switch-event-button {
+  background-color: #ffc107; /* Amarelo/Laranja similar ao botão de sync pendente */ /* */
+  color: #333; /* Texto escuro para contraste */ /* */
+  border: none; /* */
+  padding: 8px 15px; /* Mesmo padding do logout */ /* */
+  border-radius: 5px; /* */
+  cursor: pointer; /* */
+  font-weight: bold; /* */
+  transition: background-color 0.2s ease; /* */
+  white-space: nowrap; /* Evita quebra de linha */ /* */
+}
+
+.switch-event-button:hover {
+  background-color: #e0a800; /* Tom mais escuro no hover */ /* */
+}
+/* --- FIM DO NOVO ESTILO --- */
+
+/* Botão Logout */
 .logout-button {
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  padding: 8px 15px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-weight: bold;
+  background-color: #dc3545; /* */
+  color: white; /* */
+  border: none; /* */
+  padding: 8px 15px; /* */
+  border-radius: 5px; /* */
+  cursor: pointer; /* */
+  font-weight: bold; /* */
+  white-space: nowrap; /* Evita quebra de linha */ /* */
 }
 
 /* Info User/Event (sem alterações) */
 .user-info {
-  margin: 1px 0; /* Reduzido para ficar mais junto */
-  font-size: 14px; /* */
+  margin: 1px 0; /* Reduzido para ficar mais junto */ /* */
+  font-size: 14px; /* */ /* */
 }
 
-/* Adiciona um espaço acima do bloco de indicadores */
-/* (A classe .sync-status-indicator-wrapper vem do SyncStatusIndicator.css) */
+/* Adiciona um espaço acima do bloco de indicadores (sem alterações) */
 .sync-status-indicator-wrapper {
-  margin-top: 6px; 
+  margin-top: 6px; /* */
 }
