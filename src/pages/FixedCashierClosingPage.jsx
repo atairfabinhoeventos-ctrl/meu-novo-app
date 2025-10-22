@@ -1,4 +1,4 @@
-// src/pages/FixedCashierClosingPage.jsx (CORRIGIDO - Dinheiro Físico >= 0, Salva/Carrega Total Grupo, Inclui Troco no Dinheiro Físico Caixa 1)
+// src/pages/FixedCashierClosingPage.jsx (VERSÃO COMPLETA FINAL - Inclui todas as correções)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -127,7 +127,7 @@ const CaixaFormItem = ({
                                 type="checkbox"
                                 checked={valorTroco !== ''}
                                 onChange={(e) => setValorTroco(e.target.checked ? '0' : '')}
-                                disabled={isEditing} // Mantém desabilitado na edição por segurança, mas pode ser removido se necessário
+                                disabled={isEditing} // Mantém desabilitado na edição por segurança
                             />
                             <span className="slider round"></span> {/* */}
                         </label>
@@ -373,14 +373,14 @@ function FixedCashierClosingPage() { //
         setModalVisible(true); //
     };
 
-    // --- LÓGICA DE SALVAMENTO (AJUSTADA PARA INCLUIR TROCO NO DINHEIRO FÍSICO DO CAIXA 1) ---
+    // --- LÓGICA DE SALVAMENTO (REVISADA CONFORME NOVAS DEFINIÇÕES) ---
     const handleFinalSave = async () => { //
         setIsSaving(true); //
         try {
             const eventName = localStorage.getItem('activeEvent'); //
             const operatorName = localStorage.getItem('loggedInUserName'); //
 
-            // 1. Calcula o 'acertoIndividual' (valor esperado *sem* troco) para cada caixa (sem alterações)
+            // 1. Calcula acerto esperado SEM troco para cada caixa
             const caixasComAcerto = caixasDoGrupo.map(caixa => { //
                 const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda); //
                 const numValorEstorno = parseCurrency(caixa.valorEstorno); //
@@ -388,41 +388,48 @@ function FixedCashierClosingPage() { //
                 const numDebito = parseCurrency(caixa.debito); //
                 const numPix = parseCurrency(caixa.pix); //
                 const numCashless = parseCurrency(caixa.cashless); //
-                // Acerto é o valor que o caixa DEVERIA ter (sem contar o troco inicial)
-                const acertoIndividual = (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0)); //
-                return { ...caixa, acertoIndividual }; //
+                // Acerto esperado SEM troco (baseado apenas nas vendas e pagamentos daquele caixa)
+                const acertoEsperadoSemTroco = (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0)); //
+                return { ...caixa, acertoEsperadoSemTroco }; //
             });
 
-            // 2. finalDiferenca (calculada no useEffect) continua a mesma: (Dinheiro Total Contado - (Acerto Total + Troco Inicial))
+            // 2. Calcula a Diferença GERAL do GRUPO (já calculada corretamente no useEffect 'finalDiferenca')
+            // finalDiferenca = (Dinheiro Total Contado) - (Soma de todos acertoEsperadoSemTroco + Troco Inicial)
 
-            // 3. Mapeia os caixas para salvar (COM A MODIFICAÇÃO PARA CAIXA 1)
+            // 3. Mapeia os caixas para o formato final de salvamento, distribuindo a diferença
             const caixasParaSalvar = caixasComAcerto.map((caixa, index) => { //
 
-                let dinheiroFisicoCalculado; //
+                // --- INÍCIO DA LÓGICA DE DISTRIBUIÇÃO ---
+                let dinheiroFisicoParaSalvar; //
+                let diferencaParaSalvar; //
+                const acertoEsperadoSemTroco_Num = Math.round(caixa.acertoEsperadoSemTroco * 100) / 100; //
 
-                // --- INÍCIO DA MODIFICAÇÃO ---
                 if (index === 0) { //
-                    // É o Caixa 1: O dinheiro físico dele é o seu "acerto" + a DIFERENÇA TOTAL do grupo + O TROCO INICIAL
-                    const valorComDiferencaETroco = caixa.acertoIndividual + finalDiferenca + parseCurrency(valorTroco); // Adiciona o troco aqui //
-                    dinheiroFisicoCalculado = Math.round(valorComDiferencaETroco * 100) / 100; //
-                    console.log(`[FixedCashierSave][Caixa 1] Acerto: ${caixa.acertoIndividual}, Dif Grupo: ${finalDiferenca}, Troco: ${parseCurrency(valorTroco)}, Dinheiro Calc: ${dinheiroFisicoCalculado}`); //
+                    // CAIXA 1: Recebe o Troco Inicial e a Diferença do Grupo
+                    const acertoEsperadoComTroco_Caixa1 = acertoEsperadoSemTroco_Num + parseCurrency(valorTroco); //
+                    // O dinheiro físico dele é o esperado (com troco) + a diferença do grupo
+                    const dinheiroFisicoCalculado = acertoEsperadoComTroco_Caixa1 + finalDiferenca; //
+                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); // Garante >= 0 //
+                    // A diferença dele é a diferença GERAL do grupo
+                    diferencaParaSalvar = Math.round(finalDiferenca * 100) / 100; //
+
+                    console.log(`[FixedCashierSave][Caixa 1] Acerto S/ Troco: ${acertoEsperadoSemTroco_Num}, Troco: ${parseCurrency(valorTroco)}, Acerto C/ Troco: ${acertoEsperadoComTroco_Caixa1}, Dif Grupo: ${finalDiferenca}, Dinheiro Calc: ${dinheiroFisicoCalculado}, Dinheiro Salvo: ${dinheiroFisicoParaSalvar}, Diferença Salva: ${diferencaParaSalvar}`); //
+
                 } else {
-                // --- FIM DA MODIFICAÇÃO ---
-                    // É o Caixa 2, 3, etc.: O dinheiro físico dele é EXATAMENTE o seu "acerto" esperado (sem troco)
-                    dinheiroFisicoCalculado = Math.round(caixa.acertoIndividual * 100) / 100; //
-                    console.log(`[FixedCashierSave][Caixa ${index + 1}] Acerto: ${caixa.acertoIndividual}, Dinheiro Calc: ${dinheiroFisicoCalculado}`); //
+                    // DEMAIS CAIXAS: Não recebem troco inicial nem diferença do grupo (idealmente)
+                    // O dinheiro físico deles é apenas o acerto esperado (sem troco)
+                    const dinheiroFisicoCalculado = acertoEsperadoSemTroco_Num; //
+                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); // Garante >= 0 //
+                    // A diferença deles é o dinheiro salvo menos o acerto esperado (deve ser 0, a menos que Math.max tenha atuado)
+                    diferencaParaSalvar = dinheiroFisicoParaSalvar - acertoEsperadoSemTroco_Num; //
+                    diferencaParaSalvar = Math.round(diferencaParaSalvar * 100) / 100; // Arredonda //
+
+                     console.log(`[FixedCashierSave][Caixa ${index + 1}] Acerto S/ Troco: ${acertoEsperadoSemTroco_Num}, Dinheiro Calc: ${dinheiroFisicoCalculado}, Dinheiro Salvo: ${dinheiroFisicoParaSalvar}, Diferença Salva: ${diferencaParaSalvar}`); //
                 }
-
-                // Garante que o valor salvo na coluna "Dinheiro Físico" nunca seja negativo (sem alterações)
-                const dinheiroFisicoParaSalvar = Math.max(0, dinheiroFisicoCalculado); //
-
-                // Recalcula a diferença *individual* com base no dinheiro físico (agora >= 0) vs o acerto (sem troco) (sem alterações)
-                const diferencaIndividual = dinheiroFisicoParaSalvar - (Math.round(caixa.acertoIndividual * 100) / 100); //
-                console.log(`[FixedCashierSave][Caixa ${index + 1}] Dinheiro Salvar: ${dinheiroFisicoParaSalvar}, Dif Individual: ${diferencaIndividual}`); //
-
+                // --- FIM DA LÓGICA DE DISTRIBUIÇÃO ---
 
                 return { //
-                    protocol: caixa.protocol, //
+                    protocol: caixa.protocol, // Preserva protocolo individual na edição //
                     cpf: caixa.cpf, //
                     cashierName: caixa.name, //
                     numeroMaquina: caixa.numeroMaquina, //
@@ -433,25 +440,26 @@ function FixedCashierClosingPage() { //
                     debito: parseCurrency(caixa.debito), //
                     pix: parseCurrency(caixa.pix), //
                     cashless: parseCurrency(caixa.cashless), //
-                    dinheiroFisico: dinheiroFisicoParaSalvar, // Salva o valor ajustado (>= 0) //
-                    valorAcerto: Math.round(caixa.acertoIndividual * 100) / 100, // Salva o valor esperado (sem troco) //
-                    diferenca: Math.round(diferencaIndividual * 100) / 100, // Salva a diferença individual recalculada //
+                    dinheiroFisico: dinheiroFisicoParaSalvar, // Valor distribuído e >= 0 //
+                    // Mantém 'valorAcerto' como o esperado SEM troco para consistência individual
+                    valorAcerto: acertoEsperadoSemTroco_Num, //
+                    diferenca: diferencaParaSalvar, // Diferença calculada conforme a distribuição //
                 };
             });
 
-            // Objeto principal a ser salvo (inclui totalDinheiroFisicoGrupo)
+            // Objeto principal a ser salvo
             const closingData = { //
                 type: 'fixed_cashier', //
                 eventName, operatorName, //
-                valorTroco: parseCurrency(valorTroco), // Troco agora pode ter sido editado //
-                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), // O total digitado //
-                diferencaCaixa: finalDiferenca, // A diferença calculada do grupo //
-                caixas: caixasParaSalvar, //
+                valorTroco: parseCurrency(valorTroco), // Troco inicial do grupo //
+                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), // Total contado digitado //
+                diferencaCaixa: finalDiferenca, // Diferença GERAL do grupo //
+                caixas: caixasParaSalvar, // Array com caixas individuais e valores/diferenças distribuídos //
                 protocol: protocol, //
                 timestamp: closingToEdit?.timestamp //
             };
 
-            console.log("[FixedCashierSave] Enviando para saveFixedCashierClosing:", JSON.stringify(closingData)); //
+            console.log("[FixedCashierSave] Objeto final enviado para saveFixedCashierClosing:", JSON.stringify(closingData, null, 2)); //
 
             const response = await saveFixedCashierClosing(closingData); //
             const savedData = response.data; //
