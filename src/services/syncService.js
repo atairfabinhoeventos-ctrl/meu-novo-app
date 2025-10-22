@@ -1,4 +1,4 @@
-// src/services/syncService.js (VERSÃO COMPLETA COM LIMPEZA ROBUSTA E PROTOCOLO CURTO/INDEXADO)
+// src/services/syncService.js (VERSÃO CORRIGIDA - ROTA /sync/master-data CORRIGIDA)
 import axios from 'axios';
 import { API_URL } from '../config';
 
@@ -34,7 +34,12 @@ export const attemptBackgroundSyncNewPersonnel = async (personnelObject) => {
 export const backgroundDownloadMasterData = async () => {
   // O try/catch foi removido daqui e movido para o SyncContext
   console.log('[BackgroundSync][Download] Iniciando busca de dados mestre...'); //
+  
+  // --- INÍCIO DA CORREÇÃO (ROTA) ---
+  // A rota correta no seu server.js usa /api/sync/master-data (com barra)
   const response = await axios.get(`${API_URL}/api/sync/master-data`); //
+  // --- FIM DA CORREÇÃO (ROTA) ---
+
   const { waiters: onlinePersonnel, events: onlineEvents } = response.data; //
   console.log(`[BackgroundSync][Download] Recebidos ${onlinePersonnel?.length || 0} funcionários e ${onlineEvents?.length || 0} eventos.`); //
 
@@ -110,17 +115,22 @@ export const retryPendingUploads = async () => {
       return;
   }
 
-  console.log(`[BackgroundUpload] Itens locais encontrados: ${allClosings.length}`); // <-- LOG 3
+  // --- INÍCIO DA MODIFICAÇÃO (PASSO 1.2) ---
+  // Filtra para pegar apenas os que não foram sincronizados
+  const unsyncedClosings = allClosings.filter(c => c.synced !== true);
 
-  if (allClosings.length === 0) {
-      console.log('[BackgroundUpload] Nada para enviar. Disparando localDataChanged para garantir status verde.'); // <-- LOG 4
+  console.log(`[BackgroundUpload] Itens locais encontrados: ${allClosings.length}. Itens NÃO SINCRONIZADOS: ${unsyncedClosings.length}`); // <-- LOG MODIFICADO
+
+  if (unsyncedClosings.length === 0) { // <-- Verifique unsyncedClosings
+      console.log('[BackgroundUpload] Nada para enviar. Disparando localDataChanged para garantir status verde.'); //
       window.dispatchEvent(new Event('localDataChanged')); //
       return;
   }
 
   // Agrupa todos os fechamentos pendentes por evento
-  const closingsByEvent = allClosings.reduce((acc, closing) => {
+  const closingsByEvent = unsyncedClosings.reduce((acc, closing) => { // <-- Use unsyncedClosings
       const eventName = closing.eventName; //
+  // --- FIM DA MODIFICAÇÃO (PASSO 1.2) ---
       if (!eventName) { // Ignora registros sem nome de evento
         console.warn('[BackgroundUpload] Registro ignorado por falta de eventName:', closing.protocol); //
         return acc;
@@ -177,37 +187,56 @@ export const retryPendingUploads = async () => {
       const response = await axios.post(`${API_URL}/api/cloud-sync`, payload); //
       console.log('[BackgroundUpload] Resposta da API:', response.data); // Log Sucesso
 
-      // --- LÓGICA DE LIMPEZA REFORÇADA ---
-      console.log('[BackgroundUpload] Processamento bem-sucedido. Limpando protocolos enviados do localStorage...'); //
+      // --- INÍCIO DA MODIFICAÇÃO (PASSO 1.3) - LÓGICA DE MARCAÇÃO (SUBSTITUI A DE LIMPEZA) ---
+      console.log('[BackgroundUpload] Processamento bem-sucedido. Marcando protocolos como synced no localStorage...'); //
 
       // Lê novamente o localStorage *ANTES* de modificar, caso algo tenha mudado
       let currentAllClosings;
       try {
         currentAllClosings = JSON.parse(localStorage.getItem('localClosings')) || []; //
       } catch (readError){
-        console.error('[BackgroundUpload] Erro ao reler localStorage antes de limpar:', readError); //
+        console.error('[BackgroundUpload] Erro ao reler localStorage antes de marcar:', readError); //
         // Tenta continuar com a versão anterior, mas avisa
         currentAllClosings = allClosings; //
       }
 
 
-      // Filtra para manter APENAS os registros cujo protocolo NÃO está no set 'protocolsBeingSent'
-      const remainingClosings = currentAllClosings.filter(closing => { //
-          if (closing.type === 'fixed_cashier' && Array.isArray(closing.caixas)) { //
-              // Para caixa fixo, verifica se *todos* os protocolos internos foram enviados
-              // Se algum protocolo interno NÃO estiver no set, mantém o registro principal
-              return closing.caixas.some(caixa => !protocolsBeingSent.has(caixa.protocol)); //
+      // LÓGICA DE MAPA (SUBSTITUI A LÓGICA DE FILTRO)
+      const updatedClosings = currentAllClosings.map(closing => {
+          // Se o item já estava synced, mantenha-o
+          if (closing.synced === true) {
+              return closing;
+          }
+
+          let itemWasSent = false;
+          
+          if (closing.type === 'fixed_cashier' && Array.isArray(closing.caixas)) {
+              // Se *algum* (some) sub-protocolo foi enviado, o objeto principal deve ser marcado
+              if (closing.caixas.some(caixa => protocolsBeingSent.has(caixa.protocol))) {
+                  itemWasSent = true;
+              }
           } else {
               // Para outros tipos, verifica o protocolo principal
-              return !protocolsBeingSent.has(closing.protocol); //
+              if (protocolsBeingSent.has(closing.protocol)) {
+                  itemWasSent = true;
+              }
           }
+
+          // Se este objeto foi sincronizado nesta rodada, retorna ele com a flag 'synced: true'
+          if (itemWasSent) {
+              return { ...closing, synced: true };
+          }
+          
+          // Senão, retorna o objeto como estava (provavelmente 'synced: false' ou undefined)
+          return closing;
       });
 
-      console.log(`[BackgroundUpload] Itens antes da limpeza: ${currentAllClosings.length}. Itens restantes após limpeza: ${remainingClosings.length}`); //
+      console.log(`[BackgroundUpload] Itens totais: ${updatedClosings.length}. Marcados como 'synced' nesta rodada.`); //
 
-      // Salva os dados restantes de volta no localStorage
-      localStorage.setItem('localClosings', JSON.stringify(remainingClosings)); //
+      // Salva os dados ATUALIZADOS de volta no localStorage
+      localStorage.setItem('localClosings', JSON.stringify(updatedClosings)); //
       console.log('[BackgroundUpload] localStorage atualizado com sucesso.'); //
+      // --- FIM DA MODIFICAÇÃO (PASSO 1.3) ---
 
       console.log('[BackgroundUpload] Disparando localDataChanged após sucesso...'); // <-- LOG 10
       window.dispatchEvent(new Event('localDataChanged')); // Dispara evento para atualizar indicador
@@ -225,8 +254,9 @@ export const retryPendingUploads = async () => {
  * Formata os dados de um fechamento de GARÇOM para o formato exato que a API espera.
  */
 const formatWaiterForApi = (c) => ({
-  // O protocolo já é [Prefix]-[5 Digits], ex: G8-ABCDE
-  timestamp: c.timestamp ? new Date(c.timestamp).toLocaleString('pt-BR') : '', // - Adicionado fallback
+  // --- MODIFICAÇÃO (PASSO 3.1) ---
+  timestamp: c.timestamp || new Date().toISOString(), // Envia ISO String
+  // --------------------------------
   protocol: c.protocol || '', // - Adicionado fallback
   cpf: c.cpf || '', // - Adicionado fallback
   waiterName: c.waiterName || '', // - Adicionado fallback
@@ -248,7 +278,9 @@ const formatWaiterForApi = (c) => ({
  * Modificado para usar o protocolo indexado já existente no Caixa Fixo.
  */
 const formatCashierForApi = (closing) => {
-    const baseTimestamp = closing.timestamp ? new Date(closing.timestamp).toLocaleString('pt-BR') : ''; //
+    // --- MODIFICAÇÃO (PASSO 3.1) ---
+    const baseTimestamp = closing.timestamp || new Date().toISOString(); // Envia ISO String
+    // --------------------------------
     const baseOperatorName = closing.operatorName || ''; //
 
     // --- CAIXA FIXO (GRUPO) ---

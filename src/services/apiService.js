@@ -1,4 +1,4 @@
-// src/services/apiService.js (VERSÃO COM PROTOCOLO CURTO E INDEXADO)
+// src/services/apiService.js (VERSÃO CORRIGIDA - Adiciona 'synced: false')
 import { v4 as uuidv4 } from 'uuid'; // Verifica se a importação está correta
 
 /**
@@ -57,7 +57,8 @@ const saveToLocalStorage = (closingData) => {
         const dataToSave = {
             ...closingData,
             protocol: baseProtocol, // O objeto principal usa o protocolo base
-            timestamp: closingData.timestamp || new Date().toISOString()
+            timestamp: closingData.timestamp || new Date().toISOString(),
+            synced: false // <-- MODIFICAÇÃO (PASSO 1.1)
         };
 
         // --- LÓGICA ESPECIAL PARA CAIXA FIXO ---

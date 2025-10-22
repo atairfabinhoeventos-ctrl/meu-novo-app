@@ -1,4 +1,4 @@
-/* src/pages/ClosingHistoryPage.css - VERSÃO FINAL COM CENTRALIZAÇÃO CORRIGIDA */
+/* src/pages/ClosingHistoryPage.css - VERSÃO MODIFICADA */
 
 /* NOVO: Garante que o container da página centralize seu conteúdo */
 .history-page-wrapper {
@@ -145,6 +145,8 @@
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 
+/* --- INÍCIO DA MODIFICAÇÃO (PASSO 1.4) --- */
+/* REGRA SUBSTITUÍDA (para incluir flex-wrap e gap) */
 .history-page-wrapper .card-header {
     display: flex;
     justify-content: space-between;
@@ -152,18 +154,43 @@
     margin-bottom: 15px;
     border-bottom: 1px solid #eee;
     padding-bottom: 10px;
+    flex-wrap: wrap; /* Permite quebra de linha */
+    gap: 5px; /* Espaçamento entre os itens */
 }
 
+/* NOVAS REGRAS ADICIONADAS */
 .history-page-wrapper .card-header .protocol {
+    order: 1; /* Protocolo primeiro */
     font-weight: 700;
     color: #1E63B8;
     font-size: 1.1em;
 }
 
 .history-page-wrapper .card-header .date {
+    order: 3; /* Data por último */
+    width: 100%; /* Força a data para a linha de baixo */
+    text-align: right;
     font-size: 0.85em;
     color: #777;
 }
+
+.history-page-wrapper .card-header .sync-status {
+    order: 2; /* Status no meio (canto superior direito) */
+    font-size: 0.8em;
+    font-weight: bold;
+    padding: 3px 6px;
+    border-radius: 4px;
+}
+.history-page-wrapper .card-header .sync-status.synced {
+    color: #28a745;
+    background-color: #e9f5ec;
+}
+.history-page-wrapper .card-header .sync-status.pending {
+    color: #e6a800; /* Laranja/Amarelo */
+    background-color: #fff8e1;
+}
+/* --- FIM DA MODIFICAÇÃO --- */
+
 
 .history-page-wrapper .card-body p {
     margin: 5px 0;

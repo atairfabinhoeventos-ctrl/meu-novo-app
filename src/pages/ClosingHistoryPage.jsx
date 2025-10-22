@@ -56,6 +56,7 @@ function ClosingHistoryPage() {
               timestamp: closing.timestamp,
               operatorName: closing.operatorName,
               diferenca: diferencaIndividual,
+              synced: closing.synced // Propaga o status de sync do objeto pai
             });
           });
         } else {
@@ -182,6 +183,25 @@ function ClosingHistoryPage() {
                         <div key={closing.protocol} className="history-card">
                            <div className="card-header">
                                 <span className="protocol">{closing.groupProtocol || closing.protocol}</span>
+
+                                {/* --- INÍCIO DA MODIFICAÇÃO (PASSO 1.4) --- */}
+                                {viewMode === 'local' ? (
+                                    closing.synced === true ? (
+                                        <span className="sync-status synced">
+                                            ✔ Sincronizado
+                                        </span>
+                                    ) : (
+                                        <span className="sync-status pending">
+                                            ... Aguardando Envio
+                                        </span>
+                                    )
+                                ) : (
+                                    <span className="sync-status synced">
+                                        ✔ Online
+                                    </span>
+                                )}
+                                {/* --- FIM DA MODIFICAÇÃO (PASSO 1.4) --- */}
+
                                 <span className="date">{new Date(closing.timestamp).toLocaleString('pt-BR')}</span>
                             </div>
                             <div className="card-body">

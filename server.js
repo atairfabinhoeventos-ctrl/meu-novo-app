@@ -1,4 +1,4 @@
-// server.js (VERSÃO FINAL COM parseSisfoCurrency CORRIGIDO e LOGS DETALHADOS)
+// server.js (VERSÃO CORRIGIDA - Mapeamento de Colunas e Leitura de Data)
 console.log("--- EXECUTANDO VERSÃO FINAL COM parseSisfoCurrency CORRIGIDO e LOGS DETALHADOS ---"); //
 
 const express = require('express'); //
@@ -214,8 +214,33 @@ app.post('/api/cloud-sync', async (req, res) => {
     // --- Processamento Garçons ---
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
-      const header = [ "Data", "Protocolo", "CPF", "Nome Garçom", /*...*/ "Operador"];
-      const rows = waiterData.map(c => [ c.timestamp, c.protocol, /*...*/ c.operatorName ]);
+
+      // --- INÍCIO DA MODIFICAÇÃO (PASSO 2.1) ---
+      // SUBSTITUA O 'header' E 'rows' ANTIGOS POR ESTES:
+      const header = [
+          "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina",
+          "Venda Total", "Crédito", "Débito", "Pix", "Cashless",
+          "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"
+      ];
+
+      const rows = waiterData.map(c => [
+          c.timestamp,
+          c.protocol,
+          c.cpf,
+          c.waiterName,
+          c.numeroMaquina,
+          c.valorTotal,
+          c.credito,
+          c.debito,
+          c.pix,
+          c.cashless,
+          c.valorEstorno,
+          c.comissaoTotal,
+          c.acerto,
+          c.operatorName
+      ]);
+      // --- FIM DA MODIFICAÇÃO (PASSO 2.1) ---
+
       const sheet = sheets.find(s => s.properties.title === sheetName);
 
       if (!sheet) {
@@ -299,8 +324,37 @@ app.post('/api/cloud-sync', async (req, res) => {
     // --- Processamento Caixas (COM CONFIRMAÇÃO PÓS-ESCRITA) ---
     if (cashierData && cashierData.length > 0) {
         const sheetName = `Caixas - ${eventName}`;
-        const header = [ "Protocolo", "Data", "Tipo", /*...*/ "Operador" ];
-        const rows = cashierData.map(c => [ c.protocol, c.timestamp, /*...*/ c.operatorName ]);
+        
+        // --- INÍCIO DA MODIFICAÇÃO (PASSO 2.2) ---
+        // SUBSTITUA O 'header' E 'rows' ANTIGOS POR ESTES:
+        const header = [
+            "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina",
+            "Venda Total", "Crédito", "Débito", "Pix", "Cashless",
+            "Troco", "Devolução/Estorno", "Dinheiro Físico",
+            "Valor Acerto", "Diferença", "Operador"
+        ];
+
+        const rows = cashierData.map(c => [
+            c.protocol,
+            c.timestamp,
+            c.type,
+            c.cpf,
+            c.cashierName,
+            c.numeroMaquina,
+            c.valorTotalVenda,
+            c.credito,
+            c.debito,
+            c.pix,
+            c.cashless,
+            c.valorTroco,
+            c.valorEstorno,
+            c.dinheiroFisico,
+            c.valorAcerto,
+            c.diferenca,
+            c.operatorName
+        ]);
+        // --- FIM DA MODIFICAÇÃO (PASSO 2.2) ---
+        
         const sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
            console.log(`[BACKEND][cloud-sync][Caixa] Criando nova aba ${sheetName}...`);
@@ -473,27 +527,37 @@ app.post('/api/online-history', async (req, res) => { //
                 allClosings.push(...data); //
             }
         }
-        // Formatação de data (ajustada para mais robustez)
+        
+        // --- INÍCIO DA MODIFICAÇÃO (PASSO 3.2) ---
+        // Substituído o bloco de formatação de data
         allClosings.forEach(closing => { //
             const dateString = closing.timestamp; //
             let finalDate = new Date(0); // Data padrão inválida
+            
             if (dateString && typeof dateString === 'string') { //
-                // Tenta formato "DD/MM/YYYY HH:MM:SS"
-                const matchBr = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s(\d{1,2}):(\d{1,2}):(\d{1,2})$/); //
-                if (matchBr) {
-                    const [, day, month, year, hour, minute, second] = matchBr;
-                    // Monta string ISO CUIDADOSAMENTE para evitar problemas de fuso horário local
-                    const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`; //
-                    const parsedDate = new Date(isoDateString); //
-                     if (!isNaN(parsedDate)) finalDate = parsedDate; //
+                
+                // Tenta parsear como ISO string PRIMEIRO (que é o novo padrão)
+                let parsedDate = new Date(dateString); //
+                
+                // Verifica se o parse ISO foi válido (datas válidas serão > 2000)
+                if (!isNaN(parsedDate) && parsedDate.getFullYear() > 2000) {
+                    finalDate = parsedDate;
                 } else {
-                    // Tenta outros formatos se o primeiro falhar (ex: ISO string)
-                    const parsedDate = new Date(dateString);
-                    if (!isNaN(parsedDate)) finalDate = parsedDate;
+                    // Tenta o formato legado "DD/MM/YYYY HH:MM:SS" (fallback)
+                    // Adicionada a vírgula opcional (,) na RegEx
+                    const matchBr = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s(\d{1,2}):(\d{1,2}):(\d{1,2})$/); //
+                    if (matchBr) {
+                        const [, day, month, year, hour, minute, second] = matchBr;
+                        const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`; //
+                        parsedDate = new Date(isoDateString); //
+                         if (!isNaN(parsedDate)) finalDate = parsedDate; //
+                    }
                 }
             }
             closing.timestamp = finalDate.toISOString(); // Converte para ISO string
         });
+        // --- FIM DA MODIFICAÇÃO (PASSO 3.2) ---
+
         if (allClosings.length === 0) { //
             return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` }); //
         }
