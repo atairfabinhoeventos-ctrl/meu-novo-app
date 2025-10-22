@@ -45,7 +45,7 @@ export default function App() { //
 
   useEffect(() => {
     // --- LÓGICA DE TIMER UNIFICADA E CORRIGIDA ---
-    const SYNC_INTERVAL_MS = 60000; // 1 minuto //
+    const SYNC_INTERVAL_MS = 300000; // 5 minutos (5 * 60 * 1000)
     let intervalId = null;
 
     // Função que executa ambas as tarefas de sincronização

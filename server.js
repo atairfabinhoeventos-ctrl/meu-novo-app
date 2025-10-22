@@ -785,6 +785,126 @@ app.post('/api/reconcile-yuzer', async (req, res) => { //
   }
 });
 
+// --- NOVA ROTA: EXCLUIR FECHAMENTO ONLINE ---
+app.post('/api/delete-closing', async (req, res) => {
+    const { eventName, protocolToDelete, password } = req.body;
+
+    // Validação básica
+    if (!eventName || !protocolToDelete) {
+        return res.status(400).json({ message: 'Nome do evento e protocolo são obrigatórios.' });
+    }
+
+    console.log(`[BACKEND][delete-closing][${eventName}] Recebida requisição para excluir protocolo base: ${protocolToDelete}`);
+
+    // Validação de senha SE ela foi fornecida (exclusão iniciada do modo online)
+    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        console.warn(`[BACKEND][delete-closing][${eventName}] Falha na autenticação por senha para excluir ${protocolToDelete}.`);
+        return res.status(401).json({ message: 'Senha incorreta para exclusão online.' });
+    }
+    // Se a senha não foi fornecida, assume que a requisição veio do modo local (já autenticado no app)
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const spreadsheetId = spreadsheetId_cloud_sync; // Usar o ID da planilha consolidada
+
+        // Determina os tipos de protocolo (Garçom, Caixa Móvel, Caixa Fixo)
+        const isWaiterProtocol = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
+        const isMobileCashierProtocol = protocolToDelete.startsWith('CXM-');
+        const isFixedCashierGroupProtocol = protocolToDelete.startsWith('CXF-');
+
+        let sheetName;
+        let protocolColumnIndex; // 0-based index
+        let requests = []; // Array para guardar as requisições de exclusão
+        let deletedRowCount = 0;
+
+        if (isWaiterProtocol) {
+            sheetName = `Garçons - ${eventName}`;
+            protocolColumnIndex = 1; // Coluna B
+        } else if (isMobileCashierProtocol || isFixedCashierGroupProtocol) {
+            sheetName = `Caixas - ${eventName}`;
+            protocolColumnIndex = 0; // Coluna A
+        } else {
+            console.error(`[BACKEND][delete-closing][${eventName}] Protocolo ${protocolToDelete} não reconhecido.`);
+            return res.status(400).json({ message: 'Formato de protocolo não reconhecido.' });
+        }
+
+        console.log(`[BACKEND][delete-closing][${eventName}] Procurando na aba "${sheetName}"`);
+
+        // Busca informações da aba para obter o sheetId
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+
+        if (!sheet) {
+            console.log(`[BACKEND][delete-closing][${eventName}] Aba "${sheetName}" não encontrada. Nenhuma ação necessária.`);
+            // Retorna sucesso, pois o item "não existe" para ser excluído
+            return res.status(200).json({ message: `Aba "${sheetName}" não encontrada. Nenhum registro excluído.` });
+        }
+        const sheetId = sheet.properties.sheetId;
+
+        // Lê a coluna de protocolos da aba relevante
+        const rangeToRead = `${sheetName}!${String.fromCharCode(65 + protocolColumnIndex)}:${String.fromCharCode(65 + protocolColumnIndex)}`; // Ex: 'A:A' ou 'B:B'
+        console.log(`[BACKEND][delete-closing][${eventName}] Lendo coluna de protocolos: ${rangeToRead}`);
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId, range: rangeToRead });
+        const protocolsInSheet = response.data.values || [];
+
+        console.log(`[BACKEND][delete-closing][${eventName}] ${protocolsInSheet.length} protocolos lidos da coluna.`);
+
+        // Encontra os índices das linhas a serem excluídas (índice 0-based do array)
+        const rowIndicesToDelete = [];
+        protocolsInSheet.forEach((row, index) => {
+            if (row && row[0]) {
+                const currentProtocol = String(row[0]).trim();
+                // Verifica se é o protocolo exato (Garçom, Caixa Móvel)
+                // OU se começa com o protocolo base + hífen (Caixa Fixo)
+                if (currentProtocol === protocolToDelete || (isFixedCashierGroupProtocol && currentProtocol.startsWith(protocolToDelete + '-'))) {
+                    // Adiciona o índice 0-based da linha NO ARRAY DE DADOS
+                    rowIndicesToDelete.push(index);
+                    console.log(`[BACKEND][delete-closing][${eventName}] Marcada linha ${index + 1} (Índice array ${index}) para exclusão (Protocolo: ${currentProtocol})`);
+                }
+            }
+        });
+
+        if (rowIndicesToDelete.length === 0) {
+            console.log(`[BACKEND][delete-closing][${eventName}] Protocolo ${protocolToDelete} (ou grupo) não encontrado na aba "${sheetName}".`);
+            return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
+        }
+
+        // IMPORTANTE: Excluir do índice MAIOR para o MENOR para evitar problemas com a mudança de índices
+        rowIndicesToDelete.sort((a, b) => b - a);
+
+        // Cria as requisições de exclusão de dimensão (linha)
+        rowIndicesToDelete.forEach(rowIndex => {
+            requests.push({
+                deleteDimension: {
+                    range: {
+                        sheetId: sheetId,
+                        dimension: "ROWS",
+                        // O índice aqui é 0-based e se refere à linha na planilha
+                        startIndex: rowIndex,
+                        endIndex: rowIndex + 1
+                    }
+                }
+            });
+        });
+
+        console.log(`[BACKEND][delete-closing][${eventName}] Enviando ${requests.length} requisições de exclusão para a API.`);
+
+        // Executa a exclusão em lote
+        await googleSheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            resource: { requests }
+        });
+
+        deletedRowCount = requests.length;
+        console.log(`[BACKEND][delete-closing][${eventName}] Exclusão online concluída com sucesso. ${deletedRowCount} linha(s) removida(s).`);
+        res.status(200).json({ message: `${deletedRowCount} registro(s) excluído(s) com sucesso da planilha online.` });
+
+    } catch (error) {
+        console.error(`[BACKEND][delete-closing][${eventName}] Erro ao excluir registro ${protocolToDelete}:`, error.response?.data || error.message);
+        res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
+    }
+});
+
 
 // --- INICIALIZAÇÃO CONDICIONAL ---
 module.exports = app; //

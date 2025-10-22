@@ -1,4 +1,4 @@
-// src/pages/FixedCashierClosingPage.jsx (CORRIGIDO - Dinheiro Físico >= 0 e Salva/Carrega Total Grupo)
+// src/pages/FixedCashierClosingPage.jsx (CORRIGIDO - Dinheiro Físico >= 0, Salva/Carrega Total Grupo, Inclui Troco no Dinheiro Físico Caixa 1)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -127,7 +127,7 @@ const CaixaFormItem = ({
                                 type="checkbox"
                                 checked={valorTroco !== ''}
                                 onChange={(e) => setValorTroco(e.target.checked ? '0' : '')}
-                                disabled={isEditing}
+                                disabled={isEditing} // Mantém desabilitado na edição por segurança, mas pode ser removido se necessário
                             />
                             <span className="slider round"></span> {/* */}
                         </label>
@@ -140,7 +140,7 @@ const CaixaFormItem = ({
                                 onKeyDown={(e) => handleKeyDown(e, `cpf_${item.id}`)}
                                 value={formatCurrencyInput(valorTroco)}
                                 onChange={(e) => setValorTroco(String(e.target.value).replace(/\D/g, ''))}
-                                // disabled={isEditing} // <-- REMOVIDO PARA PERMITIR EDIÇÃO
+                                // disabled={isEditing} // <-- REMOVIDO para permitir edição
                                 inputMode="numeric"
                             />
                         </div>
@@ -262,26 +262,22 @@ function FixedCashierClosingPage() { //
     useEffect(() => { //
         if (closingToEdit) { //
             setProtocol(closingToEdit.protocol); //
-            // --- INÍCIO DA MODIFICAÇÃO 2.1 (Carregar Troco) ---
             // Carrega o troco normalmente
-            setValorTroco(formatForInput(closingToEdit.valorTroco));
-            // --- FIM DA MODIFICAÇÃO 2.1 ---
+            setValorTroco(formatForInput(closingToEdit.valorTroco)); //
 
-            // --- INÍCIO DA MODIFICAÇÃO 2.2 (Carregar Dinheiro Físico Total) ---
             // Verifica se o total do grupo foi salvo explicitamente
-            if (closingToEdit.totalDinheiroFisicoGrupo !== undefined && closingToEdit.totalDinheiroFisicoGrupo !== null) {
-                console.log("[FixedCashierEdit] Carregando totalDinheiroFisicoGrupo salvo:", closingToEdit.totalDinheiroFisicoGrupo);
-                setTotalDinheiroFisico(formatForInput(closingToEdit.totalDinheiroFisicoGrupo));
+            if (closingToEdit.totalDinheiroFisicoGrupo !== undefined && closingToEdit.totalDinheiroFisicoGrupo !== null) { //
+                console.log("[FixedCashierEdit] Carregando totalDinheiroFisicoGrupo salvo:", closingToEdit.totalDinheiroFisicoGrupo); //
+                setTotalDinheiroFisico(formatForInput(closingToEdit.totalDinheiroFisicoGrupo)); //
             } else {
                 // Fallback para registros antigos: Soma os individuais
-                console.log("[FixedCashierEdit] totalDinheiroFisicoGrupo não encontrado, somando individuais (fallback)...");
-                let totalDinheiroFisicoSalvo = 0;
+                console.log("[FixedCashierEdit] totalDinheiroFisicoGrupo não encontrado, somando individuais (fallback)..."); //
+                let totalDinheiroFisicoSalvo = 0; //
                 closingToEdit.caixas.forEach((caixa) => { //
                     totalDinheiroFisicoSalvo += (caixa.dinheiroFisico || 0); //
                 });
-                setTotalDinheiroFisico(formatForInput(totalDinheiroFisicoSalvo));
+                setTotalDinheiroFisico(formatForInput(totalDinheiroFisicoSalvo)); //
             }
-            // --- FIM DA MODIFICAÇÃO 2.2 ---
 
             // Mapeia os caixas individuais
             const caixasEdit = closingToEdit.caixas.map((caixa, index) => { //
@@ -297,7 +293,7 @@ function FixedCashierClosingPage() { //
                     debito: formatForInput(caixa.debito), //
                     pix: formatForInput(caixa.pix), //
                     cashless: formatForInput(caixa.cashless), //
-                    protocol: caixa.protocol // Preserva o protocolo individual
+                    protocol: caixa.protocol // Preserva o protocolo individual //
                 };
             });
             setCaixasDoGrupo(caixasEdit); //
@@ -377,14 +373,14 @@ function FixedCashierClosingPage() { //
         setModalVisible(true); //
     };
 
-    // --- LÓGICA DE SALVAMENTO (COM CORREÇÃO Math.max e Inclusão do Total) ---
+    // --- LÓGICA DE SALVAMENTO (AJUSTADA PARA INCLUIR TROCO NO DINHEIRO FÍSICO DO CAIXA 1) ---
     const handleFinalSave = async () => { //
         setIsSaving(true); //
         try {
             const eventName = localStorage.getItem('activeEvent'); //
             const operatorName = localStorage.getItem('loggedInUserName'); //
 
-            // 1. Calcula o 'acertoIndividual' (valor esperado) para cada caixa
+            // 1. Calcula o 'acertoIndividual' (valor esperado *sem* troco) para cada caixa (sem alterações)
             const caixasComAcerto = caixasDoGrupo.map(caixa => { //
                 const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda); //
                 const numValorEstorno = parseCurrency(caixa.valorEstorno); //
@@ -392,31 +388,40 @@ function FixedCashierClosingPage() { //
                 const numDebito = parseCurrency(caixa.debito); //
                 const numPix = parseCurrency(caixa.pix); //
                 const numCashless = parseCurrency(caixa.cashless); //
+                // Acerto é o valor que o caixa DEVERIA ter (sem contar o troco inicial)
                 const acertoIndividual = (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0)); //
                 return { ...caixa, acertoIndividual }; //
             });
 
-            // 2. finalDiferenca (calculada no useEffect) continua a mesma
+            // 2. finalDiferenca (calculada no useEffect) continua a mesma: (Dinheiro Total Contado - (Acerto Total + Troco Inicial))
 
-            // 3. Mapeia os caixas para salvar (COM A CORREÇÃO)
+            // 3. Mapeia os caixas para salvar (COM A MODIFICAÇÃO PARA CAIXA 1)
             const caixasParaSalvar = caixasComAcerto.map((caixa, index) => { //
+
                 let dinheiroFisicoCalculado; //
+
+                // --- INÍCIO DA MODIFICAÇÃO ---
                 if (index === 0) { //
-                    const valorComDiferenca = caixa.acertoIndividual + finalDiferenca; //
-                    dinheiroFisicoCalculado = Math.round(valorComDiferenca * 100) / 100; //
+                    // É o Caixa 1: O dinheiro físico dele é o seu "acerto" + a DIFERENÇA TOTAL do grupo + O TROCO INICIAL
+                    const valorComDiferencaETroco = caixa.acertoIndividual + finalDiferenca + parseCurrency(valorTroco); // Adiciona o troco aqui //
+                    dinheiroFisicoCalculado = Math.round(valorComDiferencaETroco * 100) / 100; //
+                    console.log(`[FixedCashierSave][Caixa 1] Acerto: ${caixa.acertoIndividual}, Dif Grupo: ${finalDiferenca}, Troco: ${parseCurrency(valorTroco)}, Dinheiro Calc: ${dinheiroFisicoCalculado}`); //
                 } else {
+                // --- FIM DA MODIFICAÇÃO ---
+                    // É o Caixa 2, 3, etc.: O dinheiro físico dele é EXATAMENTE o seu "acerto" esperado (sem troco)
                     dinheiroFisicoCalculado = Math.round(caixa.acertoIndividual * 100) / 100; //
+                    console.log(`[FixedCashierSave][Caixa ${index + 1}] Acerto: ${caixa.acertoIndividual}, Dinheiro Calc: ${dinheiroFisicoCalculado}`); //
                 }
-                // --- INÍCIO DA CORREÇÃO ---
-                // Garante que o valor salvo na coluna "Dinheiro Físico" nunca seja negativo
+
+                // Garante que o valor salvo na coluna "Dinheiro Físico" nunca seja negativo (sem alterações)
                 const dinheiroFisicoParaSalvar = Math.max(0, dinheiroFisicoCalculado); //
 
-                // Recalcula a diferença *individual* com base no dinheiro físico (agora >= 0)
+                // Recalcula a diferença *individual* com base no dinheiro físico (agora >= 0) vs o acerto (sem troco) (sem alterações)
                 const diferencaIndividual = dinheiroFisicoParaSalvar - (Math.round(caixa.acertoIndividual * 100) / 100); //
-                // --- FIM DA CORREÇÃO ---
+                console.log(`[FixedCashierSave][Caixa ${index + 1}] Dinheiro Salvar: ${dinheiroFisicoParaSalvar}, Dif Individual: ${diferencaIndividual}`); //
+
 
                 return { //
-                    // Mantém o protocolo individual se já existir (vindo da edição)
                     protocol: caixa.protocol, //
                     cpf: caixa.cpf, //
                     cashierName: caixa.name, //
@@ -429,25 +434,24 @@ function FixedCashierClosingPage() { //
                     pix: parseCurrency(caixa.pix), //
                     cashless: parseCurrency(caixa.cashless), //
                     dinheiroFisico: dinheiroFisicoParaSalvar, // Salva o valor ajustado (>= 0) //
-                    valorAcerto: Math.round(caixa.acertoIndividual * 100) / 100, // Salva o valor esperado //
+                    valorAcerto: Math.round(caixa.acertoIndividual * 100) / 100, // Salva o valor esperado (sem troco) //
                     diferenca: Math.round(diferencaIndividual * 100) / 100, // Salva a diferença individual recalculada //
                 };
             });
 
+            // Objeto principal a ser salvo (inclui totalDinheiroFisicoGrupo)
             const closingData = { //
                 type: 'fixed_cashier', //
                 eventName, operatorName, //
                 valorTroco: parseCurrency(valorTroco), // Troco agora pode ter sido editado //
-                // --- INÍCIO DA MODIFICAÇÃO 2.3 (Salvar Dinheiro Físico Total) ---
-                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), // Salva o valor do input
-                // --- FIM DA MODIFICAÇÃO 2.3 ---
-                diferencaCaixa: finalDiferenca, // A diferença *do grupo* ainda é salva corretamente //
+                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), // O total digitado //
+                diferencaCaixa: finalDiferenca, // A diferença calculada do grupo //
                 caixas: caixasParaSalvar, //
-                protocol: protocol, // Passa o protocolo base (se existir, para edição) //
-                timestamp: closingToEdit?.timestamp // Passa o timestamp original (se existir, para edição) //
+                protocol: protocol, //
+                timestamp: closingToEdit?.timestamp //
             };
 
-            console.log("[FixedCashierSave] Enviando para saveFixedCashierClosing:", JSON.stringify(closingData)); // Log para depuração //
+            console.log("[FixedCashierSave] Enviando para saveFixedCashierClosing:", JSON.stringify(closingData)); //
 
             const response = await saveFixedCashierClosing(closingData); //
             const savedData = response.data; //
@@ -463,6 +467,7 @@ function FixedCashierClosingPage() { //
             setModalVisible(false); //
         }
     };
+
 
     const getDiferencaColor = (diff) => { //
         if (diff < 0) return 'red'; //
@@ -522,7 +527,7 @@ function FixedCashierClosingPage() { //
                 <h1>{closingToEdit ? 'Editar Fechamento de Caixa Fixo' : 'Fechamento Caixa Fixo (Grupo)'}</h1> {/* */}
 
                 {caixasDoGrupo.map((caixa, index) => { //
-                    // Passa isEditing para CaixaFormItem (já estava correto)
+                    // Passa isEditing para CaixaFormItem
                     return ( //
                         <CaixaFormItem
                             key={caixa.id}
@@ -546,7 +551,7 @@ function FixedCashierClosingPage() { //
 
 
                 <div className="footer-actions"> {/* */}
-                     {/* Botão Adicionar Caixa (já estava correto, desabilitado na edição) */}
+                     {/* Botão Adicionar Caixa */}
                      <button
                          ref={formRefs.current.addCaixaButton}
                          onKeyDown={(e) => handleKeyDown(e, 'totalDinheiroFisico')}
@@ -558,7 +563,7 @@ function FixedCashierClosingPage() { //
                      </button>
 
                     <div className="results-container" style={{borderTop: '2px solid #007bff', paddingTop: '20px'}}> {/* */}
-                         {/* Input Dinheiro Físico Total (já estava correto) */}
+                         {/* Input Dinheiro Físico Total */}
                          <div className="input-group" style={{maxWidth: '300px', margin: '0 auto 20px auto'}}> {/* */}
                             <label style={{fontSize: '1.1rem', fontWeight: 'bold'}}>Total de Dinheiro Físico Contado (Grupo)</label> {/* */}
                             <input
@@ -572,13 +577,13 @@ function FixedCashierClosingPage() { //
                             />
                         </div>
 
-                        {/* Exibição da Diferença Final (já estava correto) */}
+                        {/* Exibição da Diferença Final */}
                         <p className="total-text">Diferença Final (Sobra/Falta): {/* */}
                             <strong style={{ color: getDiferencaColor(finalDiferenca), marginLeft: '10px' }}> {/* */}
                                 {formatCurrencyResult(finalDiferenca)} {/* */}
                             </strong>
                         </p>
-                        {/* Botão Salvar (já estava correto) */}
+                        {/* Botão Salvar */}
                         <button
                             ref={formRefs.current.saveButton}
                             className="login-button"
@@ -591,7 +596,7 @@ function FixedCashierClosingPage() { //
                 </div>
             </div>
 
-            {/* Modal de Confirmação (já estava correto) */}
+            {/* Modal de Confirmação */}
             {modalVisible && ( //
                 <div className="modal-overlay"> {/* */}
                     <div className="modal-content"> {/* */}
