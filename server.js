@@ -1,11 +1,12 @@
-// server.js (VERSÃO CORRIGIDA - Mapeamento de Colunas e Leitura de Data)
-console.log("--- EXECUTANDO VERSÃO FINAL COM parseSisfoCurrency CORRIGIDO e LOGS DETALHADOS ---"); //
+// server.js (VERSÃO CORRIGIDA - Com Bloqueio, Leitura Única e Logs Detalhados)
+console.log("--- EXECUTANDO VERSÃO FINAL COM BLOQUEIO, LEITURA ÚNICA E LOGS DETALHADOS ---"); //
 
 const express = require('express'); //
 const { google } = require('googleapis'); //
 const cors = require('cors'); //
 const path = require('path'); //
 const app = express(); //
+const syncingEvents = new Set(); // Guarda os nomes dos eventos em sincronização
 
 // --- LÓGICA DE CAMINHO UNIVERSAL ---
 const isRunningInElectron = !!process.versions['electron']; //
@@ -19,63 +20,28 @@ app.use(express.json({ limit: '50mb' })); //
 app.use(cors()); //
 
 // --- parseSisfoCurrency CORRIGIDO (VERSÃO ROBUSTA - FUNÇÃO AUXILIAR) ---
-/**
- * Converte valor de formatos comuns (R$, ',', '.', inteiro) para número decimal.
- * Trata formatos brasileiros ("1.234,56") e americanos ("1234.56").
- * Esta função APENAS converte a string para número, ela NÃO normaliza a unidade.
- */
 const parseSisfoCurrency = (val) => { //
     if (val === null || val === undefined || String(val).trim() === '') return 0; //
-
     let stringValue = String(val).trim(); //
-
-    // Remove "R$" prefix if present
     if (stringValue.toUpperCase().startsWith('R$')) { //
         stringValue = stringValue.substring(2).trim(); //
     }
-
     const lastPointIndex = stringValue.lastIndexOf('.'); //
     const lastCommaIndex = stringValue.lastIndexOf(','); //
-
-    // Se a vírgula vem DEPOIS do ponto (ex: "1.234,56")
-    // ou se SÓ tem vírgula (ex: "1234,56" ou "4549,55")
-    // -> É formato brasileiro.
     if (lastCommaIndex > lastPointIndex) { //
-        stringValue = stringValue.replace(/\./g, ''); // Remove pontos de milhar
-        stringValue = stringValue.replace(/,/g, '.'); // Troca vírgula decimal
+        stringValue = stringValue.replace(/\./g, ''); //
+        stringValue = stringValue.replace(/,/g, '.'); //
+    } else if (lastPointIndex > lastCommaIndex) { //
+         stringValue = stringValue.replace(/,/g, ''); //
     }
-    // Se o ponto vem DEPOIS da vírgula (ex: "1,234.56")
-    // -> É formato americano com vírgula de milhar.
-    else if (lastPointIndex > lastCommaIndex) { //
-         stringValue = stringValue.replace(/,/g, ''); // Remove vírgulas de milhar
-    }
-    // Se não tem vírgula (ex: "1234.56" ou "1234"),
-    // assume que o formato está correto (ponto é decimal ou não há decimal).
-
-    // Remove quaisquer outros caracteres não numéricos (exceto o ponto decimal)
     stringValue = stringValue.replace(/[^0-9.]/g, ''); //
-
-    // Tenta converter para float
     const numberValue = parseFloat(stringValue); //
-
-    // Retorna 0 se a conversão falhar (NaN)
     return isNaN(numberValue) ? 0 : numberValue; //
 };
 
 // --- NOVA FUNÇÃO DE NORMALIZAÇÃO CORRIGIDA ---
-/**
- * Converte um valor (lido pelo parseSisfoCurrency) para CENTAVOS.
- * A função parseSisfoCurrency primeiro transforma a string (ex: "300" ou "3.002,50") em um número (ex: 300 ou 3002.5).
- * Esta função então assume que esse número é *SEMPRE* em Reais e o converte para centavos.
- */
 const normalizeToCentavos = (val) => { //
-    // 1. Converte a string para um número (ex: "300" -> 300, "1109" -> 1109, "3002,5" -> 3002.5)
     const numberValue = parseSisfoCurrency(val); //
-
-    // 2. Assume que o valor é SEMPRE em Reais e multiplica por 100.
-    // Ex: 300 * 100 = 30000 (R$ 300,00)
-    // Ex: 1109 * 100 = 110900 (R$ 1109,00)
-    // Ex: 3002.5 * 100 = 300250 (R$ 3002,50)
     return Math.round(numberValue * 100); //
 };
 
@@ -189,21 +155,22 @@ app.post('/api/update-event-status', async (req, res) => { //
   }
 });
 
-// server.js (VERSÃO COM CONFIRMAÇÃO PÓS-ESCRITA)
-
-// ... (imports, setup, funções auxiliares, outras rotas - sem alterações) ...
-// ... (parseSisfoCurrency, normalizeToCentavos, getGoogleSheetsClient) ...
-// ... (rotas /api/sync/master-data, /api/update-base, /api/update-event-status) ...
-
-// --- ROTA DE SYNC PARA A NUVEM (COM CONFIRMAÇÃO PÓS-ESCRITA) ---
+// --- ROTA DE SYNC PARA A NUVEM (COM BLOQUEIO POR EVENTO E LEITURA ÚNICA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
-  console.log(`\n[BACKEND][cloud-sync] Recebida requisição para evento: ${eventName}`);
-  console.log(`[BACKEND][cloud-sync] Recebidos ${waiterData?.length || 0} garçom, ${cashierData?.length || 0} caixa.`);
+  // --- INÍCIO DO BLOQUEIO ---
+  if (syncingEvents.has(eventName)) {
+    console.warn(`[BACKEND][cloud-sync][${eventName}] Rejeitado: Sincronização já em andamento para este evento.`);
+    return res.status(429).json({ message: `Sincronização já em andamento para o evento "${eventName}". Tente novamente mais tarde.` });
+  }
+  syncingEvents.add(eventName);
+  console.log(`[BACKEND][cloud-sync][${eventName}] === INICIANDO SYNC (LOCK ADQUIRIDO) ===`);
+  // --- FIM DO BLOQUEIO ---
 
-  let writeConfirmationError = null; // Flag para erros de confirmação
+  console.log(`[BACKEND][cloud-sync][${eventName}] Recebidos Garçons: ${waiterData?.length || 0}, Caixas: ${cashierData?.length || 0}.`);
+  let writeConfirmationError = null;
 
   try {
     const googleSheets = await getGoogleSheetsClient();
@@ -214,245 +181,277 @@ app.post('/api/cloud-sync', async (req, res) => {
     // --- Processamento Garçons ---
     if (waiterData && waiterData.length > 0) {
       const sheetName = `Garçons - ${eventName}`;
+      console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Processando aba: ${sheetName}`);
 
-      // --- INÍCIO DA MODIFICAÇÃO (PASSO 2.1) ---
-      // SUBSTITUA O 'header' E 'rows' ANTIGOS POR ESTES:
       const header = [
           "Data", "Protocolo", "CPF", "Nome Garçom", "Nº Máquina",
           "Venda Total", "Crédito", "Débito", "Pix", "Cashless",
           "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"
       ];
-
       const rows = waiterData.map(c => [
-          c.timestamp,
-          c.protocol,
-          c.cpf,
-          c.waiterName,
-          c.numeroMaquina,
-          c.valorTotal,
-          c.credito,
-          c.debito,
-          c.pix,
-          c.cashless,
-          c.valorEstorno,
-          c.comissaoTotal,
-          c.acerto,
-          c.operatorName
+          c.timestamp || '', c.protocol || '', c.cpf || '', c.waiterName || '', c.numeroMaquina || '',
+          c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
+          c.valorEstorno ?? 0, c.comissaoTotal ?? 0, c.acerto ?? 0, c.operatorName || ''
       ]);
-      // --- FIM DA MODIFICAÇÃO (PASSO 2.1) ---
 
       const sheet = sheets.find(s => s.properties.title === sheetName);
 
       if (!sheet) {
-        console.log(`[BACKEND][cloud-sync][Garçom] Criando nova aba ${sheetName}...`);
+        console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Aba não existe. Criando...`);
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
+        console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Aba criada. Adicionando cabeçalho...`);
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
         if (rows.length > 0) {
+            console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Adicionando ${rows.length} linhas iniciais...`);
             const appendResult = await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
             // --- CONFIRMAÇÃO APPEND ---
             if (!appendResult.data.updates || !appendResult.data.updates.updatedRows || appendResult.data.updates.updatedRows < rows.length) {
-                console.error(`[BACKEND][cloud-sync][Garçom][CONFIRMATION FAIL] Append inicial falhou ou incompleto. Esperado: ${rows.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
+                console.error(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION FAIL] Append inicial falhou. Esperado: ${rows.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
                 writeConfirmationError = `Falha ao confirmar escrita inicial (Garçom) para ${sheetName}.`;
             } else {
-                 console.log(`[BACKEND][cloud-sync][Garçom][CONFIRMATION OK] Append inicial confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
+                 console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION OK] Append inicial confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
                  newW = rows.length;
             }
         }
-      } else {
+      } else { // Aba já existe
+        console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Aba encontrada. Lendo dados completos...`); // Log
+        // --- LEITURA ÚNICA ---
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
-        const existingRows = response.data.values || [];
-        const protocolColumnIndex = 1;
+        const existingRows = response.data.values || []; // Inclui cabeçalho
+        const protocolColumnIndex = 1; // Índice da coluna 'Protocolo' (0-based)
         const protocolMap = new Map();
-        existingRows.slice(1).forEach((row, index) => {
-            const protocol = row[protocolColumnIndex];
-            if (protocol) protocolMap.set(String(protocol).trim(), { row: row, index: index + 2 });
-        });
-        console.log(`[BACKEND][cloud-sync][Garçom] Protocolos existentes (${sheetName}):`, Array.from(protocolMap.keys()));
 
-        const toAdd = [], toUpdate = [];
-        rows.forEach((newRow, rowIndex) => {
-            const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
-            const pExists = p ? protocolMap.has(p) : false;
-            console.log(`[BACKEND][cloud-sync][Garçom][ROW ${rowIndex + 1}] Verificando Proto: "${p}" | Existe? ${pExists}`);
-            if (pExists) {
-                const existing = protocolMap.get(p);
-                let hasChanged = false; /* ... compara campos ... */
-                 for (let i = 0; i < newRow.length; i++) {
-                     if ([0, 1, 2, 3, 4, 13].includes(i)) { if (String(existing.row[i] || '').trim() !== String(newRow[i] ?? '').trim()) { hasChanged = true; break; } }
-                     else { if (Math.abs(parseSisfoCurrency(existing.row[i]) - (typeof newRow[i] === 'number' ? newRow[i] : parseSisfoCurrency(newRow[i]))) > 0.01) { hasChanged = true; break; } }
-                 }
-                if (hasChanged) {
-                    console.log(`[BACKEND][cloud-sync][Garçom][ROW ${rowIndex + 1}] => DECISÃO: UPDATE`);
-                    toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [newRow] });
-                } else {
-                    console.log(`[BACKEND][cloud-sync][Garçom][ROW ${rowIndex + 1}] => DECISÃO: SEM MUDANÇAS`);
-                }
-            } else {
-                console.log(`[BACKEND][cloud-sync][Garçom][ROW ${rowIndex + 1}] => DECISÃO: ADD`);
-                toAdd.push(newRow);
+        // Mapeia protocolos a partir da segunda linha (índice 1 do array)
+        existingRows.slice(1).forEach((row, arrayIndex) => {
+            if (row && row.length > protocolColumnIndex && row[protocolColumnIndex]) {
+               const protocol = String(row[protocolColumnIndex]).trim();
+               if (protocol) {
+                   // Armazena a linha *completa* e o índice da linha na *planilha* (arrayIndex + 2)
+                   protocolMap.set(protocol, { row: row, index: arrayIndex + 2 });
+               }
             }
         });
+        console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] ${protocolMap.size} protocolos existentes mapeados a partir de ${existingRows.length -1} linhas de dados.`);
+        // --- FIM LEITURA ÚNICA ---
+
+        const toAdd = [], toUpdate = [];
+        rows.forEach((newRow) => { // Não precisa mais de await aqui dentro
+            const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
+            const pExists = p ? protocolMap.has(p) : false;
+            console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Verificando Proto Recebido: "${p}" | Existe no Map? ${pExists}`);
+
+            if (pExists) {
+                const existingInfo = protocolMap.get(p);
+                const existingRow = existingInfo.row; // Pega a linha completa do map
+                const existingIndex = existingInfo.index; // Pega o índice da planilha do map
+
+                let hasChanged = false;
+                console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][Proto "${p}"] Comparando com linha ${existingIndex}:`);
+                // --- COMPARAÇÃO (sem alterações, mas usando existingRow do map) ---
+                for (let i = 0; i < header.length; i++) {
+                     const existingValue = existingRow[i] ?? '';
+                     const newValue = newRow[i] ?? '';
+                     let comparisonChanged = false;
+                     if ([0, 1, 2, 3, 4, 13].includes(i)) {
+                         comparisonChanged = String(existingValue).trim() !== String(newValue).trim();
+                     } else {
+                         const existingNum = parseSisfoCurrency(existingValue);
+                         const newNum = typeof newValue === 'number' ? newValue : parseSisfoCurrency(newValue);
+                         comparisonChanged = Math.abs(existingNum - newNum) > 0.01;
+                     }
+                     if (comparisonChanged) {
+                         console.log(`  => [COL ${i}-${header[i]}] DETECTADA MUDANÇA! Planilha: "${existingValue}" vs Recebido: "${newValue}"`);
+                         hasChanged = true;
+                         break;
+                     }
+                }
+                // --- FIM COMPARAÇÃO ---
+
+                if (hasChanged) {
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][Proto "${p}"] => DECISÃO: UPDATE`);
+                    toUpdate.push({ range: `${sheetName}!A${existingIndex}`, values: [newRow] });
+                } else {
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][Proto "${p}"] => DECISÃO: SEM MUDANÇAS`);
+                }
+            } else {
+                console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][Proto "${p}"] => DECISÃO: ADD`);
+                toAdd.push(newRow);
+            }
+        }); // Fim do rows.forEach
+
+        console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Itens para adicionar: ${toAdd.length}, Itens para atualizar: ${toUpdate.length}`);
 
         if (toAdd.length > 0) {
+            console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Executando append para ${toAdd.length} linhas...`);
             const appendResult = await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
-            // --- CONFIRMAÇÃO APPEND ---
             if (!appendResult.data.updates || !appendResult.data.updates.updatedRows || appendResult.data.updates.updatedRows < toAdd.length) {
-                 console.error(`[BACKEND][cloud-sync][Garçom][CONFIRMATION FAIL] Append falhou ou incompleto. Esperado: ${toAdd.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
-                 writeConfirmationError = writeConfirmationError || `Falha ao confirmar append (Garçom) para ${sheetName}.`; // Não sobrescreve erro anterior
+                 console.error(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION FAIL] Append falhou. Esperado: ${toAdd.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
+                 writeConfirmationError = writeConfirmationError || `Falha ao confirmar append (Garçom) para ${sheetName}.`;
             } else {
-                 console.log(`[BACKEND][cloud-sync][Garçom][CONFIRMATION OK] Append confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
+                 console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION OK] Append confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
                  newW = toAdd.length;
             }
         }
         if (toUpdate.length > 0) {
+            console.log(`[BACKEND][cloud-sync][${eventName}][Garçom] Executando batchUpdate para ${toUpdate.length} linhas...`);
             const batchUpdateResult = await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-             // --- CONFIRMAÇÃO BATCH UPDATE ---
             if (!batchUpdateResult.data || !batchUpdateResult.data.totalUpdatedRows || batchUpdateResult.data.totalUpdatedRows < toUpdate.length) {
-                 console.error(`[BACKEND][cloud-sync][Garçom][CONFIRMATION FAIL] BatchUpdate falhou ou incompleto. Esperado: ${toUpdate.length}, Atualizado: ${batchUpdateResult.data?.totalUpdatedRows}`);
+                 console.error(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION FAIL] BatchUpdate falhou. Esperado: ${toUpdate.length}, Atualizado: ${batchUpdateResult.data?.totalUpdatedRows}`);
                  writeConfirmationError = writeConfirmationError || `Falha ao confirmar update (Garçom) para ${sheetName}.`;
             } else {
-                 console.log(`[BACKEND][cloud-sync][Garçom][CONFIRMATION OK] BatchUpdate confirmado: ${batchUpdateResult.data.totalUpdatedRows} linhas.`);
+                 console.log(`[BACKEND][cloud-sync][${eventName}][Garçom][CONFIRMATION OK] BatchUpdate confirmado: ${batchUpdateResult.data.totalUpdatedRows} linhas.`);
                  updatedW = toUpdate.length;
             }
         }
-      }
+      } // Fim do else (aba já existe)
     } // Fim Garçons
 
     // Lança erro se a confirmação de escrita de Garçom falhou
     if (writeConfirmationError) throw new Error(writeConfirmationError);
 
-    // --- Processamento Caixas (COM CONFIRMAÇÃO PÓS-ESCRITA) ---
+    // --- Processamento Caixas (COM BLOQUEIO POR EVENTO E LEITURA ÚNICA) ---
     if (cashierData && cashierData.length > 0) {
         const sheetName = `Caixas - ${eventName}`;
-        
-        // --- INÍCIO DA MODIFICAÇÃO (PASSO 2.2) ---
-        // SUBSTITUA O 'header' E 'rows' ANTIGOS POR ESTES:
+        console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Processando aba: ${sheetName}`);
+
         const header = [
             "Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina",
             "Venda Total", "Crédito", "Débito", "Pix", "Cashless",
             "Troco", "Devolução/Estorno", "Dinheiro Físico",
             "Valor Acerto", "Diferença", "Operador"
         ];
-
         const rows = cashierData.map(c => [
-            c.protocol,
-            c.timestamp,
-            c.type,
-            c.cpf,
-            c.cashierName,
-            c.numeroMaquina,
-            c.valorTotalVenda,
-            c.credito,
-            c.debito,
-            c.pix,
-            c.cashless,
-            c.valorTroco,
-            c.valorEstorno,
-            c.dinheiroFisico,
-            c.valorAcerto,
-            c.diferenca,
-            c.operatorName
+            c.protocol || '', c.timestamp || '', c.type || '', c.cpf || '', c.cashierName || '', c.numeroMaquina || '',
+            c.valorTotalVenda ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
+            c.valorTroco ?? 0, c.valorEstorno ?? 0, c.dinheiroFisico ?? 0,
+            c.valorAcerto ?? 0, c.diferenca ?? 0, c.operatorName || ''
         ]);
-        // --- FIM DA MODIFICAÇÃO (PASSO 2.2) ---
-        
+
         const sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
-           console.log(`[BACKEND][cloud-sync][Caixa] Criando nova aba ${sheetName}...`);
+           console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Aba não existe. Criando...`);
            await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
+           console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Aba criada. Adicionando cabeçalho...`);
            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [header] } });
            if (rows.length > 0) {
+               console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Adicionando ${rows.length} linhas iniciais...`);
                 const appendResult = await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: rows } });
-                // --- CONFIRMAÇÃO APPEND ---
                 if (!appendResult.data.updates || !appendResult.data.updates.updatedRows || appendResult.data.updates.updatedRows < rows.length) {
-                    console.error(`[BACKEND][cloud-sync][Caixa][CONFIRMATION FAIL] Append inicial falhou ou incompleto. Esperado: ${rows.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
+                    console.error(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION FAIL] Append inicial falhou. Esperado: ${rows.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
                     writeConfirmationError = `Falha ao confirmar escrita inicial (Caixa) para ${sheetName}.`;
                 } else {
-                    console.log(`[BACKEND][cloud-sync][Caixa][CONFIRMATION OK] Append inicial confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION OK] Append inicial confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
                     newC = rows.length;
                 }
            }
-        } else {
+        } else { // Aba já existe
+            console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Aba encontrada. Lendo dados completos...`); // Log
+            // --- LEITURA ÚNICA ---
             const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
-            const existingRows = response.data.values || [];
-            const protocolColumnIndex = 0;
+            const existingRows = response.data.values || []; // Inclui cabeçalho
+            const protocolColumnIndex = 0; // Índice da coluna 'Protocolo' (0-based)
             const protocolMap = new Map();
-            existingRows.slice(1).forEach((row, index) => {
-                const protocol = row[protocolColumnIndex];
-                if (protocol) protocolMap.set(String(protocol).trim(), { row: row, index: index + 2 });
-            });
-            console.log(`[BACKEND][cloud-sync][Caixa] Protocolos existentes (${sheetName}):`, Array.from(protocolMap.keys()));
 
-            const toAdd = [], toUpdate = [];
-            rows.forEach((newRow, rowIndex) => {
-                const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
-                const pExists = p ? protocolMap.has(p) : false;
-                console.log(`[BACKEND][cloud-sync][Caixa][ROW ${rowIndex + 1}] Verificando Proto: "${p}" | Existe? ${pExists}`);
-                if (pExists) {
-                    const existing = protocolMap.get(p);
-                    let hasChanged = false; /* ... compara campos ... */
-                    for (let i = 0; i < newRow.length; i++) {
-                        if ([0, 1, 2, 3, 4, 5, 16].includes(i)) { if (String(existing.row[i] || '').trim() !== String(newRow[i] ?? '').trim()) { hasChanged = true; break; } }
-                        else { if (Math.abs(parseSisfoCurrency(existing.row[i]) - (typeof newRow[i] === 'number' ? newRow[i] : parseSisfoCurrency(newRow[i]))) > 0.01) { hasChanged = true; break; } }
-                    }
-                    if (hasChanged) {
-                        console.log(`[BACKEND][cloud-sync][Caixa][ROW ${rowIndex + 1}] => DECISÃO: UPDATE`);
-                        toUpdate.push({ range: `${sheetName}!A${existing.index}`, values: [newRow] });
-                    } else {
-                        console.log(`[BACKEND][cloud-sync][Caixa][ROW ${rowIndex + 1}] => DECISÃO: SEM MUDANÇAS`);
-                    }
-                } else {
-                    console.log(`[BACKEND][cloud-sync][Caixa][ROW ${rowIndex + 1}] => DECISÃO: ADD`);
-                    toAdd.push(newRow);
+            existingRows.slice(1).forEach((row, arrayIndex) => {
+                 if (row && row.length > protocolColumnIndex && row[protocolColumnIndex]) {
+                   const protocol = String(row[protocolColumnIndex]).trim();
+                   if (protocol) {
+                       protocolMap.set(protocol, { row: row, index: arrayIndex + 2 });
+                   }
                 }
             });
+            console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] ${protocolMap.size} protocolos existentes mapeados a partir de ${existingRows.length - 1} linhas de dados.`);
+            // --- FIM LEITURA ÚNICA ---
+
+            const toAdd = [], toUpdate = [];
+            rows.forEach((newRow) => { // Não precisa mais de await
+                const p = newRow[protocolColumnIndex] ? String(newRow[protocolColumnIndex]).trim() : null;
+                const pExists = p ? protocolMap.has(p) : false;
+                console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Verificando Proto Recebido: "${p}" | Existe no Map? ${pExists}`);
+
+                if (pExists) {
+                    const existingInfo = protocolMap.get(p);
+                    const existingRow = existingInfo.row;
+                    const existingIndex = existingInfo.index;
+
+                    let hasChanged = false;
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][Proto "${p}"] Comparando com linha ${existingIndex}:`);
+                    // --- COMPARAÇÃO (sem alterações, mas usando existingRow do map) ---
+                    for (let i = 0; i < header.length; i++) {
+                        const existingValue = existingRow[i] ?? '';
+                        const newValue = newRow[i] ?? '';
+                        let comparisonChanged = false;
+                        if ([0, 1, 2, 3, 4, 5, 16].includes(i)) {
+                            comparisonChanged = String(existingValue).trim() !== String(newValue).trim();
+                        } else {
+                            const existingNum = parseSisfoCurrency(existingValue);
+                            const newNum = typeof newValue === 'number' ? newValue : parseSisfoCurrency(newValue);
+                            comparisonChanged = Math.abs(existingNum - newNum) > 0.01;
+                        }
+                        if (comparisonChanged) {
+                             console.log(`  => [COL ${i}-${header[i]}] DETECTADA MUDANÇA! Planilha: "${existingValue}" vs Recebido: "${newValue}"`);
+                            hasChanged = true;
+                            break;
+                        }
+                    }
+                    // --- FIM COMPARAÇÃO ---
+
+                    if (hasChanged) {
+                        console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][Proto "${p}"] => DECISÃO: UPDATE`);
+                        toUpdate.push({ range: `${sheetName}!A${existingIndex}`, values: [newRow] });
+                    } else {
+                        console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][Proto "${p}"] => DECISÃO: SEM MUDANÇAS`);
+                    }
+                } else {
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][Proto "${p}"] => DECISÃO: ADD`);
+                    toAdd.push(newRow);
+                }
+            }); // Fim do rows.forEach
+
+            console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Itens para adicionar: ${toAdd.length}, Itens para atualizar: ${toUpdate.length}`);
 
             if (toAdd.length > 0) {
+                 console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Executando append para ${toAdd.length} linhas...`);
                 const appendResult = await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
-                 // --- CONFIRMAÇÃO APPEND ---
                 if (!appendResult.data.updates || !appendResult.data.updates.updatedRows || appendResult.data.updates.updatedRows < toAdd.length) {
-                    console.error(`[BACKEND][cloud-sync][Caixa][CONFIRMATION FAIL] Append falhou ou incompleto. Esperado: ${toAdd.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
+                    console.error(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION FAIL] Append falhou. Esperado: ${toAdd.length}, Atualizado: ${appendResult.data.updates?.updatedRows}`);
                     writeConfirmationError = writeConfirmationError || `Falha ao confirmar append (Caixa) para ${sheetName}.`;
                 } else {
-                    console.log(`[BACKEND][cloud-sync][Caixa][CONFIRMATION OK] Append confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION OK] Append confirmado: ${appendResult.data.updates.updatedRows} linhas.`);
                     newC = toAdd.length;
                 }
             }
             if (toUpdate.length > 0) {
+                 console.log(`[BACKEND][cloud-sync][${eventName}][Caixa] Executando batchUpdate para ${toUpdate.length} linhas...`);
                 const batchUpdateResult = await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-                 // --- CONFIRMAÇÃO BATCH UPDATE ---
                 if (!batchUpdateResult.data || !batchUpdateResult.data.totalUpdatedRows || batchUpdateResult.data.totalUpdatedRows < toUpdate.length) {
-                    console.error(`[BACKEND][cloud-sync][Caixa][CONFIRMATION FAIL] BatchUpdate falhou ou incompleto. Esperado: ${toUpdate.length}, Atualizado: ${batchUpdateResult.data?.totalUpdatedRows}`);
+                    console.error(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION FAIL] BatchUpdate falhou. Esperado: ${toUpdate.length}, Atualizado: ${batchUpdateResult.data?.totalUpdatedRows}`);
                     writeConfirmationError = writeConfirmationError || `Falha ao confirmar update (Caixa) para ${sheetName}.`;
                 } else {
-                    console.log(`[BACKEND][cloud-sync][Caixa][CONFIRMATION OK] BatchUpdate confirmado: ${batchUpdateResult.data.totalUpdatedRows} linhas.`);
+                    console.log(`[BACKEND][cloud-sync][${eventName}][Caixa][CONFIRMATION OK] BatchUpdate confirmado: ${batchUpdateResult.data.totalUpdatedRows} linhas.`);
                     updatedC = toUpdate.length;
                 }
             }
-        }
+        } // Fim do else (aba já existe)
     } // Fim Caixas
 
     // Lança erro se a confirmação de escrita de Caixa falhou
     if (writeConfirmationError) throw new Error(writeConfirmationError);
 
-    console.log(`[BACKEND][cloud-sync] Finalizado com SUCESSO para ${eventName}. Resultado:`, { newW, updatedW, newC, updatedC });
+    console.log(`[BACKEND][cloud-sync][${eventName}] === SYNC FINALIZADO === Resultado:`, { newW, updatedW, newC, updatedC });
     res.status(200).json({ newWaiters: newW, updatedWaiters: updatedW, newCashiers: newC, updatedCashiers: updatedC });
 
   } catch (error) {
     // Se writeConfirmationError foi definido OU ocorreu outro erro
-    console.error(`[BACKEND][cloud-sync] Erro durante o processamento para ${eventName}:`, error);
-    res.status(500).json({ message: writeConfirmationError || 'Erro interno do servidor ao salvar na nuvem.' });
+    console.error(`[BACKEND][cloud-sync][${eventName}] Erro durante o processamento:`, error); // Log de Erro com nome do evento
+    res.status(500).json({ message: writeConfirmationError || `Erro interno do servidor ao salvar na nuvem para ${eventName}.` });
+  } finally {
+      // --- LIBERA O BLOQUEIO ---
+      syncingEvents.delete(eventName);
+      console.log(`[BACKEND][cloud-sync][${eventName}] === LOCK LIBERADO ===`);
+      // --- FIM LIBERA O BLOQUEIO ---
   }
 });
-
-// ... (Resto das rotas: /api/online-history, /api/export-online-data, /api/reconcile-yuzer) ...
-// ... (Inicialização condicional) ...
-module.exports = app;
-
-if (!isRunningInElectron) {
-  // ... (código listen) ...
-} else {
-  console.log('Servidor Express pronto para ser iniciado pelo Electron.');
-}
 
 // --- ROTA DE HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => { //
@@ -472,7 +471,7 @@ app.post('/api/online-history', async (req, res) => { //
             const [header, ...rows] = waiterResult.value.data.values; //
             if (header && rows.length > 0) { //
                 const data = rows.map(row => { //
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]])); //
+                    const rowObj = Object.fromEntries(header.map((key, i) => [String(key || '').trim(), row[i]])); // Garante que key é string
                     const closingObject = { //
                         type: 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['Nome Garçom'], protocol: rowObj['Protocolo'], //
                         valorTotal: parseSisfoCurrency(rowObj['Venda Total']), //
@@ -480,10 +479,11 @@ app.post('/api/online-history', async (req, res) => { //
                         comissaoTotal: parseSisfoCurrency(rowObj['Comissão Total']), //
                         diferencaPagarReceber: parseSisfoCurrency(rowObj['Acerto']), //
                         credito: parseSisfoCurrency(rowObj['Crédito']), //
-                        debito: parseSisfoCurrency(rowObj['Débito']), // Corrigido de 'Délito'
+                        debito: parseSisfoCurrency(rowObj['Débito']), //
                         pix: parseSisfoCurrency(rowObj['Pix']), //
                         cashless: parseSisfoCurrency(rowObj['Cashless']), //
-                        numeroMaquina: rowObj['Nº Máquina'], operatorName: rowObj['Operador'], timestamp: rowObj['Data'], //
+                        numeroMaquina: rowObj['Nº Máquina'] || rowObj['Nº MAQUINA'], // Considera variações
+                        operatorName: rowObj['Operador'], timestamp: rowObj['Data'], //
                     };
                     closingObject.diferencaLabel = closingObject.diferencaPagarReceber >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom'; //
                     closingObject.diferencaPagarReceber = Math.abs(closingObject.diferencaPagarReceber); //
@@ -497,15 +497,15 @@ app.post('/api/online-history', async (req, res) => { //
             const [header, ...rows] = cashierResult.value.data.values; //
             if (header && rows.length > 0) { //
                 const data = rows.map(row => { //
-                    const rowObj = Object.fromEntries(header.map((key, i) => [key.trim(), row[i]])); //
+                    const rowObj = Object.fromEntries(header.map((key, i) => [String(key || '').trim(), row[i]])); // Garante que key é string
                     const type = rowObj['Tipo'] || ''; //
                     const protocol = rowObj['Protocolo'] || ''; //
                     const baseCashierObject = { //
                         protocol, eventName, operatorName: rowObj['Operador'], timestamp: rowObj['Data'], cpf: rowObj['CPF'], //
-                        cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'], //
+                        cashierName: rowObj['Nome do Caixa'], numeroMaquina: rowObj['Nº Máquina'] || rowObj['Nº MAQUINA'], // Considera variações
                         valorTotalVenda: parseSisfoCurrency(rowObj['Venda Total']), //
                         credito: parseSisfoCurrency(rowObj['Crédito']), //
-                        debito: parseSisfoCurrency(rowObj['Débito']), // Corrigido de 'Délito'
+                        debito: parseSisfoCurrency(rowObj['Débito']), //
                         pix: parseSisfoCurrency(rowObj['Pix']), //
                         cashless: parseSisfoCurrency(rowObj['Cashless']), //
                         valorTroco: parseSisfoCurrency(rowObj['Troco']), //
@@ -517,35 +517,25 @@ app.post('/api/online-history', async (req, res) => { //
                     baseCashierObject.temEstorno = baseCashierObject.valorEstorno > 0; //
 
                     if (type === 'Fixo') { //
-                        // Adiciona identificador para caixa fixo individual vindo da nuvem
-                        return { ...baseCashierObject, type: 'individual_fixed_cashier', groupProtocol: protocol.substring(0, protocol.lastIndexOf('-')) }; //
+                        return { ...baseCashierObject, type: 'individual_fixed_cashier', groupProtocol: protocol.includes('-') ? protocol.substring(0, protocol.lastIndexOf('-')) : protocol }; // Ajuste para pegar grupo
                     } else {
-                        // Caixa Móvel mantém o type 'cashier'
                         return { ...baseCashierObject, type: 'cashier' }; //
                     }
                 }).filter(Boolean); //
                 allClosings.push(...data); //
             }
         }
-        
-        // --- INÍCIO DA MODIFICAÇÃO (PASSO 3.2) ---
-        // Substituído o bloco de formatação de data
+
+        // Formatação de data (prioriza ISO, fallback pt-BR com vírgula opcional)
         allClosings.forEach(closing => { //
             const dateString = closing.timestamp; //
-            let finalDate = new Date(0); // Data padrão inválida
-            
+            let finalDate = new Date(0); //
             if (dateString && typeof dateString === 'string') { //
-                
-                // Tenta parsear como ISO string PRIMEIRO (que é o novo padrão)
                 let parsedDate = new Date(dateString); //
-                
-                // Verifica se o parse ISO foi válido (datas válidas serão > 2000)
-                if (!isNaN(parsedDate) && parsedDate.getFullYear() > 2000) {
+                if (!isNaN(parsedDate) && parsedDate.getFullYear() > 2000) { // Tenta ISO primeiro
                     finalDate = parsedDate;
-                } else {
-                    // Tenta o formato legado "DD/MM/YYYY HH:MM:SS" (fallback)
-                    // Adicionada a vírgula opcional (,) na RegEx
-                    const matchBr = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s(\d{1,2}):(\d{1,2}):(\d{1,2})$/); //
+                } else { // Fallback pt-BR
+                    const matchBr = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s(\d{1,2}):(\d{1,2}):(\d{1,2})$/); // Vírgula opcional
                     if (matchBr) {
                         const [, day, month, year, hour, minute, second] = matchBr;
                         const isoDateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`; //
@@ -554,9 +544,8 @@ app.post('/api/online-history', async (req, res) => { //
                     }
                 }
             }
-            closing.timestamp = finalDate.toISOString(); // Converte para ISO string
+            closing.timestamp = finalDate.toISOString(); //
         });
-        // --- FIM DA MODIFICAÇÃO (PASSO 3.2) ---
 
         if (allClosings.length === 0) { //
             return res.status(404).json({ message: `Nenhum fechamento (garçom ou caixa) foi encontrado para o evento "${eventName}" na nuvem.` }); //
@@ -584,61 +573,61 @@ app.post('/api/export-online-data', async (req, res) => { //
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Garçons - ${eventName}` }); //
       if (response.data.values && response.data.values.length > 1) { //
           const header = response.data.values[0].map(h => String(h).trim().toUpperCase()); //
-          // Mapeamento robusto de colunas
-          const idxData = header.indexOf('DATA'); //
-          const idxProtocolo = header.indexOf('PROTOCOLO'); //
-          const idxCpf = header.indexOf('CPF'); //
-          const idxNome = header.indexOf('NOME GARÇOM'); //
-          const idxMaquina = header.findIndex(h => h === 'Nº MÁQUINA' || h === 'Nº MAQUINA'); //
-          const idxVendaTotal = header.findIndex(h => h === 'VENDA TOTAL' || h === 'VALOR TOTAL VENDA'); //
-          const idxCredito = header.indexOf('CRÉDITO'); //
-          const idxDebito = header.indexOf('DÉBITO'); //
-          const idxPix = header.indexOf('PIX'); //
-          const idxCashless = header.indexOf('CASHLESS'); //
-          const idxEstorno = header.indexOf('DEVOLUÇÃO/ESTORNO'); //
-          const idxComissao = header.indexOf('COMISSÃO TOTAL'); //
-          const idxAcerto = header.indexOf('ACERTO'); //
-          const idxOperador = header.indexOf('OPERADOR'); //
+          // Mapeamento robusto de colunas (com fallbacks para nomes comuns)
+          const findIndex = (headers, possibleNames) => headers.findIndex(h => possibleNames.includes(h));
+          const idxData = findIndex(header, ['DATA']); //
+          const idxProtocolo = findIndex(header, ['PROTOCOLO']); //
+          const idxCpf = findIndex(header, ['CPF']); //
+          const idxNome = findIndex(header, ['NOME GARÇOM', 'GARÇOM']); //
+          const idxMaquina = findIndex(header, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']); //
+          const idxVendaTotal = findIndex(header, ['VENDA TOTAL', 'VALOR TOTAL VENDA', 'TOTAL']); //
+          const idxCredito = findIndex(header, ['CRÉDITO', 'CREDITO']); //
+          const idxDebito = findIndex(header, ['DÉBITO', 'DEBITO']); //
+          const idxPix = findIndex(header, ['PIX']); //
+          const idxCashless = findIndex(header, ['CASHLESS']); //
+          const idxEstorno = findIndex(header, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUÇÃO ESTORNO', 'DEVOLUCAO/ESTORNO', 'DEVOLUCAO ESTORNO']); //
+          const idxComissao = findIndex(header, ['COMISSÃO TOTAL', 'COMISSAO TOTAL']); //
+          const idxAcerto = findIndex(header, ['ACERTO']); //
+          const idxOperador = findIndex(header, ['OPERADOR']); //
           const rows = response.data.values.slice(1); //
 
           consolidatedWaiters = rows.map(row => { //
+              // Usar um objeto para facilitar a leitura e fallback
+              const getVal = (index) => (index !== -1 && row[index] !== undefined) ? row[index] : '';
               const rowData = { //
                   eventName: eventName, //
-                  'DATA': idxData !== -1 ? row[idxData] : '', //
-                  'PROTOCOLO': idxProtocolo !== -1 ? row[idxProtocolo] : '', //
-                  'CPF': idxCpf !== -1 ? row[idxCpf] : '', //
-                  'NOME GARÇOM': idxNome !== -1 ? row[idxNome] : '', //
-                  'Nº MAQUINA': idxMaquina !== -1 ? row[idxMaquina] : '', //
-                  'VALOR TOTAL VENDA': idxVendaTotal !== -1 ? row[idxVendaTotal] : '', //
-                  'CRÉDITO': idxCredito !== -1 ? row[idxCredito] : '', //
-                  'DÉBITO': idxDebito !== -1 ? row[idxDebito] : '', //
-                  'PIX': idxPix !== -1 ? row[idxPix] : '', //
-                  'CASHLESS': idxCashless !== -1 ? row[idxCashless] : '', //
-                  'DEVOLUÇÃO ESTORNO': idxEstorno !== -1 ? row[idxEstorno] : '', //
-                  'COMISSÃO TOTAL': idxComissao !== -1 ? row[idxComissao] : '', //
-                  'ACERTO': idxAcerto !== -1 ? row[idxAcerto] : '', //
-                  'OPERADOR': idxOperador !== -1 ? row[idxOperador] : '' //
+                  'DATA': getVal(idxData),
+                  'PROTOCOLO': getVal(idxProtocolo),
+                  'CPF': getVal(idxCpf),
+                  'NOME GARÇOM': getVal(idxNome),
+                  'Nº MAQUINA': getVal(idxMaquina),
+                  'VALOR TOTAL VENDA': getVal(idxVendaTotal),
+                  'CRÉDITO': getVal(idxCredito),
+                  'DÉBITO': getVal(idxDebito),
+                  'PIX': getVal(idxPix),
+                  'CASHLESS': getVal(idxCashless),
+                  'DEVOLUÇÃO ESTORNO': getVal(idxEstorno),
+                  'COMISSÃO TOTAL': getVal(idxComissao),
+                  'ACERTO': getVal(idxAcerto),
+                  'OPERADOR': getVal(idxOperador)
               };
-              // Garante que todas as chaves esperadas existam com valor vazio se não encontradas
-              Object.keys(rowData).forEach(key => { if (rowData[key] === undefined) { rowData[key] = ''; } }); //
               return rowData; //
           });
       }
-    } catch (e) { console.log(`Aba de Garçons para o evento "${eventName}" não encontrada ou erro ao ler. Continuando...`); } //
+    } catch (e) { console.log(`Aba de Garçons para o evento "${eventName}" não encontrada ou erro ao ler. Continuando...`, e.message); } // Log do erro
 
     // --- SEÇÃO DE CAIXAS ---
     try {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `Caixas - ${eventName}` }); //
       if (response.data.values && response.data.values.length > 1) { //
-          const header = response.data.values[0].map(h => String(h).trim().toUpperCase()); // Padroniza header para maiúsculas
+          const header = response.data.values[0].map(h => String(h).trim().toUpperCase()); // Padroniza header
           consolidatedCashiers = response.data.values.slice(1).map(row => { //
               const rowData = { eventName }; //
-              // Mapeia usando o header padronizado
-              header.forEach((key, index) => { rowData[key] = row[index] || ''; }); //
+              header.forEach((key, index) => { rowData[key] = row[index] || ''; }); // Mapeia direto
               return rowData; //
           });
       }
-    } catch (e) { console.log(`Aba de Caixas para o evento "${eventName}" não encontrada ou erro ao ler. Continuando...`); } //
+    } catch (e) { console.log(`Aba de Caixas para o evento "${eventName}" não encontrada ou erro ao ler. Continuando...`, e.message); } // Log do erro
 
     if (consolidatedWaiters.length === 0 && consolidatedCashiers.length === 0) { //
         return res.status(404).json({ message: 'Nenhum dado encontrado para este evento na nuvem.' }); //
@@ -662,36 +651,32 @@ app.post('/api/reconcile-yuzer', async (req, res) => { //
     const waiterSheetName = `Garçons - ${eventName}`; //
     const cashierSheetName = `Caixas - ${eventName}`; //
     let sisfoData = new Map(); //
-    // Função para extrair os últimos 8 dígitos numéricos
     const getLast8Digits = (serial) => { //
         if (!serial) return ''; //
         const digitsOnly = String(serial).replace(/\D/g, ''); //
         return digitsOnly.slice(-8); //
     };
 
-    // --- processSheet AGORA USA normalizeToCentavos ---
     const processSheet = (response, isWaiterSheet) => { //
         if (!response.data.values || response.data.values.length < 2) return; //
         const [header, ...rows] = response.data.values; //
-        // Mapeamento robusto de colunas
-        const cpfIndex = header.findIndex(h => h.toUpperCase() === 'CPF'); //
-        const nameIndex = header.findIndex(h => isWaiterSheet ? h.toUpperCase() === 'NOME GARÇOM' : h.toUpperCase() === 'NOME DO CAIXA'); //
-        const machineIndex = header.findIndex(h => h.toUpperCase() === 'Nº MAQUINA' || h.toUpperCase() === 'Nº MÁQUINA'); //
-        const totalIndex = header.findIndex(h => h.toUpperCase() === 'VENDA TOTAL' || h.toUpperCase() === 'VALOR TOTAL VENDA'); //
-        const creditIndex = header.findIndex(h => h.toUpperCase() === 'CRÉDITO'); //
-        const debitIndex = header.findIndex(h => h.toUpperCase() === 'DÉBITO'); //
-        const pixIndex = header.findIndex(h => h.toUpperCase() === 'PIX'); //
-        const cashlessIndex = header.findIndex(h => h.toUpperCase() === 'CASHLESS'); //
+        const findIndex = (headers, possibleNames) => headers.findIndex(h => possibleNames.includes(h.toUpperCase()));
+        const cpfIndex = findIndex(header, ['CPF']); //
+        const nameIndex = findIndex(header, isWaiterSheet ? ['NOME GARÇOM', 'GARÇOM'] : ['NOME DO CAIXA', 'CAIXA']); //
+        const machineIndex = findIndex(header, ['Nº MAQUINA', 'Nº MÁQUINA', 'MAQUINA']); //
+        const totalIndex = findIndex(header, ['VENDA TOTAL', 'VALOR TOTAL VENDA', 'TOTAL']); //
+        const creditIndex = findIndex(header, ['CRÉDITO', 'CREDITO']); //
+        const debitIndex = findIndex(header, ['DÉBITO', 'DEBITO']); //
+        const pixIndex = findIndex(header, ['PIX']); //
+        const cashlessIndex = findIndex(header, ['CASHLESS']); //
         if (cpfIndex === -1 || nameIndex === -1 || machineIndex === -1) { //
-            console.warn(`[RECONCILE] Cabeçalhos essenciais (CPF, Nome, Máquina) não encontrados na aba ${isWaiterSheet ? 'Garçons' : 'Caixas'}.`); //
+            console.warn(`[RECONCILE] Cabeçalhos essenciais (CPF, Nome, Máquina) não encontrados na aba ${isWaiterSheet ? 'Garçons' : 'Caixas'}. Cabeçalhos encontrados: ${header.join(', ')}`); // Log aprimorado
             return; //
         }
         rows.forEach(row => { //
             const cpf = row[cpfIndex]?.replace(/\D/g, ''); //
             if (cpf) { //
                 if (!sisfoData.has(cpf)) { sisfoData.set(cpf, []); } //
-                // Aplica normalizeToCentavos aos valores lidos da planilha SisFO
-                // Todos os valores SisFO agora serão CENTAVOS
                 sisfoData.get(cpf).push({ //
                     name: row[nameIndex], //
                     machine: getLast8Digits(row[machineIndex]), //
@@ -704,47 +689,41 @@ app.post('/api/reconcile-yuzer', async (req, res) => { //
             }
         });
     };
-    // --- FIM DO processSheet ATUALIZADO ---
 
-    // Lê dados do SisFO (Google Sheets)
     try {
         const [waiterRes, cashierRes] = await Promise.allSettled([ //
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${waiterSheetName}!A:Z` }), //
             googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${cashierSheetName}!A:Z` }) //
         ]);
         if (waiterRes.status === 'fulfilled') processSheet(waiterRes.value, true); //
+         else if (waiterRes.reason?.response?.status !== 400) console.error("[RECONCILE] Erro ao ler aba Garçons:", waiterRes.reason); // Loga erro se não for 'Range not found'
         if (cashierRes.status === 'fulfilled') processSheet(cashierRes.value, false); //
-    } catch (e) { console.log(`Abas SisFO para o evento "${eventName}" não encontradas ou erro ao ler.`); } //
+         else if (cashierRes.reason?.response?.status !== 400) console.error("[RECONCILE] Erro ao ler aba Caixas:", cashierRes.reason); // Loga erro
+    } catch (e) { console.log(`Erro geral ao ler abas SisFO para o evento "${eventName}".`); } //
 
     console.log(`\n--- INICIANDO CONCILIAÇÃO POR 8 DÍGITOS DA MÁQUINA PARA: ${eventName} ---`); //
     console.log(`${sisfoData.size} CPFs distintos carregados do SisFO.`); //
     let divergences = [], totemsFound = 0, recordsCompared = 0, unmatchedYuzerRecords = 0; //
 
-    // Processa dados do Yuzer (recebidos no req.body)
     yuzerData.forEach((yuzerRow) => { //
-      // Ignora totens/PDVs
       const operator = yuzerRow['Operador de Caixa']; //
       if (operator && String(operator).toLowerCase().includes('pdv')) { totemsFound++; return; } //
-      // Extrai CPF e Serial
       const cpf = String(yuzerRow['CPF'] || '').replace(/\D/g, ''); //
       const serial = yuzerRow['Serial']; //
       if (!cpf || !serial) { //
-          console.log(`[RECONCILE] Linha Yuzer ignorada: CPF ou Serial ausente. Operador: ${operator || 'N/A'}`); //
+          console.log(`[RECONCILE] Linha Yuzer ignorada: CPF ou Serial ausente. Operador: ${operator || 'N/A'}, Linha: ${JSON.stringify(yuzerRow)}`); // Log aprimorado
           return; //
       }
-      // Extrai chave da máquina (últimos 8 dígitos)
       const machineKey = getLast8Digits(serial); //
       if (!machineKey) { //
-          console.log(`[RECONCILE] Linha Yuzer ignorada: Não foi possível extrair 8 dígitos da máquina. Serial: ${serial}`); //
+          console.log(`[RECONCILE] Linha Yuzer ignorada: Não foi possível extrair 8 dígitos da máquina. Serial: ${serial}, Linha: ${JSON.stringify(yuzerRow)}`); // Log aprimorado
           return; //
       }
-      // Verifica se CPF existe nos dados SisFO
       if (!sisfoData.has(cpf)) { //
           unmatchedYuzerRecords++; //
           console.log(`[RECONCILE] CPF ${cpf} (Máquina ${machineKey}) do Yuzer não encontrado no SisFO.`); //
           return; //
       }
-      // Procura registro SisFO com a mesma chave de máquina
       const sisfoRecordsForCpf = sisfoData.get(cpf); //
       const recordIndex = sisfoRecordsForCpf.findIndex(rec => rec.machine === machineKey); //
       if (recordIndex === -1) { //
@@ -753,11 +732,8 @@ app.post('/api/reconcile-yuzer', async (req, res) => { //
         return; //
       }
       recordsCompared++; //
-      const sisfoRecord = sisfoRecordsForCpf[recordIndex]; // sisfoRecord.credit é CENTAVOS
+      const sisfoRecord = sisfoRecordsForCpf[recordIndex]; //
 
-      // --- CRIAÇÃO DO yuzerRecord (NORMALIZADO PARA CENTAVOS) ---
-      // Aplica normalizeToCentavos aos valores do Yuzer
-      // Todos os valores Yuzer agora serão CENTAVOS
       const yuzerRecord = { //
         total: normalizeToCentavos(yuzerRow['Total']), //
         credit: normalizeToCentavos(yuzerRow['Crédito']), //
@@ -765,46 +741,37 @@ app.post('/api/reconcile-yuzer', async (req, res) => { //
         pix: normalizeToCentavos(yuzerRow['Pix']), //
         cashless: normalizeToCentavos(yuzerRow['Cashless']) //
       };
-      // --- FIM DA CRIAÇÃO ---
 
       console.log(`--> COMPARANDO CPF: ${cpf}, CHAVE MÁQUINA: ${machineKey}`); //
-      console.log("    DADOS YUZER (em CENTAVOS) ->", JSON.stringify(yuzerRecord)); // Log corrigido
-      console.log("    DADOS SISFO (em CENTAVOS) ->", JSON.stringify(sisfoRecord)); // Log corrigido
+      console.log("    DADOS YUZER (em CENTAVOS) ->", JSON.stringify(yuzerRecord)); //
+      console.log("    DADOS SISFO (em CENTAVOS) ->", JSON.stringify(sisfoRecord)); //
 
-      // Função para comparar valores em CENTAVOS e registrar divergências em REAIS
       const checkDiff = (field, yuzerVal_centavos, sisfoVal_centavos) => { //
-        // A comparação agora é entre CENTAVOS (yuzerVal) e CENTAVOS (sisfoVal)
-        if (Math.abs(yuzerVal_centavos - sisfoVal_centavos) > 0.01) { // Usa 0.01 para comparar centavos
-          // Arredonda para o centavo mais próximo e divide por 100 para o log/relatório
+        if (Math.abs(yuzerVal_centavos - sisfoVal_centavos) > 0.01) { //
           const yuzerLog = (Math.round(yuzerVal_centavos) / 100).toFixed(2); //
           const sisfoLog = (Math.round(sisfoVal_centavos) / 100).toFixed(2); //
-
           console.log(`    !!! DIVERGÊNCIA [${field}]: Yuzer=${yuzerLog}, SisFO=${sisfoLog}`); //
-          // Reporta os valores em REAIS (dividindo por 100) para o usuário final
           divergences.push({ //
               name: sisfoRecord.name, //
               cpf, //
               machine: machineKey, //
               field, //
-              yuzerValue: yuzerLog, // Converte de volta para Reais para o Log
-              sisfoValue: sisfoLog  // Converte de volta para Reais para o Log
+              yuzerValue: yuzerLog, //
+              sisfoValue: sisfoLog  //
             });
         }
       };
 
-      // Compara todos os campos relevantes
       checkDiff('Valor Total', yuzerRecord.total, sisfoRecord.total); //
       checkDiff('Crédito', yuzerRecord.credit, sisfoRecord.credit); //
       checkDiff('Débito', yuzerRecord.debit, sisfoRecord.debit); //
       checkDiff('PIX', yuzerRecord.pix, sisfoRecord.pix); //
       checkDiff('Cashless', yuzerRecord.cashless, sisfoRecord.cashless); //
 
-      // Remove o registro SisFO para não comparar novamente se houver múltiplas máquinas para o mesmo CPF
       sisfoRecordsForCpf.splice(recordIndex, 1); //
     });
 
     console.log("\n--- CONCILIAÇÃO FINALIZADA ---"); //
-    // Retorna o resultado da conciliação
     res.status(200).json({ //
       recordsCompared, //
       totemsFound, //
@@ -828,6 +795,5 @@ if (!isRunningInElectron) { //
     console.log(`Servidor backend (Render) rodando na porta ${PORT}`); //
   });
 } else {
-  // Se rodando no Electron, apenas exporta o app para o main.js
   console.log('Servidor Express pronto para ser iniciado pelo Electron.');
 }
