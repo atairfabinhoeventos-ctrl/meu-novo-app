@@ -1,37 +1,31 @@
-// src/services/apiService.js (VERSÃO CORRIGIDA - Adiciona 'synced: false')
-import { v4 as uuidv4 } from 'uuid'; // Verifica se a importação está correta
+// src/services/apiService.js
 
+// SUBSTITUA A FUNÇÃO getBaseProtocol INTEIRA POR ESTA:
 /**
- * Gera a PARTE BASE de um novo protocolo (Prefixo-5Digitos) ou retorna o protocolo existente.
- * Não adiciona o índice para Caixa Fixo aqui.
+ * Retorna o protocolo existente se for uma edição, ou gera um novo protocolo base.
  * @param {object} closingData - Os dados completos do fechamento.
- * @returns {string} - Um protocolo base ou o protocolo existente.
+ * @returns {string} - O protocolo base (existente ou novo).
  */
 const getBaseProtocol = (closingData) => {
-    // Se já existe um protocolo (edição), retorna ele sem alterar
+    // --- LÓGICA DE EDIÇÃO SIMPLIFICADA ---
     if (closingData.protocol) {
-        // Para edição de caixa fixo, retorna apenas a parte base (antes do último '-')
-        if (closingData.type === 'fixed_cashier' && closingData.protocol.includes('-')) {
-             const baseProto = closingData.protocol.substring(0, closingData.protocol.lastIndexOf('-'));
-             console.log(`[apiService][getBaseProtocol] Usando protocolo base existente (edição CXF): ${baseProto}`);
-             return baseProto;
-        }
-        console.log(`[apiService][getBaseProtocol] Usando protocolo existente (edição): ${closingData.protocol}`);
+        // Se um protocolo já existe (modo edição), confia que é o protocolo BASE correto
+        // fornecido pela página de edição (ex: FixedCashierClosingPage já carrega o base).
+        console.log(`[apiService][getBaseProtocol] Modo Edição: Usando protocolo base fornecido: ${closingData.protocol}`);
         return closingData.protocol;
     }
+    // --- FIM DA LÓGICA DE EDIÇÃO ---
 
-    // Gera 5 caracteres únicos em maiúsculas
+    // Se não há protocolo, gera um novo
+    console.log(`[apiService][getBaseProtocol] Modo Novo Registro: Gerando novo protocolo base...`);
     const uniquePart = uuidv4().substring(0, 5).toUpperCase();
     let prefix = 'UNK-'; // Prefixo padrão
 
     if (closingData.type === 'waiter') {
-        //
         prefix = closingData.subType === '10_percent' ? 'G10-' : 'G8-';
     } else if (closingData.type === 'cashier') {
-        //
         prefix = 'CXM-'; // Caixa Móvel
     } else if (closingData.type === 'fixed_cashier') {
-        //
         prefix = 'CXF-'; // Caixa Fixo (BASE)
     }
 
@@ -44,37 +38,33 @@ const getBaseProtocol = (closingData) => {
     return result;
 };
 
-/**
- * Função centralizada para salvar qualquer tipo de fechamento no localStorage.
- * Adiciona índice ao protocolo para Caixa Fixo.
- */
+// A função saveToLocalStorage e as exportações permanecem as mesmas da versão anterior
+// (com a adição de 'synced: false')
 const saveToLocalStorage = (closingData) => {
     try {
-        const baseProtocol = getBaseProtocol(closingData); //
+        const baseProtocol = getBaseProtocol(closingData); // Agora usa a função simplificada acima
         console.log(`[apiService][saveToLocalStorage] Protocolo base determinado: ${baseProtocol}`); //
 
-        // Cria o objeto principal a ser salvo/atualizado
         const dataToSave = {
             ...closingData,
             protocol: baseProtocol, // O objeto principal usa o protocolo base
             timestamp: closingData.timestamp || new Date().toISOString(),
-            synced: false // <-- MODIFICAÇÃO (PASSO 1.1)
+            synced: false // Mantém a flag 'synced'
         };
 
         // --- LÓGICA ESPECIAL PARA CAIXA FIXO ---
         if (dataToSave.type === 'fixed_cashier' && Array.isArray(dataToSave.caixas)) { //
             dataToSave.caixas = dataToSave.caixas.map((caixa, index) => {
-                // Adiciona o protocolo indexado a cada caixa individual
-                const indexedProtocol = `${baseProtocol}-${index + 1}`; //
-                // ---> LOG DETALHADO <---
-                console.log(`[apiService][saveToLocalStorage] CXF Index ${index + 1}: Atribuindo protocolo "${indexedProtocol}" ao objeto caixa.`); //
+                // Adiciona ou preserva o protocolo indexado a cada caixa individual
+                // Se caixa.protocol já existe (edição), usa ele, senão gera um novo
+                const indexedProtocol = caixa.protocol || `${baseProtocol}-${index + 1}`;
+                console.log(`[apiService][saveToLocalStorage] CXF Index ${index + 1}: Atribuindo/Preservando protocolo "${indexedProtocol}" ao objeto caixa.`);
                 return {
                     ...caixa,
                     protocol: indexedProtocol // <-- PROTOCOLO INDIVIDUAL AQUI
                 };
             });
-             // ---> LOG APÓS O MAP <---
-            console.log('[apiService][saveToLocalStorage] Objeto CXF final antes de salvar (protocolos):', JSON.stringify(dataToSave.caixas.map(c => c.protocol))); //
+            console.log('[apiService][saveToLocalStorage] Objeto CXF final antes de salvar (protocolos):', JSON.stringify(dataToSave.caixas.map(c => c.protocol)));
         }
         // --- FIM DA LÓGICA ESPECIAL ---
 
@@ -89,8 +79,13 @@ const saveToLocalStorage = (closingData) => {
             console.log(`[apiService][saveToLocalStorage] Atualizando registro existente com protocolo base: ${baseProtocol}`); //
             allClosings[existingIndex] = dataToSave; // Substitui o objeto inteiro
         } else {
-            console.log(`[apiService][saveToLocalStorage] Adicionando novo registro com protocolo base: ${baseProtocol}`); //
-            allClosings.push(dataToSave); //
+            // Se findIndex falhou (-1), adiciona como novo (com log de aviso se era pra ser edição)
+            if (closingData.protocol) { // Verifica se veio um protocolo de edição
+                 console.warn(`[apiService][saveToLocalStorage] AVISO: Tentativa de edição para protocolo base ${baseProtocol}, mas não encontrado! Adicionando como novo registro.`);
+            } else {
+                console.log(`[apiService][saveToLocalStorage] Adicionando novo registro com protocolo base: ${baseProtocol}`); //
+            }
+            allClosings.push(dataToSave); // Adiciona
         }
 
         localStorage.setItem('localClosings', JSON.stringify(allClosings)); //
@@ -106,16 +101,13 @@ const saveToLocalStorage = (closingData) => {
     }
 };
 
-// Funções de exportação
+// Funções de exportação (sem alterações)
 export const saveWaiterClosing = (closingData) => {
-    // Importante: Garanta que o 'type' (e 'subType' se necessário) esteja no closingData
     return saveToLocalStorage(closingData); //
 };
 export const saveMobileCashierClosing = (closingData) => {
-    // Importante: Garanta que o 'type' ('cashier') esteja no closingData
     return saveToLocalStorage(closingData); //
 };
 export const saveFixedCashierClosing = (closingData) => {
-     // Importante: Garanta que o 'type' ('fixed_cashier') esteja no closingData
     return saveToLocalStorage(closingData); //
 };
