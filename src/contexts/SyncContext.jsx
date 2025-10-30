@@ -1,134 +1,95 @@
 // src/contexts/SyncContext.jsx
 
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
-import { 
-  backgroundDownloadMasterData, 
-  backgroundUploadPendingClosings, 
-  getAllLocalClosings 
-} from '../services/syncService'; //
+import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { backgroundDownloadMasterData } from '../services/syncService'; // Importa a função //
 
-export const SyncContext = createContext();
+export const SyncContext = createContext(null); //
 
-export const useSync = () => useContext(SyncContext);
+export function SyncProvider({ children }) { //
+  // 1. Status de UPLOAD (O que já tínhamos, só renomeado)
+  const [uploadStatus, setUploadStatus] = useState('live'); // 'live' ou 'pending' //
 
-export const SyncProvider = ({ children }) => {
-  const [isSyncingUpload, setIsSyncingUpload] = useState(false);
-  const [isSyncingDownload, setIsSyncingDownload] = useState(false);
-  const [masterDataTimestamp, setMasterDataTimestamp] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState('idle'); // 'idle', 'pending', 'synced'
+  // 2. Status de DOWNLOAD
+  const [downloadStatus, setDownloadStatus] = useState('synced'); // 'synced', 'syncing', 'offline' //
 
-  // --- CORREÇÃO 1 (TORNAR ESTÁVEL) ---
-  // Usamos o setter funcional (ex: setIsSyncingUpload(prevState => ...))
-  // para verificar o estado anterior sem precisar dele na lista de dependências.
-  // Isso impede que a função seja recriada e evita o loop infinito.
-  const triggerDownloadSync = useCallback(async () => {
-    let shouldRun = false;
-    setIsSyncingDownload(prevState => {
-      if (prevState) {
-        console.log('[SyncContext] Download já em andamento, pulando.');
-        shouldRun = false;
-        return prevState;
+  // Flag para evitar downloads múltiplos
+  const [isSyncingDownload, setIsSyncingDownload] = useState(false); //
+
+  // --- LÓGICA DE UPLOAD (Aguardando Rede) ---
+  // SUBSTITUA A FUNÇÃO checkUploadStatus POR ESTA:
+  const checkUploadStatus = useCallback(() => { //
+    try {
+      const localClosings = JSON.parse(localStorage.getItem('localClosings')) || []; //
+
+      // --- INÍCIO DA MODIFICAÇÃO (Passo 1) ---
+      // Verifica se existe ALGUM item que NÃO esteja sincronizado
+      const hasUnsyncedItems = localClosings.some(closing => closing.synced !== true);
+
+      if (hasUnsyncedItems) { //
+        console.log("[SyncContext] checkUploadStatus: Encontrados itens não sincronizados. Status: pending");
+        setUploadStatus('pending'); //
+      } else {
+        console.log("[SyncContext] checkUploadStatus: Nenhum item não sincronizado. Status: live");
+        setUploadStatus('live'); //
       }
-      console.log('[SyncContext] Iniciando download de dados mestre...');
-      shouldRun = true;
-      return true;
-    });
+      // --- FIM DA MODIFICAÇÃO (Passo 1) ---
 
-    if (!shouldRun) return;
+    } catch (e) {
+      console.error("[SyncContext] Erro ao verificar status de UPLOAD:", e); //
+      setUploadStatus('live'); // Define como 'live' em caso de erro //
+    }
+  }, []); //
+
+  // Verifica o status de UPLOAD ao carregar
+  useEffect(() => { //
+    checkUploadStatus(); //
+  }, [checkUploadStatus]); //
+
+  // Ouve por eventos de salvamento local OU sincronização para atualizar o status de UPLOAD
+  useEffect(() => { //
+    console.log("[SyncContext] Adicionando listener para localDataChanged");
+    window.addEventListener('localDataChanged', checkUploadStatus); //
+    return () => { //
+      console.log("[SyncContext] Removendo listener para localDataChanged");
+      window.removeEventListener('localDataChanged', checkUploadStatus); //
+    };
+  }, [checkUploadStatus]); //
+
+  // --- LÓGICA DE DOWNLOAD (Dados Sincronizados) ---
+  const triggerDownloadSync = useCallback(async () => { //
+    // Evita rodar duas vezes
+    if (isSyncingDownload) { //
+        console.log("[SyncContext] triggerDownloadSync ignorado: Download já em andamento.");
+        return;
+    }
+
+    setIsSyncingDownload(true); //
+    setDownloadStatus('syncing'); // Define como "Baixando..." //
+    console.log("[SyncContext] Iniciando download de dados mestre..."); //
 
     try {
-      await backgroundDownloadMasterData(); //
-      setMasterDataTimestamp(Date.now());
-      console.log('[SyncContext] Download de dados mestre concluído.');
+      await backgroundDownloadMasterData(); // Chama o serviço //
+      setDownloadStatus('synced'); // Sucesso! Define como "Sincronizado" //
+      console.log("[SyncContext] Download de dados mestre concluído."); //
     } catch (error) {
-      console.error('[SyncContext] Falha no download de dados mestre:', error);
-      // Re-lança o erro para o App.jsx (se ele estiver usando await) saber que falhou
-      throw error;
+      setDownloadStatus('offline'); // Falha! Define como "Offline/Erro" //
+      console.error("[SyncContext] Falha no download de dados mestre:", error); //
     } finally {
-      setIsSyncingDownload(false);
+      setIsSyncingDownload(false); // Libera para a próxima //
     }
-  }, []); // <-- Dependência VAZIA. A função agora é estável.
-  
-  // --- CORREÇÃO 2 (TORNAR ESTÁVEL) ---
-  const retryPendingUploads = useCallback(async () => {
-    let shouldRun = false;
-    setIsSyncingUpload(prevState => {
-      if (prevState) {
-        console.log('[SyncContext] Upload já em andamento, pulando.');
-        shouldRun = false;
-        return prevState;
-      }
-      shouldRun = true;
-      return true;
-    });
-
-    if (!shouldRun) return;
-    
-    console.log('[SyncContext] Verificando uploads pendentes...');
-    try {
-      // Passamos a função de callback 'checkUploadStatus'
-      const success = await backgroundUploadPendingClosings(checkUploadStatus); //
-      if (success) {
-        console.log('[SyncContext] Upload em background concluído com sucesso.');
-      }
-    } catch (error) {
-       console.error('[SyncContext] Falha no upload em background:', error);
-       // Re-lança o erro
-       throw error;
-    } finally {
-      setIsSyncingUpload(false);
-    }
-  }, []); // <-- Dependência VAZIA. A função agora é estável.
-  // --- FIM DAS CORREÇÕES ---
+  }, [isSyncingDownload]); //
 
 
-  const checkUploadStatus = useCallback(() => {
-    // Esta função checa o localStorage e define a cor da bolinha
-    console.log('[SyncContext] checkUploadStatus: Verificando status de upload local...');
-    const localClosings = getAllLocalClosings(); //
-    if (localClosings.length === 0) {
-      console.log('[SyncContext] checkUploadStatus: Nenhum item local. Status: idle');
-      setUploadStatus('idle'); //
-      return;
-    }
-    const hasUnsyncedItems = localClosings.some(item => !item.isSynced); //
-    if (hasUnsyncedItems) {
-      console.log('[SyncContext] checkUploadStatus: Encontrados itens não sincronizados. Status: pending');
-      setUploadStatus('pending'); //
-    } else {
-      console.log('[SyncContext] checkUploadStatus: Todos os itens estão sincronizados. Status: synced');
-      setUploadStatus('synced'); //
-    }
-  }, []);
+  // 3. Disponibiliza os DOIS status e a nova função
+  const value = useMemo(() => ({ //
+    uploadStatus, //
+    downloadStatus, //
+    triggerDownloadSync // Exporta a função para o App.jsx usar //
+  }), [uploadStatus, downloadStatus, triggerDownloadSync]); //
 
-  // Efeito para checar o status inicial e quando dados mudam
-  useEffect(() => {
-    checkUploadStatus();
-    
-    // Ouve o evento 'localDataChanged' que é disparado pelo (apiService)
-    const handleDataChange = () => {
-      console.log('[SyncContext] Evento localDataChanged detectado, verificando status...');
-      checkUploadStatus();
-    };
-    window.addEventListener('localDataChanged', handleDataChange);
-    
-    return () => {
-      window.removeEventListener('localDataChanged', handleDataChange);
-    };
-  }, [checkUploadStatus]);
-  
-
-  return (
-    <SyncContext.Provider value={{
-      isSyncingUpload,
-      isSyncingDownload,
-      masterDataTimestamp,
-      uploadStatus, //
-      triggerDownloadSync,
-      retryPendingUploads,
-      checkUploadStatus
-    }}>
-      {children}
+  return ( //
+    <SyncContext.Provider value={value}> {/* */}
+      {children} {/* */}
     </SyncContext.Provider>
   );
-};
+}
