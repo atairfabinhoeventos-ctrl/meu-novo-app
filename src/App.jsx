@@ -4,7 +4,7 @@ import React, { useEffect, useContext } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout.jsx'; //
 import { SyncContext } from './contexts/SyncContext.jsx'; //
-import { retryPendingUploads, backgroundDownloadMasterData } from './services/syncService'; // Importa ambas as funções //
+import { retryPendingUploads, backgroundDownloadMasterData } from './services/syncService'; //
 
 // Importando suas páginas
 import OperatorScreen from './pages/OperatorScreen.jsx'; //
@@ -48,26 +48,37 @@ export default function App() { //
     const SYNC_INTERVAL_MS = 300000; // 5 minutos (5 * 60 * 1000)
     let intervalId = null;
 
-    // Função que executa ambas as tarefas de sincronização
-    const runSyncTasks = () => {
+    // --- CORREÇÃO APLICADA AQUI (async/await) ---
+    // Transformamos a função em 'async' para poder usar 'await'
+    const runSyncTasks = async () => { //
       console.log("[App.jsx] Executando tarefas de sincronização...");
-      // 1. Dispara o download de dados mestre (usando a função do context)
-      if (triggerDownloadSync) {
-         console.log("[App.jsx] Disparando download de dados mestre...");
-         triggerDownloadSync(); //
-      } else {
-         // Fallback caso o triggerDownloadSync não esteja pronto (raro)
-         console.log("[App.jsx] triggerDownloadSync indisponível, tentando download direto...");
-         backgroundDownloadMasterData().catch(err => console.error("[App.jsx] Erro no download direto:", err));
+      
+      try {
+        // 1. Dispara o download de dados mestre (usando a função do context)
+        if (triggerDownloadSync) {
+            console.log("[App.jsx] Disparando download de dados mestre...");
+            // ADICIONADO 'await' para esperar o download terminar
+            await triggerDownloadSync(); //
+        } else {
+          // Fallback caso o triggerDownloadSync não esteja pronto (raro)
+            console.log("[App.jsx] triggerDownloadSync indisponível, tentando download direto...");
+            // ADICIONADO 'await' para esperar o download terminar
+            await backgroundDownloadMasterData().catch(err => console.error("[App.jsx] Erro no download direto:", err));
+        }
+
+        // 2. Dispara a verificação de uploads pendentes (SÓ DEPOIS QUE O DOWNLOAD TERMINAR)
+        console.log("[App.jsx] Iniciando verificador de uploads pendentes...");
+        // ADICIONADO 'await' (embora não seja 100% necessário aqui, é uma boa prática)
+        await retryPendingUploads(); //
+        
+      } catch (error) {
+          console.error("[App.jsx] Erro durante a execução sequencial das tarefas:", error);
       }
-
-      // 2. Dispara a verificação de uploads pendentes
-      console.log("[App.jsx] Iniciando verificador de uploads pendentes...");
-      retryPendingUploads(); //
     };
+    // --- FIM DA CORREÇÃO ---
 
-    // Executa as tarefas uma vez logo após um pequeno delay inicial (ex: 5 segundos)
-    const initialDelay = 15000; // 5 segundos
+    // Executa as tarefas uma vez logo após um delay (mantemos 10s para segurança)
+    const initialDelay = 10000; // 10 segundos (para garantir que o server.js iniciou)
     const initialTimeoutId = setTimeout(() => {
       runSyncTasks();
       // Inicia o intervalo *depois* da primeira execução
@@ -119,4 +130,4 @@ export default function App() { //
       </Routes> {/* */}
     </Router> //
   );
-} 
+}
