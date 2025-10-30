@@ -67,7 +67,7 @@ export default function App() { //
     };
 
     // Executa as tarefas uma vez logo após um pequeno delay inicial (ex: 5 segundos)
-    const initialDelay = 5000; // 5 segundos
+    const initialDelay = 15000; // 5 segundos
     const initialTimeoutId = setTimeout(() => {
       runSyncTasks();
       // Inicia o intervalo *depois* da primeira execução
