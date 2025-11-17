@@ -1,4 +1,4 @@
-// src/App.jsx (VERSÃO COM TIMER ÚNICO E CORRETO)
+// src/App.jsx (VERSÃO CORRIGIDA COM A ROTA ZIG)
 
 import React, { useEffect, useContext } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
@@ -21,6 +21,7 @@ import DataUpdatePage from './pages/DataUpdatePage.jsx'; //
 import WaiterClosingPage from './pages/WaiterClosingPage.jsx'; //
 import CloudSyncPage from './pages/CloudSyncPage.jsx'; //
 import AdminPage from './pages/AdminPage'; //
+import ZigCashlessClosingPage from './pages/ZigCashlessClosingPage.jsx'; // *** ADICIONADO ***
 
 
 // Componentes ProtectedRoute e EventSelectedRoute (sem alterações)
@@ -105,6 +106,7 @@ export default function App() { //
               <Route path="/financial-selection" element={<FinancialSelectionPage />} /> {/* */}
               <Route path="/waiter-closing-10" element={<WaiterClosing10Page />} /> {/* */}
               <Route path="/waiter-closing" element={<WaiterClosingPage />} /> {/* */}
+              <Route path="/zig-cashless-closing" element={<ZigCashlessClosingPage />} /> {/* *** ADICIONADO *** */}
               <Route path="/mobile-cashier-closing" element={<MobileCashierClosingPage />} /> {/* */}
               <Route path="/fixed-cashier-closing" element={<FixedCashierClosingPage />} /> {/* */}
               <Route path="/closing-history" element={<ClosingHistoryPage />} /> {/* */}
@@ -119,4 +121,4 @@ export default function App() { //
       </Routes> {/* */}
     </Router> //
   );
-} 
+}

@@ -1,8 +1,7 @@
-// src/pages/MobileCashierClosingPage.jsx (REMOVIDO O SYNC IMEDIATO)
+// src/pages/MobileCashierClosingPage.jsx (MODIFICADO PARA MODAL DE SUCESSO)
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
-// 1. REMOVIDO attemptBackgroundSync (deixada só a de funcionário)
 import { attemptBackgroundSyncNewPersonnel } from '../services/syncService'; 
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
@@ -11,6 +10,7 @@ import '../App.css';
 import './MobileCashierClosingPage.css';
 
 function useDebounce(value, delay) {
+  // ... (código do hook useDebounce sem alteração)
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
     const handler = setTimeout(() => { setDebouncedValue(value); }, delay);
@@ -25,6 +25,7 @@ function MobileCashierClosingPage() {
     const closingToEdit = state?.closingToEdit;
     
     const formRefs = {
+      // ... (código do formRefs sem alteração)
       cpf: useRef(null), numeroMaquina: useRef(null), valorTotalVenda: useRef(null),
       credito: useRef(null), debito: useRef(null), pix: useRef(null),
       cashless: useRef(null), dinheiroFisico: useRef(null), valorTroco: useRef(null),
@@ -57,8 +58,13 @@ function MobileCashierClosingPage() {
     const [registerModalVisible, setRegisterModalVisible] = useState(false);
     const [newCashierName, setNewCashierName] = useState('');
     const [protocol, setProtocol] = useState(null);
+    
+    // *** NOVO ESTADO ***
+    // Adicionado para controlar o conteúdo do modal (confirm, saving, success)
+    const [modalState, setModalState] = useState('confirm');
 
     useEffect(() => {
+      // ... (código do useEffect [closingToEdit] sem alteração)
         if (closingToEdit) {
             const cashierInfo = { name: closingToEdit.cashierName, cpf: closingToEdit.cpf };
             setSelectedCashier(cashierInfo);
@@ -82,6 +88,7 @@ function MobileCashierClosingPage() {
 
 
     const debouncedValorTotal = useDebounce(valorTotalVenda, 500);
+    // ... (código dos hooks useDebounce sem alteração)
     const debouncedValorTroco = useDebounce(valorTroco, 500);
     const debouncedCredito = useDebounce(credito, 500);
     const debouncedDebito = useDebounce(debito, 500);
@@ -91,6 +98,7 @@ function MobileCashierClosingPage() {
     const debouncedValorEstorno = useDebounce(valorEstorno, 500);
 
     const getNumericValue = (digits) => (parseInt(digits || '0', 10)) / 100;
+    // ... (código de handleCurrencyChange, useEffect (isLoading, localPersonnel, searchInput, calculations) sem alteração)
     const handleCurrencyChange = (setter, rawValue) => {
         const digitsOnly = String(rawValue).replace(/\D/g, '');
         setter(digitsOnly);
@@ -137,15 +145,17 @@ function MobileCashierClosingPage() {
         setValorAcerto(acertoCalculado);
         const dif = numDinheiroFisico - acertoCalculado;
         setDiferenca(dif);
-    }, [debouncedValorTotal, debouncedValorTroco, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedDinheiroFisico, temTroco, debouncedValorEstorno, temEstorno]);
+    }, [debouncedValorTotal, debouncedValorTroco, debouncedCredito, debito, pix, cashless, debouncedDinheiroFisico, temTroco, debouncedValorEstorno, temEstorno]);
     
     const handleSelectCashier = (cashier) => {
+      // ... (código do handleSelectCashier sem alteração)
         setSelectedCashier(cashier);
         setSearchInput(cashier.name);
         setFilteredPersonnel([]);
     };
 
     const handleRegisterNewCashier = () => {
+      // ... (código do handleRegisterNewCashier sem alteração)
         const cleanCpf = searchInput.replace(/\D/g, '');
         if (!newCashierName.trim()) { setAlertMessage('Por favor, insira o nome do novo funcionário.'); return; }
         const newCashier = { cpf: formatCpf(cleanCpf), name: newCashierName.trim() };
@@ -155,7 +165,6 @@ function MobileCashierClosingPage() {
         setPersonnelList(currentPersonnel);
         handleSelectCashier(newCashier);
         
-        // 2. CHAMAR A SINCRONIZAÇÃO DE NOVO FUNCIONÁRIO (ISSO ESTÁ MANTIDO)
         attemptBackgroundSyncNewPersonnel(newCashier);
 
         setRegisterModalVisible(false);
@@ -163,6 +172,7 @@ function MobileCashierClosingPage() {
         setAlertMessage(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
     };
     
+    // *** FUNÇÃO MODIFICADA ***
     const handleOpenConfirmation = () => {
         if (!selectedCashier || !numeroMaquina) {
             setAlertMessage('Por favor, selecione um funcionário e preencha o número da máquina.');
@@ -173,12 +183,55 @@ function MobileCashierClosingPage() {
             valorAcerto,
             dinheiroFisico: getNumericValue(dinheiroFisico),
             diferenca,
+            // Adiciona dados que o modal de sucesso precisará
+            protocol: null, 
         });
+        // Garante que o modal sempre abra na tela de confirmação
+        setModalState('confirm'); 
         setModalVisible(true);
     };
 
+    // *** NOVA FUNÇÃO ***
+    // Adicionada para limpar o formulário
+    const resetForm = () => {
+        setSelectedCashier(null);
+        setSearchInput('');
+        setNumeroMaquina('');
+        setTemTroco(false);
+        setValorTroco('');
+        setTemEstorno(false);
+        setValorEstorno('');
+        setValorTotalVenda('');
+        setCredito('');
+        setDebito('');
+        setPix('');
+        setCashless('');
+        setDinheiroFisico('');
+        setValorAcerto(0);
+        setDiferenca(0);
+        setDataToConfirm(null);
+        setProtocol(null); 
+    };
+
+    // *** NOVAS FUNÇÕES ***
+    // Adicionadas para os botões do modal de sucesso
+    const handleRegisterNew = () => {
+        setModalVisible(false);
+        resetForm();
+    };
+
+    const handleBackToMenu = () => {
+        // Ajuste esta rota se for diferente (ex: /home ou /)
+        navigate('/financial-selection'); 
+    };
+
+
+    // *** FUNÇÃO MODIFICADA ***
+    // Lógica de salvamento alterada para usar o modalState
     const handleFinalSave = async () => {
         setIsSaving(true);
+        setModalState('saving'); // Mostra o spinner no modal
+        
         try {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
@@ -199,35 +252,34 @@ function MobileCashierClosingPage() {
                 timestamp: closingToEdit?.timestamp
             };
             
-            // 1. Salva localmente
             const response = await saveMobileCashierClosing(closingData);
             const savedData = response.data;
 
-            // 2. Mostra a mensagem de sucesso e prepara para redirecionar
-            setAlertMessage(`Fechamento salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
-            setTimeout(() => navigate('/closing-history'), 2000);
-
-            // 3. LINHA REMOVIDA:
-            // attemptBackgroundSync(savedData);
-            // O salvamento local em apiService.js já dispara o evento
-            // e o poller em App.jsx cuidará do upload.
+            // Atualiza os dados para o modal de sucesso (com o protocolo)
+            setDataToConfirm(savedData);
+            // Muda para a tela de sucesso
+            setModalState('success');
 
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
             setAlertMessage('Ocorreu um erro ao salvar o fechamento localmente.');
+            // Em caso de erro, fecha o modal e mostra o alerta
+            setModalVisible(false); 
         } finally {
-            setIsSaving(false);
-            setModalVisible(false);
+            // Para o spinner do botão, mas o modal continua visível (se sucesso)
+            setIsSaving(false); 
         }
     };
 
     const getDiferencaColor = (diff) => {
+      // ... (código da função sem alteração)
         if (diff < 0) return 'red';
         if (diff > 0) return 'green';
         return 'blue';
     };
 
     const handleKeyDown = (e, nextField) => {
+      // ... (código da função sem alteração)
       if (e.key === 'Enter') {
         e.preventDefault();
         if (formRefs[nextField] && formRefs[nextField].current) {
@@ -237,6 +289,7 @@ function MobileCashierClosingPage() {
     };
 
     if (isLoading && !closingToEdit) {
+      // ... (código do spinner inicial sem alteração)
         return <LoadingSpinner message="Carregando formulário..." />;
     }
 
@@ -244,6 +297,7 @@ function MobileCashierClosingPage() {
         <div className="app-container">
             <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
             <div className="login-form form-scrollable" style={{ maxWidth: '800px' }}>
+                {/* ... (Todo o JSX do formulário, inputs, etc. permanece O MESMO) ... */}
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>{closingToEdit ? 'Editar Fechamento de Caixa Móvel' : 'Fechamento Caixa Móvel'}</h1>
                 
@@ -336,31 +390,68 @@ function MobileCashierClosingPage() {
                         {isSaving ? 'Salvando...' : 'SALVAR E FINALIZAR'}
                     </button>
                 </div>
+
             </div>
             
+            {/* *** TODO O BLOCO DO MODAL FOI SUBSTITUÍDO *** */}
             {modalVisible && (
                 <div className="modal-overlay">
                     <div className="modal-content">
-                         <h2>Confirmar Fechamento</h2>
-                        {dataToConfirm && (
+                        
+                        {/* ESTADO DE CONFIRMAÇÃO (O que já existia) */}
+                        {modalState === 'confirm' && (
                             <>
-                                <p><strong>Caixa:</strong> {dataToConfirm.cashierName}</p>
-                                <hr/>
-                                <p>Dinheiro a Apresentar: <strong>{formatCurrencyResult(dataToConfirm.valorAcerto)}</strong></p>
-                                <p>Dinheiro Contado: <strong>{formatCurrencyResult(dataToConfirm.dinheiroFisico)}</strong></p>
-                                <hr/>
-                                <p className="total-text">Diferença: <strong style={{color: getDiferencaColor(dataToConfirm.diferenca)}}>{formatCurrencyResult(dataToConfirm.diferenca)}</strong></p>
+                                <h2>Confirmar Fechamento</h2>
+                                {dataToConfirm && (
+                                    <>
+                                        <p><strong>Caixa:</strong> {dataToConfirm.cashierName}</p>
+                                        <hr/>
+                                        <p>Dinheiro a Apresentar: <strong>{formatCurrencyResult(dataToConfirm.valorAcerto)}</strong></p>
+                                        <p>Dinheiro Contado: <strong>{formatCurrencyResult(dataToConfirm.dinheiroFisico)}</strong></p>
+                                        <hr/>
+                                        <p className="total-text">Diferença: <strong style={{color: getDiferencaColor(dataToConfirm.diferenca)}}>{formatCurrencyResult(dataToConfirm.diferenca)}</strong></p>
+                                    </>
+                                )}
+                                <div className="modal-buttons">
+                                    <button className="cancel-button" onClick={() => setModalVisible(false)}>Cancelar</button>
+                                    <button className="login-button" onClick={handleFinalSave} disabled={isSaving}>
+                                        {isSaving ? "Salvando..." : "Confirmar"}
+                                    </button>
+                                </div>
                             </>
                         )}
-                        <div className="modal-buttons">
-                            <button className="cancel-button" onClick={() => setModalVisible(false)}>Cancelar</button>
-                            <button className="login-button" onClick={handleFinalSave} disabled={isSaving}>
-                                {isSaving ? "Salvando..." : "Confirmar"}
-                            </button>
-                        </div>
+                        
+                        {/* (NOVO) ESTADO 'SALVANDO' (copiado do garçom) */}
+                        {modalState === 'saving' && (
+                            <>
+                                <div className="spinner"></div>
+                                <p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p>
+                            </>
+                        )}
+
+                        {/* (NOVO) ESTADO 'SUCESSO' (copiado do garçom) */}
+                        {modalState === 'success' && (
+                            <>
+                                <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
+                                <h2>Fechamento Salvo com Sucesso!</h2>
+                                <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
+                                <div className="modal-buttons">
+                                    <button className="modal-button primary" onClick={handleRegisterNew}>
+                                        <span className="button-icon">➕</span>
+                                        <span>Registrar Novo Fechamento</span>
+                                    </button>
+                                    <button className="modal-button secondary" onClick={handleBackToMenu}>
+                                        <span className="button-icon">📋</span>
+                                        <span>Voltar ao Menu Principal</span>
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
+
+            {/* O modal de registro de funcionário permanece sem alteração */}
             {registerModalVisible && (
                 <div className="modal-overlay">
                     <div className="modal-content">

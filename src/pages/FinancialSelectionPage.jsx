@@ -1,4 +1,4 @@
-// src/pages/FinancialSelectionPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
+// src/pages/FinancialSelectionPage.jsx (VERSÃO ATUALIZADA COM ÍCONE ZIG)
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -45,12 +45,8 @@ function FinancialSelectionPage() {
           title="Fechamento Garçom 8%"
           description="Lançamento de vendas e cálculo de comissão de 8%/4%."
         />
-        <Card
-          to="/waiter-closing-10"
-          icon="💼"
-          title="Fechamento Garçom 10%"
-          description="Lançamento com cálculo de comissão de 10%."
-        />
+
+        
         <Card
           to="/mobile-cashier-closing"
           icon="📱"
@@ -63,6 +59,22 @@ function FinancialSelectionPage() {
           title="Fechamento Caixa Fixo"
           description="Fechamento consolidado para caixas fixos em grupo."
         />
+        
+                <Card
+          to="/waiter-closing-10"
+          icon="💼"
+          title="Fechamento Garçom 10%"
+          description="Lançamento com cálculo de comissão de 10%."
+        />
+        
+        {/* *** ÍCONE ATUALIZADO AQUI *** */}
+        <Card
+          to="/zig-cashless-closing"
+          icon={<img src="/assets/zig-logo.png" alt="Zig Logo" />}
+          title="Fechamento ZIG Cash 8%"
+          description="Fechamento exclusivo para ZIG CASHLESS com comissão de 8% sobre os produtos."
+        />
+
          <Card
           to="/closing-history"
           icon="📊"

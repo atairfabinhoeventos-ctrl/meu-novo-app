@@ -1,4 +1,4 @@
-/* src/pages/FinancialSelectionPage.css */
+/* src/pages/FinancialSelectionPage.css (VERSÃO ATUALIZADA COM ESTILO DE IMAGEM) */
 
 .menu-container {
   display: flex;
@@ -56,9 +56,24 @@
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
 }
 
+/* --- REGRA MODIFICADA --- */
 .card-icon {
   font-size: 40px;
   margin-bottom: 15px;
+  /* Adicionado para garantir altura e alinhamento (para emoji e imagem) */
+  height: 40px; 
+  display: flex;
+  align-items: center;
+}
+
+/* --- REGRA ADICIONADA (Mantendo a sequência) --- */
+/* Garante que a imagem do logo se comporte como um ícone */
+.card-icon img {
+  height: 100%; /* Faz a altura da imagem preencher os 40px do container */
+  width: auto; /* Deixa a largura automática */
+  max-width: 100px; /* Limita a largura máxima caso a imagem seja larga */
+  object-fit: contain; /* Garante que a imagem caiba sem distorcer */
+  border-radius: 4px;
 }
 
 .card-title {

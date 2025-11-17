@@ -1,12 +1,9 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO FINAL CORRIGIDA - TROCO E API_URL)
+// src/pages/CloudSyncPage.jsx (VERSÃO ATUALIZADA PARA ZIG)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './CloudSyncPage.css';
 import FeedbackModal from '../components/FeedbackModal';
-import { API_URL } from '../config'; // 1. IMPORTA A URL DINÂMICA
-
-// 2. REMOVE A URL FIXA
-// const API_URL = 'http://localhost:3001';
+import { API_URL } from '../config'; 
 
 function CloudSyncPage() {
   const [activeEvent, setActiveEvent] = useState('');
@@ -41,9 +38,13 @@ function CloudSyncPage() {
         return;
       }
 
+      // --- MUDANÇA AQUI ---
+      // Filtra todos os tipos de garçom (waiter, waiter_10, waiter_zig)
       const waiterData = eventClosings
-        .filter(c => c.type === 'waiter')
+        .filter(c => c.type && c.type.startsWith('waiter'))
         .map(c => ({
+            // Adiciona o 'type' para o backend saber qual é
+            type: c.type, 
             timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
             protocol: c.protocol,
             cpf: c.cpf, 
@@ -53,12 +54,18 @@ function CloudSyncPage() {
             credito: c.credito,
             debito: c.debito,
             pix: c.pix,
-            cashless: c.cashless,
+            cashless: c.cashless || 0, // Garante 0 se for ZIG
+            // Adiciona o novo campo
+            valorTotalProdutos: c.valorTotalProdutos || 0, 
             valorEstorno: c.temEstorno ? c.valorEstorno : 0,
             comissaoTotal: c.comissaoTotal,
-            acerto: c.diferencaLabel === 'Pagar ao Garçom' ? -c.diferencaPagarReceber : c.diferencaPagarReceber,
+            // Envia o 'diferencaLabel' para o backend (que agora espera)
+            diferencaLabel: c.diferencaLabel, 
+            diferencaPagarReceber: c.diferencaPagarReceber,
+            // Lógica antiga de 'acerto' removida, pois o backend agora usa os 2 campos acima
             operatorName: c.operatorName
         }));
+      // --- FIM DA MUDANÇA ---
 
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas)) // Filtra Caixas Móveis E Grupos de Caixas Fixos
@@ -66,28 +73,30 @@ function CloudSyncPage() {
             // --- LÓGICA PARA GRUPO DE CAIXA FIXO ---
             if (Array.isArray(c.caixas)) {
                 return c.caixas.map((caixa, index) => { // 'caixa' é o sub-objeto de um caixa individual
-                    const acertoCaixa = (caixa.valorTotalVenda - (caixa.credito + caixa.debito + caixa.pix + caixa.cashless) - (caixa.temEstorno ? caixa.valorEstorno : 0));
+                    // Cálculo do acerto individual (sem troco)
+                    const acertoCaixa = (caixa.valorTotalVenda || 0) - ((caixa.credito || 0) + (caixa.debito || 0) + (caixa.pix || 0) + (caixa.cashless || 0)) - (caixa.temEstorno ? (caixa.valorEstorno || 0) : 0);
+                    // Diferença individual (Dinheiro Físico vs Acerto)
+                    const diferencaCaixa = (caixa.dinheiroFisico || 0) - acertoCaixa;
+                    
                     return { 
-                        protocol: `${c.protocol}-${index}`, 
+                        // Protocolo individual (Ex: CXF-123-1)
+                        protocol: caixa.protocol || `${c.protocol}-${index + 1}`,
                         timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), 
-                        type: 'Fixo', 
+                        type: 'Fixo', // Tipo para a planilha
                         cpf: caixa.cpf, 
                         cashierName: caixa.cashierName, 
                         numeroMaquina: caixa.numeroMaquina, 
-                        valorTotalVenda: caixa.valorTotalVenda, 
-                        credito: caixa.credito, 
-                        debito: caixa.debito, 
-                        pix: caixa.pix, 
-                        cashless: caixa.cashless, 
-                        
-                        // --- 3. CORREÇÃO DA LÓGICA DO TROCO APLICADA AQUI ---
+                        valorTotalVenda: caixa.valorTotalVenda || 0, 
+                        credito: caixa.credito || 0, 
+                        debito: caixa.debito || 0, 
+                        pix: caixa.pix || 0, 
+                        cashless: caixa.cashless || 0, 
                         // O 'valorTroco' (do grupo 'c') só é aplicado ao primeiro caixa (index === 0)
-                        valorTroco: index === 0 ? c.valorTroco : 0, 
-                        
-                        valorEstorno: caixa.temEstorno ? caixa.valorEstorno : 0, 
-                        dinheiroFisico: caixa.dinheiroFisico, 
-                        valorAcerto: acertoCaixa, 
-                        diferenca: caixa.dinheiroFisico - acertoCaixa, 
+                        valorTroco: index === 0 ? (c.valorTroco || 0) : 0, 
+                        valorEstorno: (caixa.temEstorno ? caixa.valorEstorno : 0) || 0, 
+                        dinheiroFisico: caixa.dinheiroFisico || 0, 
+                        valorAcerto: acertoCaixa, // Acerto esperado (sem troco)
+                        diferenca: diferencaCaixa, // Diferença (com base no dinheiro físico)
                         operatorName: c.operatorName 
                     };
                 });
@@ -100,22 +109,22 @@ function CloudSyncPage() {
                     cpf: c.cpf, 
                     cashierName: c.cashierName, 
                     numeroMaquina: c.numeroMaquina, 
-                    valorTotalVenda: c.valorTotalVenda, 
-                    credito: c.credito, 
-                    debito: c.debito, 
-                    pix: c.pix, 
-                    cashless: c.cashless, 
-                    valorTroco: c.valorTroco, // Caixa móvel tem seu próprio troco
-                    valorEstorno: c.temEstorno ? c.valorEstorno : 0, 
-                    dinheiroFisico: c.dinheiroFisico, 
-                    valorAcerto: c.valorAcerto, 
-                    diferenca: c.diferenca, 
+                    valorTotalVenda: c.valorTotalVenda || 0, 
+                    credito: c.credito || 0, 
+                    debito: c.debito || 0, 
+                    pix: c.pix || 0, 
+                    cashless: c.cashless || 0, 
+                    valorTroco: c.valorTroco || 0, // Caixa móvel tem seu próprio troco
+                    valorEstorno: (c.temEstorno ? c.valorEstorno : 0) || 0, 
+                    dinheiroFisico: c.dinheiroFisico || 0, 
+                    valorAcerto: c.valorAcerto || 0, 
+                    diferenca: c.diferenca || 0, 
                     operatorName: c.operatorName 
                 }];
             }
         });
 
-      const url = `${API_URL}/api/cloud-sync`; // 4. Agora usa a URL dinâmica
+      const url = `${API_URL}/api/cloud-sync`;
       const payload = {
         eventName: activeEvent,
         waiterData: waiterData,
@@ -131,6 +140,32 @@ function CloudSyncPage() {
       if (updatedWaiters > 0) messageParts.push(`- ${updatedWaiters} fechamento(s) de garçom atualizados.`);
       if (newCashiers > 0) messageParts.push(`- ${newCashiers} novo(s) fechamento(s) de caixa enviados.`);
       if (updatedCashiers > 0) messageParts.push(`- ${updatedCashiers} fechamento(s) de caixa atualizados.`);
+      
+      // --- MUDANÇA ---
+      // Marca os itens enviados como 'synced' no localStorage
+      const protocolsSynced = [...waiterData.map(w => w.protocol), ...cashierData.map(c => c.protocol)];
+      const protocolSet = new Set(protocolsSynced);
+      
+      const allLocalClosings = JSON.parse(localStorage.getItem('localClosings')) || [];
+      allLocalClosings.forEach(closing => {
+          if (closing.eventName === activeEvent) {
+              if (closing.type.startsWith('waiter') || closing.type === 'cashier') {
+                  if (protocolSet.has(closing.protocol)) {
+                      closing.synced = true;
+                  }
+              } else if (closing.type === 'fixed_cashier') {
+                  // Se *qualquer* sub-item foi enviado, marca o grupo como synced
+                  const subProtocols = closing.caixas.map((caixa, index) => caixa.protocol || `${closing.protocol}-${index + 1}`);
+                  if (subProtocols.some(p => protocolSet.has(p))) {
+                      closing.synced = true;
+                  }
+              }
+          }
+      });
+      localStorage.setItem('localClosings', JSON.stringify(allLocalClosings));
+      // Dispara o evento para o ClosingHistoryPage recarregar
+      window.dispatchEvent(new Event('localDataChanged'));
+      // --- FIM DA MUDANÇA ---
 
       if (messageParts.length === 0) {
         setFeedbackModal({ isOpen: true, title: 'Tudo Certo!', message: 'Todos os dados locais já estavam sincronizados.', status: 'success' });

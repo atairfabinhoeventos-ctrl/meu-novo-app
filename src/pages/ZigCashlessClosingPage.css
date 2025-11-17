@@ -1,26 +1,9 @@
-/* src/pages/MobileCashierClosingPage.css (VERSÃO ATUALIZADA) */
-
-/* NOVO E MAIS IMPORTANTE: Define o comportamento do container principal */
-.form-section {
-  display: flex;
-  flex-direction: column; /* Esta é a linha chave: força o empilhamento vertical */
-  align-items: center;   /* Centraliza as linhas de campos no container */
-  gap: 20px;             /* Espaçamento entre as linhas de campos */
-  width: 100%;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.form-section:last-of-type {
-  border-bottom: none;
-}
-
+/* src/pages/ZigCashlessClosingPage.css (Com estilo de Ícone) */
 
 .form-row {
   display: flex;
-  gap: 20px;
-  align-items: flex-end;
-  width: 100%; /* Mantém a garantia de que cada linha ocupe a largura total */
+  gap: 20px; /* Espaço entre os campos */
+  align-items: flex-end; /* Alinha a base dos elementos */
 }
 
 .form-row .input-group {
@@ -82,31 +65,6 @@ input:checked + .slider:before { transform: translateX(22px); }
 .suggestion-item { padding: 12px 15px; cursor: pointer; }
 .suggestion-item:hover { background-color: #f0f4f8; }
 
-
-/* ESTILOS ADICIONADOS PARA O NOVO LAYOUT */
-.switch-and-input-group {
-  display: flex;
-  align-items: flex-end;
-  gap: 15px;
-  flex: 1; 
-}
-
-.switch-and-input-group .input-group {
-  margin-bottom: 0;
-  flex: 1;
-}
-
-.switch-and-input-group .switch-container {
-  margin-bottom: 0;
-  flex-shrink: 0; 
-}
-.modal-buttons {
-    display: flex; justify-content: flex-end; gap: 15px;
-    margin-top: 25px;
-}
-
-/* *** ESTILOS ADICIONADOS (copiados de WaiterClosingPage.css) *** */
-/* Necessários para o modal de sucesso funcionar corretamente */
 .modal-overlay {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     background-color: rgba(0, 0, 0, 0.6); display: flex;
@@ -116,8 +74,45 @@ input:checked + .slider:before { transform: translateX(22px); }
     background-color: white; padding: 30px; border-radius: 10px;
     width: 90%; max-width: 500px;
 }
+.modal-buttons {
+    display: flex; justify-content: flex-end; gap: 15px;
+    margin-top: 25px;
+}
 .cancel-button {
     background-color: #6c757d; color: white; padding: 10px 20px;
     border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
 }
 .cancel-button:hover { background-color: #5a6268; }
+
+
+/* --- DESTAQUE PARA CAMPO DE PRODUTOS (Laranja) --- */
+.highlighted-input {
+  border: 2px solid #fd7e14; /* Borda laranja forte no input */
+  box-shadow: 0 0 8px rgba(253,126,20,0.3); /* Uma "aura" laranja sutil */
+  background-color: #fff8f2; /* Fundo laranja bem clarinho */
+}
+
+/* Opcional: faz o label ficar bold e laranja também */
+.input-group:has(> .highlighted-input) label {
+  font-weight: bold;
+  color: #fd7e14; /* Cor do label igual à borda */
+}
+
+/* --- NOVO: ESTILOS PARA TÍTULO COM ÍCONE --- */
+.title-with-icon {
+  display: flex;
+  align-items: center; /* Alinha o ícone e o texto */
+  gap: 12px; /* Espaço entre o ícone e o título */
+  margin-bottom: 20px; /* Mantém o espaçamento original do h1 */
+}
+
+.title-with-icon .page-icon {
+  width: 40px; /* Tamanho do ícone */
+  height: 40px; /* Tamanho do ícone */
+  border-radius: 6px; /* Arredonda os cantos da imagem */
+  object-fit: cover; /* Garante que a imagem se ajuste */
+}
+
+.title-with-icon h1 {
+  margin: 0; /* Remove a margem padrão do H1 */
+}

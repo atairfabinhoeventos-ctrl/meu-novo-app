@@ -123,3 +123,26 @@
     border-radius: 6px;
     border: 1px solid #e9ecef;
 }
+
+/* --- (NOVOS) ESTILOS DO MODAL (Adicionados) --- */
+/* Necessários para o modal de sucesso funcionar corretamente */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6); display: flex;
+    justify-content: center; align-items: center; z-index: 1000;
+}
+.modal-content {
+    background-color: white; padding: 30px; border-radius: 10px;
+    width: 90%; max-width: 500px;
+    /* Adiciona text-align center para o spinner e checkmark */
+    text-align: center; 
+}
+.modal-buttons {
+    display: flex; justify-content: flex-end; gap: 15px;
+    margin-top: 25px;
+}
+.cancel-button {
+    background-color: #6c757d; color: white; padding: 10px 20px;
+    border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
+}
+.cancel-button:hover { background-color: #5a6268; }
