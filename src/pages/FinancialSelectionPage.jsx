@@ -70,7 +70,7 @@ function FinancialSelectionPage() {
         {/* *** ÍCONE ATUALIZADO AQUI *** */}
         <Card
           to="/zig-cashless-closing"
-          icon={<img src="/assets/zig-logo.png" alt="Zig Logo" />}
+          icon={<img src="/public/zig-logo.png" alt="Zig Logo" />}
           title="Fechamento ZIG Cash 8%"
           description="Fechamento exclusivo para ZIG CASHLESS com comissão de 8% sobre os produtos."
         />
