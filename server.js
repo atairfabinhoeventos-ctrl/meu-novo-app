@@ -1,5 +1,5 @@
-// server.js (VERSÃO CORRIGIDA: DETECÇÃO ESTRITA DE SINAL)
-console.log("--- EXECUTANDO VERSÃO: CORREÇÃO ONLINE PAGAR/RECEBER ---"); 
+// server.js (VERSÃO FINAL: DETECÇÃO DE SINAL UNIVERSAL)
+console.log("--- EXECUTANDO VERSÃO: SINAL NEGATIVO UNIVERSAL (RESOLVE 'SÓ RECEBER') ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,38 +18,39 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÃO DE PARSE CORRIGIDA (ESTRITA) ---
+// --- FUNÇÃO DE PARSE FINAL (SINAL UNIVERSAL) ---
 const parseSisfoCurrency = (val) => {
-    // 1. Retorno imediato para números ou nulos
+    // 1. Se já for número, retorna direto
     if (typeof val === 'number') return val;
     if (val === null || val === undefined) return 0;
     
     let originalString = String(val).trim();
     if (originalString === '') return 0;
 
-    // 2. DETECÇÃO DE SINAL ESTRITA
-    // Removemos espaços e R$ para analisar a posição do sinal
-    const cleanForSignCheck = originalString.replace(/R\$|\s/gi, '');
+    // 2. DETECÇÃO DE SINAL (PERMISSIVA)
+    // Procura por QUALQUER indicativo de negativo:
+    // - O traço comum (-) em qualquer lugar da string
+    // - Parênteses envolvendo o número (Formato contábil)
+    // - Traços especiais (travessão, hífen matemático, etc)
     
-    const isParenthesis = cleanForSignCheck.startsWith('(') && cleanForSignCheck.endsWith(')');
-    
-    // Verifica se começa ou termina com os símbolos de menos
-    const negativeSymbols = ['-', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212'];
-    const startsWithMinus = negativeSymbols.some(s => cleanForSignCheck.startsWith(s));
-    const endsWithMinus = negativeSymbols.some(s => cleanForSignCheck.endsWith(s));
+    const hasCommonMinus = originalString.includes('-');
+    const hasSpecialMinus = /[\u2010-\u2015\u2212]/.test(originalString); // Unicode dashes
+    const isParenthesis = originalString.startsWith('(') && originalString.endsWith(')');
 
-    const isNegative = isParenthesis || startsWithMinus || endsWithMinus;
+    // Se tiver qualquer um desses sinais, consideramos NEGATIVO
+    const isNegative = hasCommonMinus || hasSpecialMinus || isParenthesis;
 
-    // 3. LIMPEZA PARA FORMATO NUMÉRICO ABSOLUTO
+    // 3. LIMPEZA DOS NÚMEROS
     let cleanString = originalString;
 
     // Remove parênteses
     if (isParenthesis) cleanString = cleanString.replace(/[()]/g, '');
     
-    // Remove R$ e textos
-    cleanString = cleanString.replace(/R\$/gi, '').trim();
+    // Remove tudo que NÃO for número, ponto ou vírgula
+    // Isso remove R$, letras, espaços e também os traços de negativo (que já detectamos acima)
+    cleanString = cleanString.replace(/[^0-9.,]/g, '');
 
-    // Tratamento de Pontuação (Milhar vs Decimal)
+    // 4. TRATAMENTO DE PONTUAÇÃO (BR vs US)
     const lastPoint = cleanString.lastIndexOf('.');
     const lastComma = cleanString.lastIndexOf(',');
 
@@ -62,14 +63,11 @@ const parseSisfoCurrency = (val) => {
          cleanString = cleanString.replace(/,/g, '');
     }
 
-    // REMOVE TUDO QUE NÃO FOR NÚMERO OU PONTO
-    cleanString = cleanString.replace(/[^0-9.]/g, ''); 
-
-    // 4. CONVERSÃO E APLICAÇÃO DO SINAL
+    // 5. CONVERSÃO FINAL
     let numberValue = parseFloat(cleanString);
     if (isNaN(numberValue)) return 0;
 
-    // Aplica o negativo
+    // Aplica o sinal detectado no passo 2
     return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
 };
 
@@ -78,7 +76,7 @@ const normalizeToCentavos = (val) => {
     return Math.round(numberValue * 100);
 };
 
-// Helper híbrido
+// Helper híbrido para buscar valor na coluna correta
 const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
     for (const key of keys) {
         if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
@@ -360,7 +358,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM NOVA FUNÇÃO BLINDADA) ---
+// --- ROTA DE HISTÓRICO ONLINE (SINAL NEGATIVO UNIVERSAL) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -385,9 +383,9 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
-                    const valAcerto = parseSisfoCurrency(valAcertoRaw); // Detecção manual de sinal
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw); 
                     
-                    // LÓGICA CORRIGIDA: < 0 é Pagar, >= 0 é Receber
+                    // Se o valor for negativo, é PAGAR. Se for positivo ou zero, é RECEBER.
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -395,7 +393,7 @@ app.post('/api/online-history', async (req, res) => {
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        diferencaPagarReceber: Math.abs(valAcerto), // Valor Absoluto para o frontend
+                        diferencaPagarReceber: Math.abs(valAcerto), // Envia absoluto pro front
                         diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
