@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: DETECÇÃO DE SINAL UNIVERSAL)
-console.log("--- EXECUTANDO VERSÃO: SINAL NEGATIVO UNIVERSAL (RESOLVE 'SÓ RECEBER') ---"); 
+// server.js (VERSÃO BLINDADA: LEITURA DE DADOS BRUTOS/UNFORMATTED)
+console.log("--- EXECUTANDO VERSÃO: DADOS BRUTOS (UNFORMATTED VALUE) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,56 +18,49 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÃO DE PARSE FINAL (SINAL UNIVERSAL) ---
+// --- FUNÇÃO DE PARSE DE DATA EXCEL (SERIAL NUMBER) ---
+const excelDateToJSDate = (serial) => {
+   // Converte número serial do Excel para JS Date
+   // Ajuste de 25569 dias (1900 -> 1970) e compensação de fuso simples
+   const utc_days  = Math.floor(serial - 25569);
+   const utc_value = utc_days * 86400;
+   const date_info = new Date(utc_value * 1000);
+   return date_info;
+};
+
+// --- FUNÇÃO DE PARSE DE MOEDA ---
 const parseSisfoCurrency = (val) => {
-    // 1. Se já for número, retorna direto
+    // 1. SE FOR NÚMERO (AGORA O PADRÃO ESPERADO), RETORNA DIRETO
+    // Isso garante que se o Google mandar -74.8, a gente usa -74.8
     if (typeof val === 'number') return val;
+    
     if (val === null || val === undefined) return 0;
     
     let originalString = String(val).trim();
     if (originalString === '') return 0;
 
-    // 2. DETECÇÃO DE SINAL (PERMISSIVA)
-    // Procura por QUALQUER indicativo de negativo:
-    // - O traço comum (-) em qualquer lugar da string
-    // - Parênteses envolvendo o número (Formato contábil)
-    // - Traços especiais (travessão, hífen matemático, etc)
-    
-    const hasCommonMinus = originalString.includes('-');
-    const hasSpecialMinus = /[\u2010-\u2015\u2212]/.test(originalString); // Unicode dashes
-    const isParenthesis = originalString.startsWith('(') && originalString.endsWith(')');
+    // 2. Fallback para Strings (caso alguma célula venha como texto)
+    const cleanCheck = originalString.replace(/R\$|\s/gi, '');
+    const isNegative = cleanCheck.startsWith('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
 
-    // Se tiver qualquer um desses sinais, consideramos NEGATIVO
-    const isNegative = hasCommonMinus || hasSpecialMinus || isParenthesis;
-
-    // 3. LIMPEZA DOS NÚMEROS
     let cleanString = originalString;
-
-    // Remove parênteses
-    if (isParenthesis) cleanString = cleanString.replace(/[()]/g, '');
-    
-    // Remove tudo que NÃO for número, ponto ou vírgula
-    // Isso remove R$, letras, espaços e também os traços de negativo (que já detectamos acima)
+    if (cleanCheck.startsWith('(') && cleanCheck.endsWith(')')) {
+        cleanString = cleanString.replace(/[()]/g, '');
+    }
     cleanString = cleanString.replace(/[^0-9.,]/g, '');
 
-    // 4. TRATAMENTO DE PONTUAÇÃO (BR vs US)
     const lastPoint = cleanString.lastIndexOf('.');
     const lastComma = cleanString.lastIndexOf(',');
 
     if (lastComma > lastPoint) {
-        // Formato BR: 1.000,00 -> 1000.00
-        cleanString = cleanString.replace(/\./g, '');
-        cleanString = cleanString.replace(/,/g, '.');
+        cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
     } else if (lastPoint > lastComma) {
-         // Formato US: 1,000.00 -> 1000.00
          cleanString = cleanString.replace(/,/g, '');
     }
 
-    // 5. CONVERSÃO FINAL
     let numberValue = parseFloat(cleanString);
     if (isNaN(numberValue)) return 0;
 
-    // Aplica o sinal detectado no passo 2
     return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
 };
 
@@ -107,7 +100,7 @@ async function getGoogleSheetsClient() {
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
-// --- ROTAS DE ADMIN ---
+// --- ROTAS DE ADMIN (MANTIDAS) ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -228,7 +221,6 @@ app.post('/api/cloud-sync', async (req, res) => {
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  
-                 // Garante envio negativo se o label for pagar
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
                  let acertoFinal = absVal; 
@@ -327,7 +319,12 @@ app.post('/api/export-online-data', async (req, res) => {
     const googleSheets = await getGoogleSheetsClient();
     const fetchWithExtras = async (sheetName) => {
         try {
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
+            // AQUI TAMBÉM: Usamos UNFORMATTED_VALUE para garantir números
+            const response = await googleSheets.spreadsheets.values.get({ 
+                spreadsheetId: spreadsheetId_cloud_sync, 
+                range: sheetName,
+                valueRenderOption: 'UNFORMATTED_VALUE'
+            });
             if (!response.data.values || response.data.values.length < 2) return [];
             const header = response.data.values[0];
             const rows = response.data.values.slice(1);
@@ -358,7 +355,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (SINAL NEGATIVO UNIVERSAL) ---
+// --- ROTA DE HISTÓRICO ONLINE (COM UNFORMATTED_VALUE) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -368,10 +365,12 @@ app.post('/api/online-history', async (req, res) => {
         const zigSheetName = `GarçomZIG - ${eventName}`;
         const cashierSheetName = `Caixas - ${eventName}`;
         
+        // MUDANÇA CRUCIAL: 'valueRenderOption': 'UNFORMATTED_VALUE'
+        // Isso retorna números brutos (ex: -74.8) em vez de texto formatado (ex: "R$ 74,80")
         const [waiterResult, zigResult, cashierResult] = await Promise.allSettled([
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName }),
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: zigSheetName }), 
-            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName })
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: waiterSheetName, valueRenderOption: 'UNFORMATTED_VALUE' }),
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: zigSheetName, valueRenderOption: 'UNFORMATTED_VALUE' }), 
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: cashierSheetName, valueRenderOption: 'UNFORMATTED_VALUE' })
         ]);
         
         let allClosings = [];
@@ -385,7 +384,7 @@ app.post('/api/online-history', async (req, res) => {
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw); 
                     
-                    // Se o valor for negativo, é PAGAR. Se for positivo ou zero, é RECEBER.
+                    // Como estamos recebendo o valor bruto, o negativo será real (ex: -74.8)
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -393,7 +392,7 @@ app.post('/api/online-history', async (req, res) => {
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        diferencaPagarReceber: Math.abs(valAcerto), // Envia absoluto pro front
+                        diferencaPagarReceber: Math.abs(valAcerto),
                         diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
@@ -466,9 +465,15 @@ app.post('/api/online-history', async (req, res) => {
         }
 
         allClosings.forEach(closing => {
-            const dateString = closing.timestamp;
             let finalDate = new Date(0);
-            if (dateString && typeof dateString === 'string') {
+            const rawDate = closing.timestamp;
+
+            // Suporte para DATA SERIAL DO EXCEL (Pois estamos usando UNFORMATTED_VALUE)
+            if (typeof rawDate === 'number') {
+                finalDate = excelDateToJSDate(rawDate);
+            } else if (typeof rawDate === 'string') {
+                // Suporte legado para string
+                const dateString = rawDate;
                 let parsedDate = new Date(dateString);
                 if (!isNaN(parsedDate) && parsedDate.getFullYear() > 2000) {
                     finalDate = parsedDate;
