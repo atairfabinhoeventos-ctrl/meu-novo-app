@@ -1,5 +1,5 @@
-// server.js (CORREÇÃO DE VALORES PAGAR/RECEBER ONLINE)
-console.log("--- EXECUTANDO VERSÃO: FIX VALORES ONLINE (SEM MUDANÇA DE SEQUÊNCIA) ---"); 
+// server.js (VERSÃO HÍBRIDA - NOME OU POSIÇÃO - RESOLVE VALOR ZERADO)
+console.log("--- EXECUTANDO VERSÃO: HÍBRIDA (BUSCA NOME OU ÍNDICE FIXO) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -22,11 +22,9 @@ app.use(cors());
 const parseSisfoCurrency = (val) => {
     if (val === null || val === undefined || String(val).trim() === '') return 0;
     let stringValue = String(val).trim();
-    // Remove R$ se existir
     if (stringValue.toUpperCase().startsWith('R$')) {
         stringValue = stringValue.substring(2).trim();
     }
-    // Lógica para detectar milhar/decimal
     const lastPointIndex = stringValue.lastIndexOf('.');
     const lastCommaIndex = stringValue.lastIndexOf(',');
     if (lastCommaIndex > lastPointIndex) {
@@ -35,7 +33,6 @@ const parseSisfoCurrency = (val) => {
     } else if (lastPointIndex > lastCommaIndex) {
          stringValue = stringValue.replace(/,/g, '');
     }
-    // Mantém números, pontos e sinal de negativo
     stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
     const numberValue = parseFloat(stringValue);
     return isNaN(numberValue) ? 0 : numberValue;
@@ -44,6 +41,21 @@ const parseSisfoCurrency = (val) => {
 const normalizeToCentavos = (val) => {
     const numberValue = parseSisfoCurrency(val);
     return Math.round(numberValue * 100);
+};
+
+// Helper para encontrar valor (busca por chave ou fallback por índice)
+const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
+    // 1. Tenta encontrar pelas chaves (Nome da Coluna)
+    for (const key of keys) {
+        if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
+            return rowObj[key];
+        }
+    }
+    // 2. Se falhar, pega pelo índice bruto (Posição Fixa)
+    if (rowArray && rowArray[fallbackIndex] !== undefined) {
+        return rowArray[fallbackIndex];
+    }
+    return 0;
 };
 
 async function getGoogleSheetsClient() {
@@ -155,23 +167,20 @@ app.post('/api/cloud-sync', async (req, res) => {
     const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig') : [];
     const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig') : [];
 
-    // --- FUNÇÃO DE PROCESSAMENTO REUTILIZÁVEL ---
     const processSheet = async (data, sheetName, headerRef) => {
         if (!data || data.length === 0) return;
 
         let sheet = sheets.find(s => s.properties.title === sheetName);
         
-        // 1. Cria Aba se não existir
+        // 1. Cria Aba
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // *** CORREÇÃO DE CABEÇALHO (AUTO-FIX) ***
-            // Se o cabeçalho estiver quebrado (faltando colunas), isso conserta automaticamente.
+            // Corrige Cabeçalho
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
-            
             const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
             
             if (isOutdated) {
@@ -185,10 +194,11 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados
+        // 2. Prepara Dados (GARANTINDO ORDEM CORRETA NA GRAVAÇÃO)
         const rows = data.map(c => {
              if (sheetName.includes('GarçomZIG')) {
                  const acerto = (c.diferencaPagarReceber ?? 0) * ((c.diferencaLabel === 'Pagar ao Garçom') ? -1 : 1);
+                 // INDICE 13 = Acerto
                  return [
                     c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
@@ -197,12 +207,14 @@ app.post('/api/cloud-sync', async (req, res) => {
                  ];
              } else if (sheetName.includes('Garçons')) {
                  const acerto = (c.diferencaPagarReceber ?? 0) * ((c.diferencaLabel === 'Pagar ao Garçom') ? -1 : 1);
+                 // INDICE 13 = Acerto
                  return [
                     c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                     c.valorEstorno ?? 0, c.comissaoTotal ?? 0, acerto, c.operatorName
                  ];
              } else { // Caixas
+                 // INDICE 15 = Diferença
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -214,7 +226,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         // 3. Update ou Append
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
-        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; // Coluna chave
+        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
         const protocolMap = new Map();
         
         existingRows.slice(1).forEach((row, idx) => {
@@ -268,7 +280,7 @@ app.post('/api/cloud-sync', async (req, res) => {
 });
 
 
-// --- ROTA DE EXPORTAÇÃO (COM LEITURA DE EXTRAS) ---
+// --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
   if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -277,7 +289,7 @@ app.post('/api/export-online-data', async (req, res) => {
   try {
     const googleSheets = await getGoogleSheetsClient();
     
-    // Helper para buscar aba e capturar colunas "transbordadas" (EXTRAS)
+    // Helper
     const fetchWithExtras = async (sheetName) => {
         try {
             const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
@@ -288,10 +300,7 @@ app.post('/api/export-online-data', async (req, res) => {
 
             return rows.map(row => {
                 const rowData = { eventName };
-                // 1. Mapeia colunas conhecidas
                 header.forEach((key, index) => { rowData[key] = row[index] || ''; });
-
-                // 2. RECUPERA DADOS EXTRAS
                 if (row.length > header.length) {
                     for (let i = header.length; i < row.length; i++) {
                         rowData[`EXTRA_${i}`] = row[i];
@@ -318,7 +327,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (COM CORREÇÃO DE LEITURA DE ACERTO) ---
+// --- ROTA DE HISTÓRICO ONLINE (CORRIGIDA HÍBRIDA) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -342,15 +351,16 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...rows.map(row => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    // --- CORREÇÃO AQUI: Tenta 'ACERTO' e 'VALOR ACERTO' para garantir ---
-                    const valAcerto = parseSisfoCurrency(rowObj['ACERTO'] || rowObj['VALOR ACERTO']);
+                    // --- CORREÇÃO HÍBRIDA (GARÇOM) ---
+                    // Tenta achar 'ACERTO' ou 'VALOR ACERTO'. Se falhar, pega a coluna 13.
+                    const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw);
                     
                     return {
                         type: rowObj['TIPO'] || 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        // Garante que o valor apareça
                         diferencaPagarReceber: Math.abs(valAcerto),
                         diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
                         
@@ -369,15 +379,16 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...rows.map(row => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                     // --- CORREÇÃO AQUI TAMBÉM ---
-                    const valAcerto = parseSisfoCurrency(rowObj['ACERTO'] || rowObj['VALOR ACERTO']);
+                    // --- CORREÇÃO HÍBRIDA (ZIG) ---
+                    // Tenta achar 'ACERTO'. Se falhar, pega coluna 13.
+                    const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw);
 
                     return {
                         type: 'waiter_zig', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['RECARGA CASHLESS']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        // Garante que o valor apareça
                         diferencaPagarReceber: Math.abs(valAcerto),
                         diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
                         
@@ -399,8 +410,10 @@ app.post('/api/online-history', async (req, res) => {
                     const type = rowObj['TIPO'] || '';
                     const protocol = rowObj['PROTOCOLO'] || '';
                     
-                    // --- CORREÇÃO AQUI: Tenta 'DIFERENÇA' e 'DIFERENCA' (sem cedilha) ---
-                    const difVal = parseSisfoCurrency(rowObj['DIFERENÇA'] || rowObj['DIFERENCA']);
+                    // --- CORREÇÃO HÍBRIDA (CAIXA) ---
+                    // Tenta 'DIFERENÇA' ou 'DIFERENCA'. Se falhar, pega coluna 15.
+                    const difValRaw = getValueHybrid(rowObj, row, ['DIFERENÇA', 'DIFERENCA'], 15);
+                    const difVal = parseSisfoCurrency(difValRaw);
                     
                     const base = {
                         protocol, eventName, operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'], cpf: rowObj['CPF'],
@@ -411,7 +424,7 @@ app.post('/api/online-history', async (req, res) => {
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), dinheiroFisico: parseSisfoCurrency(rowObj['DINHEIRO FÍSICO']),
                         valorAcerto: parseSisfoCurrency(rowObj['VALOR ACERTO']), 
                         
-                        diferenca: difVal, // Usa o valor corrigido
+                        diferenca: difVal, // Valor Corrigido
                         
                         temEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']) > 0
                     };
@@ -451,7 +464,7 @@ app.post('/api/online-history', async (req, res) => {
 });
 
 
-// --- ROTA DE RECONCILIAÇÃO YUZER (RESTAURADA COMPLETA) ---
+// --- ROTA DE RECONCILIAÇÃO YUZER ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) {
