@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL BLINDADA: DETECÇÃO MANUAL DE SINAL NEGATIVO)
-console.log("--- EXECUTANDO VERSÃO: PARSE MANUAL DE SINAL (RESOLVE -74,8) ---"); 
+// server.js (VERSÃO CORRIGIDA: DETECÇÃO ESTRITA DE SINAL)
+console.log("--- EXECUTANDO VERSÃO: CORREÇÃO ONLINE PAGAR/RECEBER ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,23 +18,27 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÃO DE PARSE ULTRA-ROBUSTA ---
+// --- FUNÇÃO DE PARSE CORRIGIDA (ESTRITA) ---
 const parseSisfoCurrency = (val) => {
-    // 1. Se já for número, retorna direto
+    // 1. Retorno imediato para números ou nulos
     if (typeof val === 'number') return val;
     if (val === null || val === undefined) return 0;
     
     let originalString = String(val).trim();
     if (originalString === '') return 0;
 
-    // 2. DETECÇÃO DE SINAL (Antes de limpar)
-    // Verifica se tem traço, hífen, travessão, ou se está entre parênteses ()
-    // \u002D (hífen), \u2010-\u2015 (travessões), \u2212 (menos matemático)
-    const hasNegativeSign = originalString.match(/[\-\u2010-\u2015\u2212]/);
-    const isParenthesis = originalString.startsWith('(') && originalString.endsWith(')');
-    const isTrailingNegative = originalString.endsWith('-'); // Ex: "74,8-"
+    // 2. DETECÇÃO DE SINAL ESTRITA
+    // Removemos espaços e R$ para analisar a posição do sinal
+    const cleanForSignCheck = originalString.replace(/R\$|\s/gi, '');
+    
+    const isParenthesis = cleanForSignCheck.startsWith('(') && cleanForSignCheck.endsWith(')');
+    
+    // Verifica se começa ou termina com os símbolos de menos
+    const negativeSymbols = ['-', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212'];
+    const startsWithMinus = negativeSymbols.some(s => cleanForSignCheck.startsWith(s));
+    const endsWithMinus = negativeSymbols.some(s => cleanForSignCheck.endsWith(s));
 
-    const isNegative = hasNegativeSign || isParenthesis || isTrailingNegative;
+    const isNegative = isParenthesis || startsWithMinus || endsWithMinus;
 
     // 3. LIMPEZA PARA FORMATO NUMÉRICO ABSOLUTO
     let cleanString = originalString;
@@ -58,14 +62,14 @@ const parseSisfoCurrency = (val) => {
          cleanString = cleanString.replace(/,/g, '');
     }
 
-    // REMOVE TUDO QUE NÃO FOR NÚMERO OU PONTO (Removemos o sinal aqui para aplicar manualmente depois)
+    // REMOVE TUDO QUE NÃO FOR NÚMERO OU PONTO
     cleanString = cleanString.replace(/[^0-9.]/g, ''); 
 
     // 4. CONVERSÃO E APLICAÇÃO DO SINAL
     let numberValue = parseFloat(cleanString);
     if (isNaN(numberValue)) return 0;
 
-    // Aplica o negativo se detectado no passo 2
+    // Aplica o negativo
     return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
 };
 
@@ -383,6 +387,7 @@ app.post('/api/online-history', async (req, res) => {
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw); // Detecção manual de sinal
                     
+                    // LÓGICA CORRIGIDA: < 0 é Pagar, >= 0 é Receber
                     const isPagar = valAcerto < 0;
 
                     return {
