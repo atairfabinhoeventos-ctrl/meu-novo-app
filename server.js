@@ -1,5 +1,5 @@
-// server.js (VERSÃO CORRIGIDA - LEITURA ROBUSTA DE DADOS ONLINE)
-console.log("--- EXECUTANDO VERSÃO CORRIGIDA (SISFO + LEITURA INTELIGENTE ONLINE) ---"); 
+// server.js (CORREÇÃO DE VALORES PAGAR/RECEBER ONLINE)
+console.log("--- EXECUTANDO VERSÃO: FIX VALORES ONLINE (SEM MUDANÇA DE SEQUÊNCIA) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -22,9 +22,11 @@ app.use(cors());
 const parseSisfoCurrency = (val) => {
     if (val === null || val === undefined || String(val).trim() === '') return 0;
     let stringValue = String(val).trim();
+    // Remove R$ se existir
     if (stringValue.toUpperCase().startsWith('R$')) {
         stringValue = stringValue.substring(2).trim();
     }
+    // Lógica para detectar milhar/decimal
     const lastPointIndex = stringValue.lastIndexOf('.');
     const lastCommaIndex = stringValue.lastIndexOf(',');
     if (lastCommaIndex > lastPointIndex) {
@@ -33,7 +35,8 @@ const parseSisfoCurrency = (val) => {
     } else if (lastPointIndex > lastCommaIndex) {
          stringValue = stringValue.replace(/,/g, '');
     }
-    stringValue = stringValue.replace(/[^0-9.-]/g, ''); // Permite negativos
+    // Mantém números, pontos e sinal de negativo
+    stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
     const numberValue = parseFloat(stringValue);
     return isNaN(numberValue) ? 0 : numberValue;
 };
@@ -41,26 +44,6 @@ const parseSisfoCurrency = (val) => {
 const normalizeToCentavos = (val) => {
     const numberValue = parseSisfoCurrency(val);
     return Math.round(numberValue * 100);
-};
-
-// --- HELPER PARA LEITURA INTELIGENTE DE COLUNAS ---
-// Normaliza chaves (remove acentos, espaços extras e uppercase) para encontrar a coluna certa
-const normalizeKey = (key) => String(key || '').trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-// Busca valor no rowObj tentando várias possibilidades de nome de coluna
-const getValue = (rowObj, possibleKeys) => {
-    for (const key of possibleKeys) {
-        // Tenta busca exata
-        const exactKey = String(key).trim().toUpperCase();
-        if (rowObj[exactKey] !== undefined) return rowObj[exactKey];
-        
-        // Tenta busca normalizada (sem acentos)
-        const normalizedSearch = normalizeKey(key);
-        // Varre as chaves do objeto rowObj procurando a normalizada
-        const foundKey = Object.keys(rowObj).find(k => normalizeKey(k) === normalizedSearch);
-        if (foundKey && rowObj[foundKey] !== undefined) return rowObj[foundKey];
-    }
-    return undefined; // Não encontrou
 };
 
 async function getGoogleSheetsClient() {
@@ -185,6 +168,7 @@ app.post('/api/cloud-sync', async (req, res) => {
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
             // *** CORREÇÃO DE CABEÇALHO (AUTO-FIX) ***
+            // Se o cabeçalho estiver quebrado (faltando colunas), isso conserta automaticamente.
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
             
@@ -284,7 +268,7 @@ app.post('/api/cloud-sync', async (req, res) => {
 });
 
 
-// --- ROTA DE EXPORTAÇÃO ---
+// --- ROTA DE EXPORTAÇÃO (COM LEITURA DE EXTRAS) ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
   if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -334,7 +318,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (COM CORREÇÃO DE LEITURA) ---
+// --- ROTA DE HISTÓRICO ONLINE (COM CORREÇÃO DE LEITURA DE ACERTO) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -352,103 +336,84 @@ app.post('/api/online-history', async (req, res) => {
         
         let allClosings = [];
         
-        // --- PROCESSAMENTO GARÇONS (NORMAL) ---
         if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
             const [header, ...rows] = waiterResult.value.data.values;
             if (header && rows.length > 0) {
                 allClosings.push(...rows.map(row => {
-                    // Mapeia todas as colunas disponíveis para rowObj usando o cabeçalho original
-                    const rowObj = {}; 
-                    header.forEach((key, i) => { if(key) rowObj[String(key).trim().toUpperCase()] = row[i]; });
+                    const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    // Usa getValue para buscar chaves tolerante a erros de digitação/acento
-                    const valAcerto = parseSisfoCurrency(getValue(rowObj, ['ACERTO', 'VALOR ACERTO']));
+                    // --- CORREÇÃO AQUI: Tenta 'ACERTO' e 'VALOR ACERTO' para garantir ---
+                    const valAcerto = parseSisfoCurrency(rowObj['ACERTO'] || rowObj['VALOR ACERTO']);
                     
                     return {
-                        type: getValue(rowObj, ['TIPO']) || 'waiter', 
-                        cpf: getValue(rowObj, ['CPF']), 
-                        waiterName: getValue(rowObj, ['NOME GARÇOM', 'NOME GARCOM', 'NOME DO GARÇOM', 'GARÇOM', 'NOME']), 
-                        protocol: getValue(rowObj, ['PROTOCOLO']), 
-                        valorTotal: parseSisfoCurrency(getValue(rowObj, ['VENDA TOTAL', 'TOTAL VENDA', 'VALOR TOTAL'])), 
-                        valorEstorno: parseSisfoCurrency(getValue(rowObj, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO'])), 
-                        comissaoTotal: parseSisfoCurrency(getValue(rowObj, ['COMISSÃO TOTAL', 'COMISSAO TOTAL', 'COMISSÃO'])),
+                        type: rowObj['TIPO'] || 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
+                        protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
+                        valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
+                        
+                        // Garante que o valor apareça
                         diferencaPagarReceber: Math.abs(valAcerto),
                         diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
-                        credito: parseSisfoCurrency(getValue(rowObj, ['CRÉDITO', 'CREDITO'])), 
-                        debito: parseSisfoCurrency(getValue(rowObj, ['DÉBITO', 'DEBITO'])),
-                        pix: parseSisfoCurrency(getValue(rowObj, ['PIX'])), 
-                        cashless: parseSisfoCurrency(getValue(rowObj, ['CASHLESS'])),
-                        valorTotalProdutos: 0, 
-                        numeroMaquina: getValue(rowObj, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA', 'NUMERO MAQUINA']),
-                        operatorName: getValue(rowObj, ['OPERADOR', 'NOME OPERADOR']), 
-                        timestamp: getValue(rowObj, ['DATA', 'DATA/HORA']),
+                        
+                        credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
+                        pix: parseSisfoCurrency(rowObj['PIX']), cashless: parseSisfoCurrency(rowObj['CASHLESS']),
+                        valorTotalProdutos: 0, numeroMaquina: rowObj['Nº MÁQUINA'] || rowObj['Nº MAQUINA'],
+                        operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'],
                     };
                 }));
             }
         }
 
-        // --- PROCESSAMENTO ZIG (COM CAMPOS ESPECÍFICOS) ---
         if (zigResult.status === 'fulfilled' && zigResult.value.data.values) {
             const [header, ...rows] = zigResult.value.data.values;
             if (header && rows.length > 0) {
                 allClosings.push(...rows.map(row => {
-                    const rowObj = {}; 
-                    header.forEach((key, i) => { if(key) rowObj[String(key).trim().toUpperCase()] = row[i]; });
+                    const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    const valAcerto = parseSisfoCurrency(getValue(rowObj, ['ACERTO', 'VALOR ACERTO']));
+                     // --- CORREÇÃO AQUI TAMBÉM ---
+                    const valAcerto = parseSisfoCurrency(rowObj['ACERTO'] || rowObj['VALOR ACERTO']);
 
                     return {
-                        type: 'waiter_zig', 
-                        cpf: getValue(rowObj, ['CPF']), 
-                        waiterName: getValue(rowObj, ['NOME GARÇOM', 'NOME GARCOM', 'GARÇOM', 'NOME']), 
-                        protocol: getValue(rowObj, ['PROTOCOLO']), 
-                        valorTotal: parseSisfoCurrency(getValue(rowObj, ['RECARGA CASHLESS', 'VENDA TOTAL'])), // ZIG Recarga
-                        valorEstorno: parseSisfoCurrency(getValue(rowObj, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO'])), 
-                        comissaoTotal: parseSisfoCurrency(getValue(rowObj, ['COMISSÃO TOTAL', 'COMISSAO'])),
+                        type: 'waiter_zig', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
+                        protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['RECARGA CASHLESS']), 
+                        valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
+                        
+                        // Garante que o valor apareça
                         diferencaPagarReceber: Math.abs(valAcerto),
                         diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
-                        credito: parseSisfoCurrency(getValue(rowObj, ['CRÉDITO', 'CREDITO'])), 
-                        debito: parseSisfoCurrency(getValue(rowObj, ['DÉBITO', 'DEBITO'])),
-                        pix: parseSisfoCurrency(getValue(rowObj, ['PIX'])), 
-                        cashless: 0, 
-                        valorTotalProdutos: parseSisfoCurrency(getValue(rowObj, ['VALOR TOTAL PRODUTOS', 'TOTAL PRODUTOS', 'PRODUTOS'])), 
-                        numeroMaquina: getValue(rowObj, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']),
-                        operatorName: getValue(rowObj, ['OPERADOR']), 
-                        timestamp: getValue(rowObj, ['DATA']),
+                        
+                        credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
+                        pix: parseSisfoCurrency(rowObj['PIX']), cashless: 0, 
+                        valorTotalProdutos: parseSisfoCurrency(rowObj['VALOR TOTAL PRODUTOS']), 
+                        numeroMaquina: rowObj['Nº MÁQUINA'] || rowObj['Nº MAQUINA'],
+                        operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'],
                     };
                 }));
             }
         }
         
-        // --- PROCESSAMENTO CAIXAS ---
         if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
             const [header, ...rows] = cashierResult.value.data.values;
             if (header && rows.length > 0) {
                 allClosings.push(...rows.map(row => {
-                    const rowObj = {}; 
-                    header.forEach((key, i) => { if(key) rowObj[String(key).trim().toUpperCase()] = row[i]; });
+                    const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
+                    const type = rowObj['TIPO'] || '';
+                    const protocol = rowObj['PROTOCOLO'] || '';
                     
-                    const type = getValue(rowObj, ['TIPO']) || '';
-                    const protocol = getValue(rowObj, ['PROTOCOLO']) || '';
+                    // --- CORREÇÃO AQUI: Tenta 'DIFERENÇA' e 'DIFERENCA' (sem cedilha) ---
+                    const difVal = parseSisfoCurrency(rowObj['DIFERENÇA'] || rowObj['DIFERENCA']);
                     
                     const base = {
-                        protocol, eventName, 
-                        operatorName: getValue(rowObj, ['OPERADOR']), 
-                        timestamp: getValue(rowObj, ['DATA']), 
-                        cpf: getValue(rowObj, ['CPF']),
-                        cashierName: getValue(rowObj, ['NOME DO CAIXA', 'CAIXA', 'NOME']), 
-                        numeroMaquina: getValue(rowObj, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']),
-                        valorTotalVenda: parseSisfoCurrency(getValue(rowObj, ['VENDA TOTAL', 'TOTAL VENDA'])), 
-                        credito: parseSisfoCurrency(getValue(rowObj, ['CRÉDITO', 'CREDITO'])),
-                        debito: parseSisfoCurrency(getValue(rowObj, ['DÉBITO', 'DEBITO'])), 
-                        pix: parseSisfoCurrency(getValue(rowObj, ['PIX'])),
-                        cashless: parseSisfoCurrency(getValue(rowObj, ['CASHLESS'])), 
-                        valorTroco: parseSisfoCurrency(getValue(rowObj, ['TROCO', 'VALOR TROCO'])),
-                        valorEstorno: parseSisfoCurrency(getValue(rowObj, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO'])), 
-                        dinheiroFisico: parseSisfoCurrency(getValue(rowObj, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO'])),
-                        valorAcerto: parseSisfoCurrency(getValue(rowObj, ['VALOR ACERTO', 'ACERTO'])), 
-                        diferenca: parseSisfoCurrency(getValue(rowObj, ['DIFERENÇA', 'DIFERENCA'])),
-                        temEstorno: parseSisfoCurrency(getValue(rowObj, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO'])) > 0
+                        protocol, eventName, operatorName: rowObj['OPERADOR'], timestamp: rowObj['DATA'], cpf: rowObj['CPF'],
+                        cashierName: rowObj['NOME DO CAIXA'], numeroMaquina: rowObj['Nº MÁQUINA'] || rowObj['Nº MAQUINA'],
+                        valorTotalVenda: parseSisfoCurrency(rowObj['VENDA TOTAL']), credito: parseSisfoCurrency(rowObj['CRÉDITO']),
+                        debito: parseSisfoCurrency(rowObj['DÉBITO']), pix: parseSisfoCurrency(rowObj['PIX']),
+                        cashless: parseSisfoCurrency(rowObj['CASHLESS']), valorTroco: parseSisfoCurrency(rowObj['TROCO']),
+                        valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), dinheiroFisico: parseSisfoCurrency(rowObj['DINHEIRO FÍSICO']),
+                        valorAcerto: parseSisfoCurrency(rowObj['VALOR ACERTO']), 
+                        
+                        diferenca: difVal, // Usa o valor corrigido
+                        
+                        temEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']) > 0
                     };
                     if (type.toUpperCase() === 'FIXO') {
                         return { ...base, type: 'individual_fixed_cashier', groupProtocol: protocol.includes('-') ? protocol.split('-')[0] : protocol };
