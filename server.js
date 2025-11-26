@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: CORREÇÃO RIGOROSA DE SINAIS PAGAR/RECEBER)
-console.log("--- EXECUTANDO VERSÃO: SINAIS CORRIGIDOS (NEGATIVO = PAGAR, POSITIVO = RECEBER) ---"); 
+// server.js (VERSÃO FINAL: CORREÇÃO DE SINAL - RESPEITA NEGATIVO DE ENTRADA)
+console.log("--- EXECUTANDO VERSÃO: SINAL INTELIGENTE (RESPEITA INPUT + LABEL) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -33,7 +33,7 @@ const parseSisfoCurrency = (val) => {
     } else if (lastPointIndex > lastCommaIndex) {
          stringValue = stringValue.replace(/,/g, '');
     }
-    // Permite sinal de negativo
+    // Permite sinal de negativo no início ou solto
     stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
     const numberValue = parseFloat(stringValue);
     return isNaN(numberValue) ? 0 : numberValue;
@@ -193,19 +193,25 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados (LÓGICA DE SINAL)
+        // 2. Prepara Dados (LÓGICA DE SINAL INTELIGENTE)
         const rows = data.map(c => {
-             // Garante que o valor base seja absoluto
-             const rawAcerto = c.diferencaPagarReceber ?? c.diferenca ?? c.valorAcerto ?? 0;
-             const absAcerto = Math.abs(rawAcerto);
+             // Prioridade de busca do valor (diferenca costuma ter sinal, diferencaPagarReceber costuma ser absoluto)
+             let rawVal = c.diferenca ?? c.valorAcerto ?? c.diferencaPagarReceber ?? 0;
+             // Garante que é número
+             if (typeof rawVal === 'string') rawVal = parseSisfoCurrency(rawVal);
+             
              const label = String(c.diferencaLabel || '').toLowerCase();
 
-             // Lógica: Se o label contém "pagar", o valor DEVE ser negativo na planilha.
-             // Se não (receber/sobrou), o valor DEVE ser positivo.
-             let acertoFinal = absAcerto;
-             if (label.includes('pagar')) {
-                 acertoFinal = -absAcerto;
+             let acertoFinal = rawVal; // Começa assumindo o valor que veio (pode ser negativo)
+
+             // SE o texto for explícito, FORÇA o sinal.
+             // SE NÃO, mantém o sinal que veio no rawVal.
+             if (label.includes('pagar') || label.includes('faltou')) {
+                 acertoFinal = -Math.abs(rawVal); // Força Negativo
+             } else if (label.includes('receber') || label.includes('sobrou')) {
+                 acertoFinal = Math.abs(rawVal); // Força Positivo
              }
+             // Se não tiver label ou for ambíguo, confia no sinal de 'rawVal'
 
              if (sheetName.includes('GarçomZIG')) {
                  return [
@@ -213,7 +219,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
                     c.valorTotalProdutos ?? 0, 
                     c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // ENVIA CORRIGIDO
+                    acertoFinal, // SINAL CORRIGIDO
                     c.operatorName
                  ];
              } else if (sheetName.includes('Garçons')) {
@@ -221,14 +227,16 @@ app.post('/api/cloud-sync', async (req, res) => {
                     c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                     c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // ENVIA CORRIGIDO
+                    acertoFinal, // SINAL CORRIGIDO
                     c.operatorName
                  ];
              } else { // Caixas
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
-                    c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName
+                    c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
+                    acertoFinal, // USA O ACERTO CALCULADO PARA A COLUNA DIFERENÇA
+                    c.operatorName
                  ];
              }
         });
@@ -337,7 +345,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM LÓGICA DE SINAL) ---
+// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM INTERPRETAÇÃO DE SINAL) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -362,9 +370,9 @@ app.post('/api/online-history', async (req, res) => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
-                    const valAcerto = parseSisfoCurrency(valAcertoRaw); // Mantém o sinal
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw); 
                     
-                    // Lógica estrita: < 0 é PAGAR, >= 0 é RECEBER
+                    // Lógica: NEGATIVO = PAGAR, POSITIVO = RECEBER
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -372,8 +380,8 @@ app.post('/api/online-history', async (req, res) => {
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        diferencaPagarReceber: Math.abs(valAcerto), // Valor sempre positivo para o frontend
-                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Label baseada no sinal
+                        diferencaPagarReceber: Math.abs(valAcerto), // Valor Absoluto para o frontend
+                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Label baseado no sinal
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
                         pix: parseSisfoCurrency(rowObj['PIX']), cashless: parseSisfoCurrency(rowObj['CASHLESS']),
@@ -393,7 +401,6 @@ app.post('/api/online-history', async (req, res) => {
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw);
 
-                    // Lógica estrita: < 0 é PAGAR, >= 0 é RECEBER
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -433,7 +440,9 @@ app.post('/api/online-history', async (req, res) => {
                         cashless: parseSisfoCurrency(rowObj['CASHLESS']), valorTroco: parseSisfoCurrency(rowObj['TROCO']),
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), dinheiroFisico: parseSisfoCurrency(rowObj['DINHEIRO FÍSICO']),
                         valorAcerto: parseSisfoCurrency(rowObj['VALOR ACERTO']), 
+                        
                         diferenca: difVal, 
+                        
                         temEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']) > 0
                     };
                     if (type.toUpperCase() === 'FIXO') {
