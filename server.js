@@ -1,5 +1,5 @@
-// server.js (CORREÇÃO DE ENVIO: GARANTE GRAVAÇÃO DO ACERTO NA NUVEM)
-console.log("--- EXECUTANDO VERSÃO: FIX ENVIO ACERTO (CLOUD SYNC ROBUSTO) ---"); 
+// server.js (VERSÃO FINAL: CORREÇÃO RIGOROSA DE SINAIS PAGAR/RECEBER)
+console.log("--- EXECUTANDO VERSÃO: SINAIS CORRIGIDOS (NEGATIVO = PAGAR, POSITIVO = RECEBER) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -33,6 +33,7 @@ const parseSisfoCurrency = (val) => {
     } else if (lastPointIndex > lastCommaIndex) {
          stringValue = stringValue.replace(/,/g, '');
     }
+    // Permite sinal de negativo
     stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
     const numberValue = parseFloat(stringValue);
     return isNaN(numberValue) ? 0 : numberValue;
@@ -43,7 +44,7 @@ const normalizeToCentavos = (val) => {
     return Math.round(numberValue * 100);
 };
 
-// Helper híbrido para leitura (usado no histórico online)
+// Helper híbrido para leitura (Nome ou Índice)
 const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
     for (const key of keys) {
         if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
@@ -145,7 +146,7 @@ app.post('/api/update-event-status', async (req, res) => {
 });
 
 
-// --- ROTA DE SYNC PARA A NUVEM (CORRIGIDA) ---
+// --- ROTA DE SYNC PARA A NUVEM (GRAVAÇÃO CORRIGIDA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -170,7 +171,7 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         let sheet = sheets.find(s => s.properties.title === sheetName);
         
-        // 1. Cria Aba se necessário
+        // 1. Cria Aba
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
@@ -192,14 +193,19 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados (CORREÇÃO DO VALOR DE ACERTO)
+        // 2. Prepara Dados (LÓGICA DE SINAL)
         const rows = data.map(c => {
-             // Lógica robusta para capturar o valor do acerto (Garçons)
-             // Procura em 'diferencaPagarReceber', se falhar tenta 'diferenca' ou 'valorAcerto'
+             // Garante que o valor base seja absoluto
              const rawAcerto = c.diferencaPagarReceber ?? c.diferenca ?? c.valorAcerto ?? 0;
-             const label = String(c.diferencaLabel || '');
-             // Se o label diz "Pagar", inverte o sinal. Se não, mantém positivo.
-             const acertoFinal = rawAcerto * (label.includes('Pagar') ? -1 : 1);
+             const absAcerto = Math.abs(rawAcerto);
+             const label = String(c.diferencaLabel || '').toLowerCase();
+
+             // Lógica: Se o label contém "pagar", o valor DEVE ser negativo na planilha.
+             // Se não (receber/sobrou), o valor DEVE ser positivo.
+             let acertoFinal = absAcerto;
+             if (label.includes('pagar')) {
+                 acertoFinal = -absAcerto;
+             }
 
              if (sheetName.includes('GarçomZIG')) {
                  return [
@@ -207,7 +213,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
                     c.valorTotalProdutos ?? 0, 
                     c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // ENVIA O ACERTO CORRIGIDO
+                    acertoFinal, // ENVIA CORRIGIDO
                     c.operatorName
                  ];
              } else if (sheetName.includes('Garçons')) {
@@ -215,7 +221,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                     c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                     c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                     c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // ENVIA O ACERTO CORRIGIDO
+                    acertoFinal, // ENVIA CORRIGIDO
                     c.operatorName
                  ];
              } else { // Caixas
@@ -331,7 +337,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (HÍBRIDA) ---
+// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM LÓGICA DE SINAL) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -355,17 +361,19 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...rows.map(row => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    // --- LEITURA HÍBRIDA (GARÇOM) ---
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
-                    const valAcerto = parseSisfoCurrency(valAcertoRaw);
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw); // Mantém o sinal
                     
+                    // Lógica estrita: < 0 é PAGAR, >= 0 é RECEBER
+                    const isPagar = valAcerto < 0;
+
                     return {
                         type: rowObj['TIPO'] || 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        diferencaPagarReceber: Math.abs(valAcerto),
-                        diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
+                        diferencaPagarReceber: Math.abs(valAcerto), // Valor sempre positivo para o frontend
+                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Label baseada no sinal
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
                         pix: parseSisfoCurrency(rowObj['PIX']), cashless: parseSisfoCurrency(rowObj['CASHLESS']),
@@ -382,9 +390,11 @@ app.post('/api/online-history', async (req, res) => {
                 allClosings.push(...rows.map(row => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    // --- LEITURA HÍBRIDA (ZIG) ---
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw);
+
+                    // Lógica estrita: < 0 é PAGAR, >= 0 é RECEBER
+                    const isPagar = valAcerto < 0;
 
                     return {
                         type: 'waiter_zig', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
@@ -392,7 +402,7 @@ app.post('/api/online-history', async (req, res) => {
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
                         diferencaPagarReceber: Math.abs(valAcerto),
-                        diferencaLabel: valAcerto >= 0 ? 'Receber do Garçom' : 'Pagar ao Garçom',
+                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
                         pix: parseSisfoCurrency(rowObj['PIX']), cashless: 0, 
@@ -412,7 +422,6 @@ app.post('/api/online-history', async (req, res) => {
                     const type = rowObj['TIPO'] || '';
                     const protocol = rowObj['PROTOCOLO'] || '';
                     
-                    // --- LEITURA HÍBRIDA (CAIXA) ---
                     const difValRaw = getValueHybrid(rowObj, row, ['DIFERENÇA', 'DIFERENCA'], 15);
                     const difVal = parseSisfoCurrency(difValRaw);
                     
