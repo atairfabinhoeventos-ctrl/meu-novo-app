@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: CORREÇÃO DE SINAL - RESPEITA NEGATIVO DE ENTRADA)
-console.log("--- EXECUTANDO VERSÃO: SINAL INTELIGENTE (RESPEITA INPUT + LABEL) ---"); 
+// server.js (VERSÃO FINAL: SEPARAÇÃO ESTRITA DE CAMPOS GARÇOM VS CAIXA)
+console.log("--- EXECUTANDO VERSÃO: CORREÇÃO ESTRITA DE CAMPOS ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -33,7 +33,6 @@ const parseSisfoCurrency = (val) => {
     } else if (lastPointIndex > lastCommaIndex) {
          stringValue = stringValue.replace(/,/g, '');
     }
-    // Permite sinal de negativo no início ou solto
     stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
     const numberValue = parseFloat(stringValue);
     return isNaN(numberValue) ? 0 : numberValue;
@@ -44,7 +43,7 @@ const normalizeToCentavos = (val) => {
     return Math.round(numberValue * 100);
 };
 
-// Helper híbrido para leitura (Nome ou Índice)
+// Helper híbrido para leitura
 const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
     for (const key of keys) {
         if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
@@ -146,7 +145,7 @@ app.post('/api/update-event-status', async (req, res) => {
 });
 
 
-// --- ROTA DE SYNC PARA A NUVEM (GRAVAÇÃO CORRIGIDA) ---
+// --- ROTA DE SYNC PARA A NUVEM (CORREÇÃO DE ENVIO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -193,49 +192,51 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados (LÓGICA DE SINAL INTELIGENTE)
+        // 2. Prepara Dados (LÓGICA ESTRITA)
         const rows = data.map(c => {
-             // Prioridade de busca do valor (diferenca costuma ter sinal, diferencaPagarReceber costuma ser absoluto)
-             let rawVal = c.diferenca ?? c.valorAcerto ?? c.diferencaPagarReceber ?? 0;
-             // Garante que é número
-             if (typeof rawVal === 'string') rawVal = parseSisfoCurrency(rawVal);
-             
-             const label = String(c.diferencaLabel || '').toLowerCase();
+             // LÓGICA EXCLUSIVA PARA GARÇONS (Zig e Normal)
+             if (sheetName.includes('Garçom')) {
+                 // Busca apenas 'diferencaPagarReceber'. Ignora 'diferenca' (que pode ser 0 ou de outro contexto)
+                 let val = c.diferencaPagarReceber;
+                 if (val === undefined || val === null) val = 0; // Fallback seguro
+                 
+                 // Garante que pegamos o valor absoluto do que veio
+                 let absVal = Math.abs(parseFloat(val) || 0);
 
-             let acertoFinal = rawVal; // Começa assumindo o valor que veio (pode ser negativo)
+                 // Aplica o sinal baseado no Rótulo
+                 const label = String(c.diferencaLabel || '').toLowerCase();
+                 let acertoFinal = absVal; 
+                 if (label.includes('pagar') || label.includes('faltou')) {
+                     acertoFinal = -absVal; // Negativo se for pagar
+                 }
+                 // Se for 'receber', mantém positivo
 
-             // SE o texto for explícito, FORÇA o sinal.
-             // SE NÃO, mantém o sinal que veio no rawVal.
-             if (label.includes('pagar') || label.includes('faltou')) {
-                 acertoFinal = -Math.abs(rawVal); // Força Negativo
-             } else if (label.includes('receber') || label.includes('sobrou')) {
-                 acertoFinal = Math.abs(rawVal); // Força Positivo
-             }
-             // Se não tiver label ou for ambíguo, confia no sinal de 'rawVal'
-
-             if (sheetName.includes('GarçomZIG')) {
-                 return [
-                    c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
-                    c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
-                    c.valorTotalProdutos ?? 0, 
-                    c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // SINAL CORRIGIDO
-                    c.operatorName
-                 ];
-             } else if (sheetName.includes('Garçons')) {
-                 return [
-                    c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
-                    c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
-                    c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                    acertoFinal, // SINAL CORRIGIDO
-                    c.operatorName
-                 ];
-             } else { // Caixas
+                 if (sheetName.includes('GarçomZIG')) {
+                     return [
+                        c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
+                        c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
+                        c.valorTotalProdutos ?? 0, 
+                        c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
+                        acertoFinal, // Acerto Zig
+                        c.operatorName
+                     ];
+                 } else { // Garçom Normal
+                     return [
+                        c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
+                        c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
+                        c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
+                        acertoFinal, // Acerto Normal
+                        c.operatorName
+                     ];
+                 }
+             } else { 
+                 // LÓGICA EXCLUSIVA PARA CAIXAS
+                 // Caixas usam 'diferenca' diretamente, que já tem sinal calculado no frontend
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
                     c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                    acertoFinal, // USA O ACERTO CALCULADO PARA A COLUNA DIFERENÇA
+                    c.diferenca, // Campo específico de caixa
                     c.operatorName
                  ];
              }
@@ -372,8 +373,7 @@ app.post('/api/online-history', async (req, res) => {
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw); 
                     
-                    // Lógica: NEGATIVO = PAGAR, POSITIVO = RECEBER
-                    const isPagar = valAcerto < 0;
+                    const isPagar = valAcerto < 0; // Se negativo, é Pagar
 
                     return {
                         type: rowObj['TIPO'] || 'waiter', cpf: rowObj['CPF'], waiterName: rowObj['NOME GARÇOM'], 
