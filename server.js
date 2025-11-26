@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: CORREÇÃO PAGAR/RECEBER ONLINE)
-console.log("--- EXECUTANDO VERSÃO: FIX LABEL ONLINE (SINAL RIGOROSO) ---"); 
+// server.js (VERSÃO CORRIGIDA: SUPORTE TOTAL A SINAIS NEGATIVOS E FORMATOS BR)
+console.log("--- EXECUTANDO VERSÃO: CORREÇÃO DE SINAL (HÍFEN/TRAVESSÃO) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,42 +18,50 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÕES AUXILIARES DE VALOR ---
+// --- FUNÇÕES AUXILIARES DE VALOR (ATUALIZADA) ---
 const parseSisfoCurrency = (val) => {
+    // 1. Se já for número, retorna direto (preserva sinal)
+    if (typeof val === 'number') return val;
+    
     if (val === null || val === undefined || String(val).trim() === '') return 0;
+    
     let stringValue = String(val).trim();
 
-    // Detecção de negativo com parênteses (formato contábil): (50.00)
+    // 2. Normaliza sinais de menos (Google Sheets as vezes usa travessão)
+    // Substitui travessão, menos matemático e hífen por sinal de menos padrão '-'
+    stringValue = stringValue.replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, '-');
+
+    // 3. Detecção de formato contábil com parênteses: (50.00) = -50.00
     const isParenthesis = stringValue.startsWith('(') && stringValue.endsWith(')');
     if (isParenthesis) {
         stringValue = stringValue.replace(/[()]/g, '');
     }
 
-    // Remove R$ e espaços
-    if (stringValue.toUpperCase().includes('R$')) {
-        stringValue = stringValue.replace(/R\$/gi, '').trim();
-    }
+    // 4. Remove R$ (case insensitive) e espaços
+    stringValue = stringValue.replace(/R\$/gi, '').trim();
 
-    // Tratamento de Pontuação (Milhar vs Decimal)
+    // 5. Tratamento de Pontuação (Milhar vs Decimal)
     const lastPoint = stringValue.lastIndexOf('.');
     const lastComma = stringValue.lastIndexOf(',');
 
+    // Se tiver vírgula depois do ponto (ex: 1.000,50), assume formato BR
     if (lastComma > lastPoint) {
-        // Formato BR: 1.000,00 -> Remove ponto, troca vírgula por ponto
-        stringValue = stringValue.replace(/\./g, '');
-        stringValue = stringValue.replace(/,/g, '.');
-    } else if (lastPoint > lastComma) {
-         // Formato US: 1,000.00 -> Remove vírgula
-         stringValue = stringValue.replace(/,/g, '');
+        stringValue = stringValue.replace(/\./g, ''); // Remove ponto de milhar
+        stringValue = stringValue.replace(/,/g, '.'); // Troca vírgula por ponto
+    } 
+    // Se tiver ponto depois da vírgula (ex: 1,000.50), assume formato US
+    else if (lastPoint > lastComma) {
+         stringValue = stringValue.replace(/,/g, ''); // Remove vírgula de milhar
     }
 
-    // Limpa tudo que não for número, ponto ou sinal de menos
+    // 6. Limpeza Final: Mantém APENAS números, ponto e o sinal de menos
     stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
 
+    // 7. Converte para Float
     let numberValue = parseFloat(stringValue);
     if (isNaN(numberValue)) return 0;
 
-    // Se estava entre parênteses, inverte o sinal
+    // 8. Aplica negativo se era parênteses contábil
     if (isParenthesis) {
         numberValue = -Math.abs(numberValue);
     }
@@ -66,15 +74,13 @@ const normalizeToCentavos = (val) => {
     return Math.round(numberValue * 100);
 };
 
-// Helper híbrido para ler colunas por Nome ou Posição
+// Helper híbrido para leitura
 const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
-    // 1. Tenta pelo nome da coluna (ex: "ACERTO")
     for (const key of keys) {
         if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
             return rowObj[key];
         }
     }
-    // 2. Tenta pelo índice fixo (ex: coluna 13)
     if (rowArray && rowArray[fallbackIndex] !== undefined) {
         return rowArray[fallbackIndex];
     }
@@ -170,7 +176,7 @@ app.post('/api/update-event-status', async (req, res) => {
 });
 
 
-// --- ROTA DE SYNC PARA A NUVEM (SALVA COM SINAL CORRETO) ---
+// --- ROTA DE SYNC PARA A NUVEM ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -217,9 +223,8 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados (LÓGICA DO SINAL)
+        // 2. Prepara Dados (GARÇONS: RESPEITA SINAL // CAIXAS: USA DIFERENÇA DIRETO)
         const rows = data.map(c => {
-             // GARÇONS
              if (sheetName.includes('Garçom')) {
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
@@ -227,7 +232,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
                  
-                 // SE FOR PAGAR, FORÇA NEGATIVO
+                 // Lógica: Se label for Pagar, envia NEGATIVO
                  let acertoFinal = absVal; 
                  if (label.includes('pagar') || label.includes('faltou')) {
                      acertoFinal = -absVal; 
@@ -238,7 +243,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
                         c.valorTotalProdutos ?? 0, c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal, // Envia com sinal
+                        acertoFinal,
                         c.operatorName
                      ];
                  } else { // Garçom Normal
@@ -246,7 +251,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                         c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal, // Envia com sinal
+                        acertoFinal,
                         c.operatorName
                      ];
                  }
@@ -256,7 +261,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
                     c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                    c.diferenca, // Já vem com sinal do frontend
+                    c.diferenca, 
                     c.operatorName
                  ];
              }
@@ -366,7 +371,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM INTERPRETAÇÃO DE SINAL) ---
+// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM DETECÇÃO AVANÇADA DE SINAL) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -393,9 +398,9 @@ app.post('/api/online-history', async (req, res) => {
                     
                     // Busca coluna 'ACERTO' ou Índice 13
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
-                    const valAcerto = parseSisfoCurrency(valAcertoRaw); // Mantém o sinal negativo se houver
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw); 
                     
-                    // SE NEGATIVO = PAGAR AO GARÇOM
+                    // LÓGICA: SE É NEGATIVO (EX: -74,8), ENTÃO É "PAGAR".
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -403,8 +408,8 @@ app.post('/api/online-history', async (req, res) => {
                         protocol: rowObj['PROTOCOLO'], valorTotal: parseSisfoCurrency(rowObj['VENDA TOTAL']), 
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
-                        diferencaPagarReceber: Math.abs(valAcerto), // Envia absoluto para o frontend
-                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Define texto pelo sinal
+                        diferencaPagarReceber: Math.abs(valAcerto), // Valor Absoluto para o frontend
+                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Label baseado no sinal
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
                         pix: parseSisfoCurrency(rowObj['PIX']), cashless: parseSisfoCurrency(rowObj['CASHLESS']),
@@ -425,7 +430,6 @@ app.post('/api/online-history', async (req, res) => {
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
                     const valAcerto = parseSisfoCurrency(valAcertoRaw);
 
-                    // SE NEGATIVO = PAGAR AO GARÇOM
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -455,7 +459,6 @@ app.post('/api/online-history', async (req, res) => {
                     const type = rowObj['TIPO'] || '';
                     const protocol = rowObj['PROTOCOLO'] || '';
                     
-                    // Busca coluna 'DIFERENÇA' ou Índice 15
                     const difValRaw = getValueHybrid(rowObj, row, ['DIFERENÇA', 'DIFERENCA'], 15);
                     const difVal = parseSisfoCurrency(difValRaw);
                     
