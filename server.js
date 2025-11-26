@@ -1,5 +1,5 @@
-// server.js (VERSÃO CORRIGIDA: SUPORTE TOTAL A SINAIS NEGATIVOS E FORMATOS BR)
-console.log("--- EXECUTANDO VERSÃO: CORREÇÃO DE SINAL (HÍFEN/TRAVESSÃO) ---"); 
+// server.js (VERSÃO FINAL BLINDADA: DETECÇÃO MANUAL DE SINAL NEGATIVO)
+console.log("--- EXECUTANDO VERSÃO: PARSE MANUAL DE SINAL (RESOLVE -74,8) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -18,55 +18,55 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// --- FUNÇÕES AUXILIARES DE VALOR (ATUALIZADA) ---
+// --- FUNÇÃO DE PARSE ULTRA-ROBUSTA ---
 const parseSisfoCurrency = (val) => {
-    // 1. Se já for número, retorna direto (preserva sinal)
+    // 1. Se já for número, retorna direto
     if (typeof val === 'number') return val;
+    if (val === null || val === undefined) return 0;
     
-    if (val === null || val === undefined || String(val).trim() === '') return 0;
+    let originalString = String(val).trim();
+    if (originalString === '') return 0;
+
+    // 2. DETECÇÃO DE SINAL (Antes de limpar)
+    // Verifica se tem traço, hífen, travessão, ou se está entre parênteses ()
+    // \u002D (hífen), \u2010-\u2015 (travessões), \u2212 (menos matemático)
+    const hasNegativeSign = originalString.match(/[\-\u2010-\u2015\u2212]/);
+    const isParenthesis = originalString.startsWith('(') && originalString.endsWith(')');
+    const isTrailingNegative = originalString.endsWith('-'); // Ex: "74,8-"
+
+    const isNegative = hasNegativeSign || isParenthesis || isTrailingNegative;
+
+    // 3. LIMPEZA PARA FORMATO NUMÉRICO ABSOLUTO
+    let cleanString = originalString;
+
+    // Remove parênteses
+    if (isParenthesis) cleanString = cleanString.replace(/[()]/g, '');
     
-    let stringValue = String(val).trim();
+    // Remove R$ e textos
+    cleanString = cleanString.replace(/R\$/gi, '').trim();
 
-    // 2. Normaliza sinais de menos (Google Sheets as vezes usa travessão)
-    // Substitui travessão, menos matemático e hífen por sinal de menos padrão '-'
-    stringValue = stringValue.replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, '-');
+    // Tratamento de Pontuação (Milhar vs Decimal)
+    const lastPoint = cleanString.lastIndexOf('.');
+    const lastComma = cleanString.lastIndexOf(',');
 
-    // 3. Detecção de formato contábil com parênteses: (50.00) = -50.00
-    const isParenthesis = stringValue.startsWith('(') && stringValue.endsWith(')');
-    if (isParenthesis) {
-        stringValue = stringValue.replace(/[()]/g, '');
-    }
-
-    // 4. Remove R$ (case insensitive) e espaços
-    stringValue = stringValue.replace(/R\$/gi, '').trim();
-
-    // 5. Tratamento de Pontuação (Milhar vs Decimal)
-    const lastPoint = stringValue.lastIndexOf('.');
-    const lastComma = stringValue.lastIndexOf(',');
-
-    // Se tiver vírgula depois do ponto (ex: 1.000,50), assume formato BR
     if (lastComma > lastPoint) {
-        stringValue = stringValue.replace(/\./g, ''); // Remove ponto de milhar
-        stringValue = stringValue.replace(/,/g, '.'); // Troca vírgula por ponto
-    } 
-    // Se tiver ponto depois da vírgula (ex: 1,000.50), assume formato US
-    else if (lastPoint > lastComma) {
-         stringValue = stringValue.replace(/,/g, ''); // Remove vírgula de milhar
+        // Formato BR: 1.000,00 -> 1000.00
+        cleanString = cleanString.replace(/\./g, '');
+        cleanString = cleanString.replace(/,/g, '.');
+    } else if (lastPoint > lastComma) {
+         // Formato US: 1,000.00 -> 1000.00
+         cleanString = cleanString.replace(/,/g, '');
     }
 
-    // 6. Limpeza Final: Mantém APENAS números, ponto e o sinal de menos
-    stringValue = stringValue.replace(/[^0-9.-]/g, ''); 
+    // REMOVE TUDO QUE NÃO FOR NÚMERO OU PONTO (Removemos o sinal aqui para aplicar manualmente depois)
+    cleanString = cleanString.replace(/[^0-9.]/g, ''); 
 
-    // 7. Converte para Float
-    let numberValue = parseFloat(stringValue);
+    // 4. CONVERSÃO E APLICAÇÃO DO SINAL
+    let numberValue = parseFloat(cleanString);
     if (isNaN(numberValue)) return 0;
 
-    // 8. Aplica negativo se era parênteses contábil
-    if (isParenthesis) {
-        numberValue = -Math.abs(numberValue);
-    }
-
-    return numberValue;
+    // Aplica o negativo se detectado no passo 2
+    return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
 };
 
 const normalizeToCentavos = (val) => {
@@ -74,7 +74,7 @@ const normalizeToCentavos = (val) => {
     return Math.round(numberValue * 100);
 };
 
-// Helper híbrido para leitura
+// Helper híbrido
 const getValueHybrid = (rowObj, rowArray, keys, fallbackIndex) => {
     for (const key of keys) {
         if (rowObj[key] !== undefined && String(rowObj[key]).trim() !== '') {
@@ -201,13 +201,11 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         let sheet = sheets.find(s => s.properties.title === sheetName);
         
-        // 1. Cria Aba
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Corrige Cabeçalho
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
             const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
@@ -223,16 +221,14 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // 2. Prepara Dados (GARÇONS: RESPEITA SINAL // CAIXAS: USA DIFERENÇA DIRETO)
         const rows = data.map(c => {
              if (sheetName.includes('Garçom')) {
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  
+                 // Garante envio negativo se o label for pagar
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
-                 
-                 // Lógica: Se label for Pagar, envia NEGATIVO
                  let acertoFinal = absVal; 
                  if (label.includes('pagar') || label.includes('faltou')) {
                      acertoFinal = -absVal; 
@@ -243,31 +239,26 @@ app.post('/api/cloud-sync', async (req, res) => {
                         c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
                         c.valorTotalProdutos ?? 0, c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal,
-                        c.operatorName
+                        acertoFinal, c.operatorName
                      ];
-                 } else { // Garçom Normal
+                 } else { 
                      return [
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                         c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal,
-                        c.operatorName
+                        acertoFinal, c.operatorName
                      ];
                  }
              } else { 
-                 // CAIXAS
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
                     c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                    c.diferenca, 
-                    c.operatorName
+                    c.diferenca, c.operatorName
                  ];
              }
         });
 
-        // 3. Update ou Append
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
         const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
@@ -332,16 +323,12 @@ app.post('/api/export-online-data', async (req, res) => {
   }
   try {
     const googleSheets = await getGoogleSheetsClient();
-    
-    // Helper
     const fetchWithExtras = async (sheetName) => {
         try {
             const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
             if (!response.data.values || response.data.values.length < 2) return [];
-
             const header = response.data.values[0];
             const rows = response.data.values.slice(1);
-
             return rows.map(row => {
                 const rowData = { eventName };
                 header.forEach((key, index) => { rowData[key] = row[index] || ''; });
@@ -354,7 +341,6 @@ app.post('/api/export-online-data', async (req, res) => {
             });
         } catch (e) { return []; }
     };
-
     const waiters = await fetchWithExtras(`Garçons - ${eventName}`);
     const zigWaiters = await fetchWithExtras(`GarçomZIG - ${eventName}`);
     const cashiers = await fetchWithExtras(`Caixas - ${eventName}`);
@@ -362,7 +348,6 @@ app.post('/api/export-online-data', async (req, res) => {
     if (!waiters.length && !zigWaiters.length && !cashiers.length) {
         return res.status(404).json({ message: 'Nenhum dado encontrado.' });
     }
-    
     res.status(200).json({ waiters, zigWaiters, cashiers });
   } catch (error) {
     console.error('Erro export:', error);
@@ -371,7 +356,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM DETECÇÃO AVANÇADA DE SINAL) ---
+// --- ROTA DE HISTÓRICO ONLINE (LEITURA COM NOVA FUNÇÃO BLINDADA) ---
 app.post('/api/online-history', async (req, res) => {
      const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -389,18 +374,15 @@ app.post('/api/online-history', async (req, res) => {
         
         let allClosings = [];
         
-        // PROCESSAMENTO GARÇONS (NORMAL)
         if (waiterResult.status === 'fulfilled' && waiterResult.value.data.values) {
             const [header, ...rows] = waiterResult.value.data.values;
             if (header && rows.length > 0) {
                 allClosings.push(...rows.map(row => {
                     const rowObj = {}; header.forEach((key, i) => rowObj[String(key || '').trim().toUpperCase()] = row[i]);
                     
-                    // Busca coluna 'ACERTO' ou Índice 13
                     const valAcertoRaw = getValueHybrid(rowObj, row, ['ACERTO', 'VALOR ACERTO'], 13);
-                    const valAcerto = parseSisfoCurrency(valAcertoRaw); 
+                    const valAcerto = parseSisfoCurrency(valAcertoRaw); // Detecção manual de sinal
                     
-                    // LÓGICA: SE É NEGATIVO (EX: -74,8), ENTÃO É "PAGAR".
                     const isPagar = valAcerto < 0;
 
                     return {
@@ -409,7 +391,7 @@ app.post('/api/online-history', async (req, res) => {
                         valorEstorno: parseSisfoCurrency(rowObj['DEVOLUÇÃO/ESTORNO']), comissaoTotal: parseSisfoCurrency(rowObj['COMISSÃO TOTAL']),
                         
                         diferencaPagarReceber: Math.abs(valAcerto), // Valor Absoluto para o frontend
-                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', // Label baseado no sinal
+                        diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                         
                         credito: parseSisfoCurrency(rowObj['CRÉDITO']), debito: parseSisfoCurrency(rowObj['DÉBITO']),
                         pix: parseSisfoCurrency(rowObj['PIX']), cashless: parseSisfoCurrency(rowObj['CASHLESS']),
@@ -420,7 +402,6 @@ app.post('/api/online-history', async (req, res) => {
             }
         }
 
-        // PROCESSAMENTO GARÇOM ZIG
         if (zigResult.status === 'fulfilled' && zigResult.value.data.values) {
             const [header, ...rows] = zigResult.value.data.values;
             if (header && rows.length > 0) {
@@ -450,7 +431,6 @@ app.post('/api/online-history', async (req, res) => {
             }
         }
         
-        // PROCESSAMENTO CAIXAS
         if (cashierResult.status === 'fulfilled' && cashierResult.value.data.values) {
             const [header, ...rows] = cashierResult.value.data.values;
             if (header && rows.length > 0) {
