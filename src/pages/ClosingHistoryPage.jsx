@@ -1,4 +1,4 @@
-// src/pages/ClosingHistoryPage.jsx (VERSÃO ATUALIZADA PARA ZIG)
+// src/pages/ClosingHistoryPage.jsx (VERSÃO ATUALIZADA E CORRIGIDA)
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -139,7 +139,6 @@ function ClosingHistoryPage() {
     }
   }, [searchQuery, viewMode, localClosings, onlineClosings]);
 
-  // --- MUDANÇA AQUI ---
   // Navega para a tela de edição correta
   const handleEdit = (closing) => {
     let targetPath = '';
@@ -155,17 +154,14 @@ function ClosingHistoryPage() {
             return;
         }
     } else if (closing.type === 'waiter_zig') {
-        // Rota para o novo fechamento ZIG
         targetPath = '/zig-cashless-closing';
     } else if (closing.type === 'waiter' || closing.type === 'waiter_10') {
-        // Lógica antiga (G8 e G10)
         targetPath = (closing.type === 'waiter_10' || closing.protocol?.startsWith('G10-'))
             ? '/waiter-closing-10'
             : '/waiter-closing';
     } else if (closing.type === 'cashier') {
         targetPath = '/mobile-cashier-closing';
     }
-    // --- FIM DA MUDANÇA ---
 
     if (targetPath && closingDataToSend) {
         navigate(targetPath, { state: { closingToEdit: closingDataToSend } });
@@ -186,16 +182,13 @@ function ClosingHistoryPage() {
       const response = await axios.post(`${API_URL}/api/online-history`, { eventName: activeEvent, password: passwordToUse });
       const sortedData = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       
-      // --- MUDANÇA AQUI ---
       // Processa os dados online para garantir consistência (ex: caixa fixo)
       const flattenedOnline = [];
       sortedData.forEach(closing => {
-          // O backend (server.js) já retorna caixas fixos como 'individual_fixed_cashier'
           flattenedOnline.push(closing);
       });
-      // --- FIM DA MUDANÇA ---
       
-      setOnlineClosings(flattenedOnline); // Salva os dados já desmembrados
+      setOnlineClosings(flattenedOnline);
       setLastUsedPassword(passwordToUse); 
       setViewMode('online'); 
       setPassword('');
@@ -254,13 +247,11 @@ function ClosingHistoryPage() {
       try {
           console.log(`[Frontend][DeleteLocal] Excluindo localmente protocolo base: ${protocolBase}`);
           const currentLocalClosings = JSON.parse(localStorage.getItem('localClosings')) || [];
-          // Filtra o RAW data (que contém os grupos)
           const updatedLocalClosings = currentLocalClosings.filter(closing => getProtocolBase(closing) !== protocolBase);
           localStorage.setItem('localClosings', JSON.stringify(updatedLocalClosings));
           
           console.log(`[Frontend][DeleteLocal] Exclusão local concluída. Registros restantes: ${updatedLocalClosings.length}`);
           
-          // Recarrega os dados (que irá re-desmembrar)
           loadLocalClosings();
           
           if (onlineErrorOccurred) {
@@ -296,11 +287,9 @@ function ClosingHistoryPage() {
           const response = await axios.post(`${API_URL}/api/delete-closing`, { eventName: activeEvent, protocolToDelete: protocolBase, password: deletePassword });
           console.log(`[Frontend][DeleteOnline] Exclusão online para ${protocolBase} bem-sucedida.`);
           
-          // Remove da lista online (que é desmembrada)
           setOnlineClosings(prev => prev.filter(closing => getProtocolBase(closing) !== protocolBase));
           setAlertMessage(response.data.message || 'Registro excluído com sucesso online.');
           
-          // Tenta remover localmente também
           try {
               const currentLocalClosings = JSON.parse(localStorage.getItem('localClosings')) || [];
               const updatedLocalClosings = currentLocalClosings.filter(closing => getProtocolBase(closing) !== protocolBase);
@@ -351,27 +340,49 @@ function ClosingHistoryPage() {
          (
             <div className="history-list">
                 {filteredClosings.map((closing) => {
-                    
-                    // --- MUDANÇA AQUI (Lógica de exibição do Card) ---
                     const { type } = closing;
                     let name, title, totalValue, differenceLabel, differenceValue, differenceColor;
+
+                    // --- FUNÇÃO DE SUPORTE PARA CALCULAR STATUS DO GARÇOM ---
+                    // Resolve o problema de dados online vindo sem a string "Pagar ao Garçom"
+                    const resolveWaiterStatus = (data) => {
+                        const val = Number(data.diferencaPagarReceber || 0);
+                        let label = data.diferencaLabel;
+                        
+                        // Se não tiver label (comum na API Online), calcula baseada no sinal
+                        if (!label) {
+                            label = val >= 0 ? 'Pagar ao Garçom' : 'Receber do Garçom';
+                        }
+                        
+                        return {
+                            label: label,
+                            color: label === 'Pagar ao Garçom' ? 'blue' : 'red',
+                            value: val
+                        };
+                    };
+                    // -----------------------------------------------------------
 
                     if (type === 'waiter' || type === 'waiter_10') {
                         title = type === 'waiter_10' ? 'Garçom 10%' : 'Garçom 8%';
                         name = closing.waiterName; 
                         totalValue = closing.valorTotal;
-                        differenceLabel = closing.diferencaLabel; 
-                        differenceValue = closing.diferencaPagarReceber;
-                        differenceColor = differenceLabel === 'Pagar ao Garçom' ? 'blue' : 'red';
+                        
+                        // CORREÇÃO: Usa o helper para definir cor/texto
+                        const status = resolveWaiterStatus(closing);
+                        differenceLabel = status.label;
+                        differenceValue = status.value;
+                        differenceColor = status.color;
                     
                     } else if (type === 'waiter_zig') {
                         title = 'Garçom ZIG';
                         name = closing.waiterName;
-                        // O valor principal do card ZIG é a Venda de Produtos (para comissão)
                         totalValue = closing.valorTotalProdutos; 
-                        differenceLabel = closing.diferencaLabel; 
-                        differenceValue = closing.diferencaPagarReceber;
-                        differenceColor = differenceLabel === 'Pagar ao Garçom' ? 'blue' : 'red';
+                        
+                        // CORREÇÃO: Usa o helper para definir cor/texto
+                        const status = resolveWaiterStatus(closing);
+                        differenceLabel = status.label;
+                        differenceValue = status.value;
+                        differenceColor = status.color;
 
                     } else if (type === 'cashier' || type === 'individual_fixed_cashier') {
                         title = type === 'cashier' ? 'Caixa Móvel' : 'Caixa Fixo'; 
@@ -386,7 +397,6 @@ function ClosingHistoryPage() {
                         title = "Inválido"; name = "Erro"; totalValue = 0;
                         differenceLabel = "Erro"; differenceValue = 0; differenceColor = "orange";
                     }
-                    // --- FIM DA MUDANÇA ---
 
                     return (
                         <div key={closing.protocol} className="history-card">
@@ -436,7 +446,7 @@ function ClosingHistoryPage() {
         )}
       </div>
 
-      {/* --- MODAL DE DETALHES ATUALIZADO --- */}
+      {/* --- MODAL DE DETALHES --- */}
       {isDetailsModalOpen && selectedClosing && (
          <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
@@ -453,14 +463,23 @@ function ClosingHistoryPage() {
               else if (isWaiter) title = selectedClosing.type === 'waiter_10' ? 'Garçom 10%' : 'Garçom 8%';
               else if (isCashier) title = type === 'cashier' ? 'Caixa Móvel' : 'Caixa Fixo';
               
-              // Valor principal (Recarga ZIG ou Venda Total normal)
               const totalValue = selectedClosing.valorTotal || selectedClosing.valorTotalVenda;
               let differenceValue = 0;
               let differenceLabelText = '';
               
               if (isWaiter) {
                   differenceValue = selectedClosing.diferencaPagarReceber;
-                  differenceLabelText = selectedClosing.diferencaLabel;
+                  
+                  // --- CORREÇÃO NO MODAL ---
+                  // Se a label existir, usa ela. Se não, calcula baseada no valor.
+                  if (selectedClosing.diferencaLabel) {
+                      differenceLabelText = selectedClosing.diferencaLabel;
+                  } else {
+                      // Se value >= 0 é crédito (Pagar), se < 0 é débito (Receber)
+                      differenceLabelText = Number(differenceValue) >= 0 ? 'Pagar ao Garçom' : 'Receber do Garçom';
+                  }
+                  // -------------------------
+
               } else if (isCashier) {
                    differenceValue = typeof selectedClosing.diferenca === 'number' ? selectedClosing.diferenca : 0;
                    if (differenceValue > 0) differenceLabelText = "Sobrou";
@@ -477,7 +496,6 @@ function ClosingHistoryPage() {
                   <p><strong>Nº Máquina:</strong> {selectedClosing.numeroMaquina || 'N/A'}</p>
                   <hr/>
                   
-                  {/* Seção de Venda ZIG (com destaque) */}
                   {isZig && (
                     <p style={{backgroundColor: '#fff8f2', padding: '5px', borderRadius: '4px'}}>
                       <strong>Venda Total Produtos:</strong> {formatCurrency(selectedClosing.valorTotalProdutos)}
@@ -489,7 +507,6 @@ function ClosingHistoryPage() {
                   <p><strong>Débito:</strong> {formatCurrency(selectedClosing.debito)}</p>
                   <p><strong>PIX:</strong> {formatCurrency(selectedClosing.pix)}</p>
                   
-                  {/* Só mostra Cashless se NÃO for ZIG */}
                   {!isZig && <p><strong>Cashless:</strong> {formatCurrency(selectedClosing.cashless)}</p>}
                   
                   {isCashier && (selectedClosing.valorTroco > 0 || viewMode === 'online') && <p><strong>Troco Recebido:</strong> {formatCurrency(selectedClosing.valorTroco)}</p>}

@@ -421,106 +421,97 @@ app.post('/api/online-history', async (req, res) => {
 
         let allClosings = [];
 
-        // Função Genérica para processar qualquer aba com Mapeamento Dinâmico
-        const processGenericSheet = (result, typeCategory) => {
-            if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
-                const [header, ...rows] = result.value.data.values;
+        // ... (dentro de server.js)
+
+// Função Genérica para processar qualquer aba com Mapeamento Dinâmico
+const processGenericSheet = (result, typeCategory) => {
+    if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
+        const [header, ...rows] = result.value.data.values;
+        
+        // 2. CRIA O MAPA DE COLUNAS (Nome -> Índice)
+        const headerMap = {};
+        header.forEach((col, idx) => {
+            if (col) headerMap[String(col).trim().toUpperCase()] = idx;
+        });
+
+        return rows.map(row => {
+            // 3. BUSCA INTELIGENTE DE VALORES
+            const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
+            const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
+            const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
+            const vPix   = getValFromRow(row, headerMap, ['PIX']);
+            const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
+            const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
+            const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
+            const vCom   = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
+            const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
+            const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
+            const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
+            const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
+
+            // Busca textos
+            const cpf = getTextFromRow(row, headerMap, ['CPF']);
+            const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
+            
+            // --- CORREÇÃO AQUI: Mudado de 'protocolo' para 'protocol' ---
+            const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
+            // -----------------------------------------------------------
+
+            const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
+            const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
+            
+            // Tratamento de Data
+            let data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
+
+            if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
+                // ... (lógica de cálculo permanece igual) ...
                 
-                // 2. CRIA O MAPA DE COLUNAS (Nome -> Índice)
-                // Ex: { "VENDA TOTAL": 6, "CPF": 3, "TOTAL": 6 ... }
-                const headerMap = {};
-                header.forEach((col, idx) => {
-                    if (col) headerMap[String(col).trim().toUpperCase()] = idx;
-                });
+                // Venda Líquida = Venda Bruta - Estornos
+                const vendaLiquida = vTotal - vEst;
+                let pgtosDigitais = vCred + vDeb + vPix;
+                if (typeCategory === 'waiter') { pgtosDigitais += vCash; }
+                const dinheiroNaMao = vendaLiquida - pgtosDigitais;
+                const diffCalculada = dinheiroNaMao - vCom;
+                const isPagar = diffCalculada < -0.05; 
 
-                return rows.map(row => {
-                    // 3. BUSCA INTELIGENTE DE VALORES
-                    // Tenta achar "Venda Total", se não achar tenta "Total", etc.
-                    const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
-                    const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
-                    const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
-                    const vPix   = getValFromRow(row, headerMap, ['PIX']);
-                    const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
-                    const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
-                    const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
-                    const vCom   = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
-                    const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
-                    const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
-                    const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
-                    const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
-
-                    // Busca textos
-                    const cpf = getTextFromRow(row, headerMap, ['CPF']);
-                    const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
-                    const protocolo = getTextFromRow(row, headerMap, ['PROTOCOLO']);
-                    const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
-                    const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
-                    
-                    // Tratamento de Data (Pode vir como Serial Number ou String)
-                    let data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
-
-                    if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
-                        // --- 4. RECÁLCULO MATEMÁTICO BLINDADO (A CORREÇÃO) ---
-                        
-                        // Venda Líquida = Venda Bruta - Estornos
-                        const vendaLiquida = vTotal - vEst;
-                        
-                        // Dinheiro na Mão = Venda Líquida - Pagamentos Digitais
-                        let pgtosDigitais = vCred + vDeb + vPix;
-                        
-                        // OBS: No ZIG, Cashless não é pagamento, é Produto. No Normal, é pagamento.
-                        if (typeCategory === 'waiter') {
-                             pgtosDigitais += vCash; 
-                        }
-                        
-                        const dinheiroNaMao = vendaLiquida - pgtosDigitais;
-
-                        // Diferença = Dinheiro na Mão - Comissão
-                        const diffCalculada = dinheiroNaMao - vCom;
-
-                        // Se menor que zero (com margem de erro), é PAGAR
-                        const isPagar = diffCalculada < -0.05; 
-
-                        return {
-                            type: typeCategory, 
-                            cpf, 
-                            waiterName: nome, 
-                            protocol, 
-                            valorTotal: vTotal, 
-                            valorEstorno: vEst, 
-                            comissaoTotal: vCom,
-                            
-                            // AQUI ESTÁ A MÁGICA: Usa o valor calculado, ignorando o que está escrito na planilha
-                            diferencaPagarReceber: Math.abs(diffCalculada),
-                            diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
-                            
-                            credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                            valorTotalProdutos: vProd, 
-                            numeroMaquina: maquina, 
-                            operatorName: operador, 
-                            timestamp: data
-                        };
-                    } else {
-                        // Lógica para Caixas
-                        const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
-                        const base = {
-                            protocol, eventName, operatorName: operador, timestamp: data, cpf,
-                            cashierName: nome, numeroMaquina: maquina,
-                            valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
-                            cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
-                            dinheiroFisico: vFisico, valorAcerto: vAcerto,
-                            diferenca: vDif, temEstorno: vEst > 0
-                        };
-                        return { 
-                            ...base, 
-                            type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', 
-                            groupProtocol: base.protocol 
-                        };
-                    }
-                });
+                return {
+                    type: typeCategory, 
+                    cpf, 
+                    waiterName: nome, 
+                    protocol, // Agora esta variável existe!
+                    valorTotal: vTotal, 
+                    valorEstorno: vEst, 
+                    comissaoTotal: vCom,
+                    diferencaPagarReceber: Math.abs(diffCalculada),
+                    diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
+                    credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
+                    valorTotalProdutos: vProd, 
+                    numeroMaquina: maquina, 
+                    operatorName: operador, 
+                    timestamp: data
+                };
+            } else {
+                // Lógica para Caixas
+                const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
+                const base = {
+                    protocol, // Agora esta variável existe!
+                    eventName, operatorName: operador, timestamp: data, cpf,
+                    cashierName: nome, numeroMaquina: maquina,
+                    valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
+                    cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
+                    dinheiroFisico: vFisico, valorAcerto: vAcerto,
+                    diferenca: vDif, temEstorno: vEst > 0
+                };
+                return { 
+                    ...base, 
+                    type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', 
+                    groupProtocol: base.protocol 
+                };
             }
-            return [];
-        };
+        });
+    }
+    return [];
+};
 
         // Processa as 3 planilhas
         allClosings.push(...processGenericSheet(results[0], 'waiter'));
