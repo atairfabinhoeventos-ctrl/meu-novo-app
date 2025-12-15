@@ -292,22 +292,30 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
         if (toAdd.length > 0) {
-            // --- CORREÇÃO DO RANGE DE APPEND ---
-            // Força a escrita na coluna A, o que faz o Google buscar a primeira linha vazia
-            await googleSheets.spreadsheets.values.append({ 
+            // LÓGICA DE POSICIONAMENTO ABSOLUTO (CORREÇÃO DEFINITIVA)
+            // 1. Pega o número de linhas que já existem (lidas anteriormente para checar duplicatas)
+            // 2. A próxima linha será o comprimento atual + 1
+            const nextRow = existingRows.length + 1;
+
+            // 3. Monta o range EXATO: "NomeDaAba!A{LinhaCalculada}"
+            // Isso força o Google a começar a escrever na Coluna A daquela linha específica.
+            const targetRange = `${sheetName}!A${nextRow}`;
+
+            console.log(`[BACKEND] Gravando ${toAdd.length} novos registros em ${targetRange}`);
+
+            // 4. Usa 'update' (Ordem Direta) ao invés de 'append' (Adivinhação)
+            await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: `${sheetName}!A:A`, // <--- AQUI ESTAVA O ERRO DE ALINHAMENTO LATERAL
+                range: targetRange,
                 valueInputOption: 'USER_ENTERED', 
-                insertDataOption: 'INSERT_ROWS', // <--- ADICIONE ISSO: Força criar linha nova
                 resource: { values: toAdd } 
             });
             
-            if (isWaiterSheet) {
-                 if(sheetName.includes('ZIG')) counts.newZ += toAdd.length;
-                 else counts.newW += toAdd.length;
-            } else {
-                 counts.newC += toAdd.length;
-            }
+            // Contadores (Mantidos iguais)
+            // Lógica para contar Garçons vs ZIG vs Caixas
+            if (sheetName.includes('GarçomZIG')) counts.newZ += toAdd.length;
+            else if (sheetName.includes('Garçons') || sheetName.includes('Garco')) counts.newW += toAdd.length;
+            else counts.newC += toAdd.length;
         }
         
         if (toUpdate.length > 0) {
