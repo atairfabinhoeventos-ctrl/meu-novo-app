@@ -1,8 +1,7 @@
-// src/pages/WaiterClosingPage.jsx (REMOVIDO O SYNC IMEDIATO)
+// src/pages/WaiterClosingPage.jsx (VERSÃO FINAL: 8% + 4% SEPARADOS)
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveWaiterClosing } from '../services/apiService';
-// 1. REMOVIDO attemptBackgroundSync (deixada só a de funcionário)
 import { attemptBackgroundSyncNewPersonnel } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
@@ -35,10 +34,12 @@ function WaiterClosingPage() {
     const [selectedWaiter, setSelectedWaiter] = useState(null);
     const [searchInput, setSearchInput] = useState('');
     const [filteredWaiters, setFilteredWaiters] = useState([]);
+    
     const [protocol, setProtocol] = useState(null);
     const [timestamp, setTimestamp] = useState(null);
     const [numeroCamiseta, setNumeroCamiseta] = useState('');
     const [numeroMaquina, setNumeroMaquina] = useState('');
+    
     const [temEstorno, setTemEstorno] = useState(false);
     const [valorTotal, setValorTotal] = useState('');
     const [valorEstorno, setValorEstorno] = useState('');
@@ -46,12 +47,16 @@ function WaiterClosingPage() {
     const [debito, setDebito] = useState('');
     const [pix, setPix] = useState('');
     const [cashless, setCashless] = useState('');
+    
+    // --- ESTADOS DE COMISSÃO (SEPARADOS) ---
     const [comissao8, setComissao8] = useState(0);
     const [comissao4, setComissao4] = useState(0);
     const [comissaoTotal, setComissaoTotal] = useState(0);
+    
     const [valorTotalAcerto, setValorTotalAcerto] = useState(0);
     const [diferencaPagarReceber, setDiferencaPagarReceber] = useState(0);
     const [diferencaLabel, setDiferencaLabel] = useState('Aguardando valores...');
+    
     const [modalVisible, setModalVisible] = useState(false);
     const [modalState, setModalState] = useState('confirm');
     const [dataToConfirm, setDataToConfirm] = useState(null);
@@ -81,6 +86,7 @@ function WaiterClosingPage() {
     useEffect(() => {
         const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setWaiters(localWaiters);
+        
         const closingToEdit = location.state?.closingToEdit;
         if (closingToEdit) {
             const toDigits = (value) => {
@@ -122,6 +128,7 @@ function WaiterClosingPage() {
         } else { setFilteredWaiters([]); setShowRegisterButton(false); }
     }, [searchInput, waiters, selectedWaiter]);
     
+    // --- CÁLCULO FINANCEIRO (8% e 4%) ---
     useEffect(() => {
         const numValorTotal = getNumericValue(debouncedValorTotal);
         const numCredito = getNumericValue(debouncedCredito);
@@ -131,15 +138,25 @@ function WaiterClosingPage() {
         const numValorEstorno = getNumericValue(debouncedValorEstorno);
         
         const valorEfetivoVenda = numValorTotal - (temEstorno ? numValorEstorno : 0);
+        
+        // Base para 8%: (Venda Líquida - Cashless)
         const baseComissao8 = valorEfetivoVenda - numCashless;
+        
+        // Cálculos
         const c8 = baseComissao8 * 0.08;
         const c4 = numCashless * 0.04;
         const cTotal = c8 + c4;
-        setComissao8(c8); setComissao4(c4); setComissaoTotal(cTotal);
+
+        setComissao8(c8); 
+        setComissao4(c4); 
+        setComissaoTotal(cTotal);
+        
         const totalAcerto = valorEfetivoVenda - cTotal;
         setValorTotalAcerto(totalAcerto);
+        
         const dinheiroDevido = valorEfetivoVenda - (numCredito + numDebito + numPix + numCashless);
         const diferenca = dinheiroDevido - cTotal;
+        
         if (diferenca < 0) {
           setDiferencaLabel('Pagar ao Garçom');
           setDiferencaPagarReceber(diferenca * -1);
@@ -149,11 +166,9 @@ function WaiterClosingPage() {
         }
     }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedValorEstorno, temEstorno]);
 
-    const handleSelectWaiter = (waiter) => {
-        setSelectedWaiter(waiter);
-        setSearchInput(waiter.name);
-        setFilteredWaiters([]);
-    };
+    const handleCurrencyChangeWrapper = (setter, value) => { handleCurrencyChange(setter, value); };
+
+    const handleSelectWaiter = (waiter) => { setSelectedWaiter(waiter); setSearchInput(waiter.name); setFilteredWaiters([]); };
 
     const handleRegisterNewWaiter = () => {
         const cleanCpf = searchInput.replace(/\D/g, '');
@@ -164,42 +179,49 @@ function WaiterClosingPage() {
         localStorage.setItem('master_waiters', JSON.stringify(currentWaiters));
         setWaiters(currentWaiters);
         handleSelectWaiter(newWaiter);
-        
-        // 2. CHAMAR A SINCRONIZAÇÃO DE NOVO FUNCIONÁRIO (ISSO ESTÁ MANTIDO)
         attemptBackgroundSyncNewPersonnel(newWaiter);
-
         setRegisterModalVisible(false);
         setNewWaiterName('');
         setAlertMessage(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
     };
     
     const handleOpenConfirmation = () => {
-        // 1. VALIDAÇÃO: Verifica se um garçom foi selecionado.
-        if (!selectedWaiter) {
-            setAlertMessage('Por favor, selecione um garçom válido da lista.');
-            return;
-        }
+        if (!selectedWaiter) { setAlertMessage('Por favor, selecione um garçom válido da lista.'); return; }
+        if (!numeroMaquina.trim()) { setAlertMessage('Por favor, preencha o número da máquina.'); return; }
 
-        // 2. VALIDAÇÃO: Verifica se o número da máquina foi preenchido.
-        if (!numeroMaquina.trim()) {
-            setAlertMessage('Por favor, preencha o número da máquina.');
-            return;
-        }
-
-        const waiterCpf = selectedWaiter.cpf;
-        const waiterName = selectedWaiter.name;
         const eventName = localStorage.getItem('activeEvent') || 'N/A';
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
         
         const closingData = {
-            type: 'waiter', timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, 
-            cpf: waiterCpf,
-            waiterName: waiterName,
-            numeroCamiseta, numeroMaquina, valorTotal: getNumericValue(valorTotal), credito: getNumericValue(credito),
-            debito: getNumericValue(debito), pix: getNumericValue(pix), cashless: getNumericValue(cashless),
-            temEstorno, valorEstorno: getNumericValue(valorEstorno), comissaoTotal, valorTotalAcerto, diferencaLabel, diferencaPagarReceber,
+            type: 'waiter', 
+            subType: '8_percent', // Marca como 8%
+            timestamp: timestamp || new Date().toISOString(), 
+            protocol, eventName, operatorName, 
+            cpf: selectedWaiter.cpf,
+            waiterName: selectedWaiter.name,
+            numeroCamiseta, 
+            numeroMaquina, 
+            valorTotal: getNumericValue(valorTotal), 
+            credito: getNumericValue(credito),
+            debito: getNumericValue(debito), 
+            pix: getNumericValue(pix), 
+            cashless: getNumericValue(cashless),
+            temEstorno, 
+            valorEstorno: getNumericValue(valorEstorno),
+            
+            // --- CAMPOS CRÍTICOS PARA O SERVIDOR ---
+            comissao8,  // Valor calculado de 8%
+            comissao4,  // Valor calculado de 4%
+            comissao10: 0, // Zera explicitamente o 10%
+            comissaoTotal, 
+            
+            valorTotalAcerto, 
+            diferencaLabel, 
+            diferencaPagarReceber,
         };
-        setDataToConfirm(closingData); setModalState('confirm'); setModalVisible(true); 
+        setDataToConfirm(closingData); 
+        setModalState('confirm'); 
+        setModalVisible(true); 
     };
 
     const handleConfirmAndSave = async () => {
@@ -209,12 +231,6 @@ function WaiterClosingPage() {
             const savedData = response.data;
             setDataToConfirm(savedData);
             setModalState('success');
-            
-            // 2. LINHA REMOVIDA:
-            // attemptBackgroundSync(savedData); 
-            // O salvamento local em apiService.js já dispara o evento
-            // e o poller em App.jsx cuidará do upload.
-
         } catch (error) {
             setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
             setModalVisible(false);
@@ -248,40 +264,15 @@ function WaiterClosingPage() {
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>{protocol ? 'Editar Fechamento' : 'Fechamento Garçom 8%'}</h1>
                 
+                {/* Inputs do Formulário */}
                 <div className="form-section" style={{ display: 'block' }}>
                     <div className="form-row">
                         <div className="input-group">
                             <label>Buscar Garçom (Nome ou CPF)</label>
-                            <input 
-                                ref={formRefs.cpf} 
-                                onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} 
-                                placeholder="Digite o nome ou CPF do garçom" 
-                                value={searchInput} 
-                                onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }}  
-                                disabled={!!protocol} 
-                            />
-                            {filteredWaiters.length > 0 && ( 
-                                <div className="suggestions-list">
-                                    {filteredWaiters.map(item => (
-                                        <div 
-                                            key={item.cpf} 
-                                            className="suggestion-item" 
-                                            onClick={() => handleSelectWaiter(item)}>
-                                                {item.name} - {item.cpf}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} placeholder="Digite o nome ou CPF do garçom" value={searchInput} onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }} disabled={!!protocol} />
+                            {filteredWaiters.length > 0 && ( <div className="suggestions-list">{filteredWaiters.map(item => (<div key={item.cpf} className="suggestion-item" onClick={() => handleSelectWaiter(item)}>{item.name} - {item.cpf}</div>))}</div>)}
                         </div>
-                        <div className="input-group">
-                            <label>Garçom Selecionado</label>
-                            <input 
-                                type="text" 
-                                value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} 
-                                readOnly 
-                                placeholder="Selecione um garçom da lista" 
-                            />
-                        </div>
+                        <div className="input-group"><label>Garçom Selecionado</label><input type="text" value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} readOnly placeholder="Selecione um garçom da lista" /></div>
                     </div>
                     {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo garçom?</button>)}
                     <div className="form-row">
@@ -289,36 +280,13 @@ function WaiterClosingPage() {
                         <div className="input-group"><label>Número da Máquina</label><input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} /></div>
                     </div>
                 </div>
-
+                
                 <div className="form-section" style={{ display: 'block' }}>
                     <div className="form-row">
-                        <div className="input-group">
-                            <label>Valor Total da Venda</label>
-                            <input
-                                ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, temEstorno ? 'valorEstorno' : 'credito')} 
-                                value={formatCurrencyInput(valorTotal)} 
-                                onChange={(e) => handleCurrencyChange(setValorTotal, e.target.value)}
-                                placeholder="0,00"
-                                inputMode="numeric"
-                            />
-                        </div>
-                         <div className="switch-container">
-                            <label>Houve Estorno Manual?</label>
-                            <label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label>
-                        </div>
+                        <div className="input-group"><label>Valor Total da Venda</label><input ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, temEstorno ? 'valorEstorno' : 'credito')} value={formatCurrencyInput(valorTotal)} onChange={(e) => handleCurrencyChange(setValorTotal, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
+                         <div className="switch-container"><label>Houve Estorno Manual?</label><label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label></div>
                     </div>
-                    {temEstorno && ( 
-                        <div className="input-group" style={{marginTop: '15px'}}>
-                            <label>Valor do Estorno</label>
-                            <input
-                                ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'credito')} 
-                                value={formatCurrencyInput(valorEstorno)} 
-                                onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)}
-                                placeholder="0,00"
-                                inputMode="numeric"
-                            />
-                        </div>
-                    )}
+                    {temEstorno && ( <div className="input-group" style={{marginTop: '15px'}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>)}
                     <div className="form-row">
                         <div className="input-group"><label>Crédito</label><input ref={formRefs.credito} onKeyDown={(e) => handleKeyDown(e, 'debito')} value={formatCurrencyInput(credito)} onChange={(e) => handleCurrencyChange(setCredito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
                         <div className="input-group"><label>Débito</label><input ref={formRefs.debito} onKeyDown={(e) => handleKeyDown(e, 'pix')} value={formatCurrencyInput(debito)} onChange={(e) => handleCurrencyChange(setDebito, e.target.value)} placeholder="0,00" inputMode="numeric" /></div>
@@ -329,38 +297,19 @@ function WaiterClosingPage() {
                     </div>
                 </div>
                 
+                {/* Resultados Detalhados */}
                 <div className="results-container">
                     <p>Comissão (8%): <strong>{formatCurrencyResult(comissao8)}</strong></p>
-                    <p>Comissão (4%): <strong>{formatCurrencyResult(comissao4)}</strong></p><hr/>
+                    <p>Comissão (4%): <strong>{formatCurrencyResult(comissao4)}</strong></p>
+                    <hr/>
                     <p className="total-text">Comissão Total: <strong>{formatCurrencyResult(comissaoTotal)}</strong></p>
-                    <p className="total-text">{diferencaLabel}: 
-                        <strong className="final-value" style={{ color: diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>
-                            {formatCurrencyResult(diferencaPagarReceber)}
-                        </strong>
-                    </p>
+                    <p className="total-text">{diferencaLabel}: <strong className="final-value" style={{ color: diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>{formatCurrencyResult(diferencaPagarReceber)}</strong></p>
                     <button ref={formRefs.saveButton} className="login-button" onClick={handleOpenConfirmation}>SALVAR E FINALIZAR</button>
                 </div>
             </div>
-
-            {registerModalVisible && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <h2>Cadastrar Novo Garçom</h2>
-                        <div className="input-group">
-                            <label>CPF</label>
-                            <input type="text" value={formatCpf(searchInput)} readOnly />
-                        </div>
-                        <div className="input-group">
-                            <label>Nome do Garçom</label>
-                            <input type="text" value={newWaiterName} onChange={(e) => setNewWaiterName(e.target.value)} placeholder="Digite o nome completo" />
-                        </div>
-                        <div className="modal-buttons">
-                            <button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button>
-                            <button className="login-button" onClick={handleRegisterNewWaiter}>Salvar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            
+            {/* Modais */}
+            {registerModalVisible && (<div className="modal-overlay"><div className="modal-content"><h2>Cadastrar Novo Garçom</h2><div className="input-group"><label>CPF</label><input type="text" value={formatCpf(searchInput)} readOnly /></div><div className="input-group"><label>Nome do Garçom</label><input type="text" value={newWaiterName} onChange={(e) => setNewWaiterName(e.target.value)} placeholder="Digite o nome completo" /></div><div className="modal-buttons"><button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button><button className="login-button" onClick={handleRegisterNewWaiter}>Salvar</button></div></div></div>)}
             
             {modalVisible && (
                 <div className="modal-overlay">
@@ -374,39 +323,26 @@ function WaiterClosingPage() {
                                 <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
                                 <hr />
                                 <p>Valor Total da Venda: <strong>{formatCurrencyResult(dataToConfirm.valorTotal)}</strong></p>
-                                <p>Valor Total Comissão: <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
+                                <p>Comissão Total: <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
                                 <p>Valor Total de Acerto: <strong>{formatCurrencyResult(dataToConfirm.valorTotalAcerto)}</strong></p>
                                 <hr />
-                                <p className="total-text">{dataToConfirm.diferencaLabel}: 
-                                    <strong style={{ color: dataToConfirm.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>
-                                        {formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}
-                                    </strong>
-                                </p>
+                                <p className="total-text">{dataToConfirm.diferencaLabel}: <strong style={{ color: dataToConfirm.diferencaLabel === 'Pagar ao Garçom' ? 'blue' : 'red' }}>{formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}</strong></p>
                             </>)}
                             <div className="modal-buttons">
                                 <button className="cancel-button" onClick={() => setModalVisible(false)}>Não</button>
                                 <button className="login-button" onClick={handleConfirmAndSave}>Sim, Salvar</button>
                             </div>
                         </>)}
-
-                        {modalState === 'saving' && ( <>
-                            <div className="spinner"></div>
-                            <p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p>
-                        </>)}
-
+                        
+                        {modalState === 'saving' && ( <><div className="spinner"></div><p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p></>)}
+                        
                         {modalState === 'success' && ( <>
                             <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
                             <h2>Fechamento Salvo com Sucesso!</h2>
                             <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
                             <div className="modal-buttons">
-                                <button className="modal-button primary" onClick={handleRegisterNew}>
-                                    <span className="button-icon">➕</span>
-                                    <span>Registrar Novo Fechamento</span>
-                                </button>
-                                <button className="modal-button secondary" onClick={handleBackToMenu}>
-                                    <span className="button-icon">📋</span>
-                                    <span>Voltar ao Menu Principal</span>
-                                </button>
+                                <button className="modal-button primary" onClick={handleRegisterNew}><span className="button-icon">➕</span><span>Registrar Novo Fechamento</span></button>
+                                <button className="modal-button secondary" onClick={handleBackToMenu}><span className="button-icon">📋</span><span>Voltar ao Menu Principal</span></button>
                             </div>
                         </>)}
                     </div>

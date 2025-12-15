@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL COMPLETA: FIX COLUNA G + COMISSÕES SEPARADAS)
-console.log("--- INICIANDO SERVIDOR: VERSÃO COMBO (NOVO LAYOUT + FIX POSICIONAMENTO) ---");
+// server.js (VERSÃO FINAL: 8%, 10% e 4% TOTALMENTE SEPARADOS)
+console.log("--- INICIANDO SERVIDOR: LAYOUT COM 3 COMISSÕES (8, 10, 4) ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -16,7 +16,6 @@ const isProduction = process.env.NODE_ENV === 'production';
 const isProdElectron = isRunningInElectron && isProduction;
 const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
 
-// Carrega variáveis de ambiente
 require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 
 app.use(express.json({ limit: '50mb' }));
@@ -105,7 +104,6 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 // 4. ROTAS DA APLICAÇÃO
 // ==========================================
 
-// --- ROTA 1: DADOS MESTRE ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -126,7 +124,6 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
-// --- ROTA 2: ATUALIZAR BASE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -156,7 +153,6 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA 3: STATUS EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   try {
@@ -180,7 +176,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (CORREÇÃO DE CASCATA + NOVAS COLUNAS) ---
+// --- ROTA 4: SYNC PARA A NUVEM (CORRIGIDO PARA 3 COLUNAS DE COMISSÃO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -200,29 +196,27 @@ app.post('/api/cloud-sync', async (req, res) => {
     const processSheet = async (data, sheetNameRaw, headerRef) => {
         if (!data || data.length === 0) return;
 
-        // Limpeza do nome da aba e aspas simples
         const safeSheetName = `'${sheetNameRaw.trim()}'`;
 
-        // 1. Cria Aba se não existir
+        // 1. Cria Aba
         let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${safeSheetName}`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetNameRaw.trim() } } }] } });
             await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Verifica cabeçalho (atualiza se tiver colunas novas)
+            // Atualiza Header se estiver desatualizado (Adicionou colunas novas?)
             const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1:Z1` });
-            if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length) {
+            if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length || hCheck.data.values[0].join(',') !== headerRef.join(',')) {
                 await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
             }
         }
 
         const isWaiterSheet = sheetNameRaw.includes('Garço') || sheetNameRaw.includes('Garco');
 
-        // 2. Prepara os dados (BLINDAGEM DE DADOS + NOVAS COLUNAS)
+        // 2. Prepara os dados
         const rows = data.map(c => {
              if (isWaiterSheet) {
-                 // Lógica Garçom
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  let absVal = Math.abs(parseFloat(val) || 0);
@@ -232,7 +226,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                      acertoFinal = -absVal; 
                  }
 
-                 // Campos de texto com proteção contra NULL
+                 // Tratamento de Strings
                  const ts = String(c.timestamp || '').trim();
                  const proto = String(c.protocol || '').trim();
                  const tp = String(c.type || 'waiter').trim();
@@ -242,7 +236,6 @@ app.post('/api/cloud-sync', async (req, res) => {
                  const op = String(c.operatorName || '').trim();
 
                  if (sheetNameRaw.includes('GarçomZIG')) {
-                     // ZIG (Mantém estrutura padrão)
                      return [
                         ts, proto, 'waiter_zig', cpf, nome, maq,
                         c.valorTotal??0, 
@@ -251,15 +244,18 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, op
                      ];
                  } else { 
-                     // Garçons Normais (8% e 10%) - COM AS NOVAS COLUNAS
+                     // Garçons Normais (8% / 10%) - AQUI ESTÁ A MUDANÇA PRINCIPAL
                      return [
                         ts, proto, tp, cpf, nome, maq,
                         c.valorTotal??0, 
                         c.credito??0, c.debito??0, c.pix??0, c.cashless??0,
                         c.valorEstorno??0, 
-                        // NOVAS COLUNAS:
-                        c.comissao8 || 0, // Comissão (%)
-                        c.comissao4 || 0, // Comissão (4%)
+                        
+                        // NOVAS COLUNAS ORDENADAS:
+                        c.comissao8  || 0, // Coluna M (8%)
+                        c.comissao10 || 0, // Coluna N (10% - NOVO)
+                        c.comissao4  || 0, // Coluna O (4%)
+                        
                         c.comissaoTotal??0, 
                         acertoFinal, op
                      ];
@@ -283,12 +279,12 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
-        // 3. CALCULA A PRÓXIMA LINHA (FIX DA COLUNA G)
+        // 3. CALCULA A LINHA (Fix Coluna G)
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:A` });
         const existingRows = response.data.values || [];
         
         let nextRowIndex = existingRows.length + 1; 
-        if (nextRowIndex < 2) nextRowIndex = 2; // Segurança para não sobrescrever header
+        if (nextRowIndex < 2) nextRowIndex = 2; 
 
         // Verificação de duplicatas
         const protocolIdx = sheetNameRaw.includes('Caixas') ? 0 : 1; 
@@ -314,12 +310,10 @@ app.post('/api/cloud-sync', async (req, res) => {
         // 4. GRAVAÇÃO
         if (toAdd.length > 0) {
             console.log(`[BACKEND] Gravando ${toAdd.length} registros em ${safeSheetName} na linha A${nextRowIndex}`);
-            // Log do primeiro registro para debug
-            console.log('Exemplo:', JSON.stringify(toAdd[0])); 
-
+            
             await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: `${safeSheetName}!A${nextRowIndex}`, // FORÇA COLUNA A
+                range: `${safeSheetName}!A${nextRowIndex}`, 
                 valueInputOption: 'USER_ENTERED', 
                 resource: { values: toAdd } 
             });
@@ -340,11 +334,14 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
-    // CABEÇALHOS ATUALIZADOS
+    // CABEÇALHOS ATUALIZADOS (COM A NOVA COLUNA DE 10%)
     const headerGarcom = [
         "Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", 
         "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", 
-        "Comissão (%)", "Comissão (4%)", "Comissão Total", 
+        "Comissão (8%)",  // Antes era "Comissão (%)"
+        "Comissão (10%)", // NOVO
+        "Comissão (4%)", 
+        "Comissão Total", 
         "Acerto", "Operador"
     ];
     
@@ -372,7 +369,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA 5: HISTÓRICO ONLINE ---
+// --- ROTA 5: HISTÓRICO ONLINE (LEITURA) ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -413,7 +410,6 @@ app.post('/api/online-history', async (req, res) => {
                     const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
                     const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
                     const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
-                    
                     const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
 
                     const cpf = getTextFromRow(row, headerMap, ['CPF']);

@@ -1,4 +1,4 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO FINAL COMPLETA)
+// src/pages/CloudSyncPage.jsx (VERSÃO ATUALIZADA: COMISSÃO 10% SEPARADA)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './CloudSyncPage.css';
@@ -39,7 +39,7 @@ function CloudSyncPage() {
         return;
       }
 
-      // --- 1. MAPEAMENTO DE GARÇONS (ATUALIZADO COM 8% e 4%) ---
+      // --- 1. MAPEAMENTO DE GARÇONS (AGORA COM 8%, 10% E 4% SEPARADOS) ---
       const waiterData = eventClosings
         .filter(c => c.type && c.type.startsWith('waiter'))
         .map(c => ({
@@ -50,7 +50,7 @@ function CloudSyncPage() {
             waiterName: c.waiterName,
             numeroMaquina: c.numeroMaquina,
             
-            // Conversão forçada para garantir NÚMEROS e evitar erro de coluna
+            // Conversão forçada para garantir NÚMEROS
             valorTotal: Number(c.valorTotal || 0),
             credito: Number(c.credito || 0),
             debito: Number(c.debito || 0),
@@ -59,9 +59,12 @@ function CloudSyncPage() {
             valorTotalProdutos: Number(c.valorTotalProdutos || 0), 
             valorEstorno: c.temEstorno ? Number(c.valorEstorno || 0) : 0,
             
-            // NOVOS CAMPOS DE COMISSÃO (Separados)
-            comissao8: Number(c.comissao8 || 0),   // Envia 0 se não existir no registro antigo
-            comissao4: Number(c.comissao4 || 0),   // Envia 0 se não existir
+            // --- MUDANÇA AQUI: TRÊS COMISSÕES SEPARADAS ---
+            comissao8: Number(c.comissao8 || 0),   // Apenas 8%
+            comissao10: Number(c.comissao10 || 0), // Apenas 10% (Nova Coluna)
+            comissao4: Number(c.comissao4 || 0),   // Apenas 4%
+            // ---------------------------------------------
+            
             comissaoTotal: Number(c.comissaoTotal || 0),
             
             // Campos de Acerto/Diferença
@@ -70,12 +73,12 @@ function CloudSyncPage() {
             operatorName: c.operatorName
         }));
 
-      // --- 2. MAPEAMENTO DE CAIXAS (Móvel e Fixo) ---
+      // --- 2. MAPEAMENTO DE CAIXAS (Sem alterações) ---
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
         .flatMap(c => {
             if (Array.isArray(c.caixas)) {
-                // Caixa Fixo (Grupo desmembrado para a planilha)
+                // Caixa Fixo
                 return c.caixas.map((caixa, index) => {
                     const acertoCaixa = (caixa.valorTotalVenda || 0) - ((caixa.credito || 0) + (caixa.debito || 0) + (caixa.pix || 0) + (caixa.cashless || 0)) - (caixa.temEstorno ? (caixa.valorEstorno || 0) : 0);
                     const diferencaCaixa = (caixa.dinheiroFisico || 0) - acertoCaixa;
@@ -183,13 +186,7 @@ function CloudSyncPage() {
 
   return (
     <div className="cloud-sync-container">
-      <FeedbackModal 
-        isOpen={feedbackModal.isOpen}
-        onClose={closeFeedbackModal}
-        title={feedbackModal.title}
-        message={feedbackModal.message}
-        status={feedbackModal.status}
-      />
+      <FeedbackModal isOpen={feedbackModal.isOpen} onClose={closeFeedbackModal} title={feedbackModal.title} message={feedbackModal.message} status={feedbackModal.status} />
       <div className="cloud-sync-card">
         <h1>☁️ Enviar Dados para Nuvem</h1>
         {activeEvent ? (
