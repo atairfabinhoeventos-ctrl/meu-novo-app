@@ -298,6 +298,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                 spreadsheetId: spreadsheetId_cloud_sync, 
                 range: `${sheetName}!A:A`, // <--- AQUI ESTAVA O ERRO DE ALINHAMENTO LATERAL
                 valueInputOption: 'USER_ENTERED', 
+                insertDataOption: 'INSERT_ROWS', // <--- ADICIONE ISSO: Força criar linha nova
                 resource: { values: toAdd } 
             });
             
