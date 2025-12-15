@@ -1,5 +1,5 @@
-// server.js (CORREÇÃO DE ROTEAMENTO DE GARÇONS + ROBUST)
-console.log("--- EXECUTANDO VERSÃO: CORREÇÃO CRÍTICA GARÇONS vs CAIXAS ---"); 
+// server.js (CORREÇÃO DEFINITIVA: ROTEAMENTO PLURAL/SINGULAR)
+console.log("--- EXECUTANDO VERSÃO: CORREÇÃO PLURAL GARÇONS ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -59,7 +59,6 @@ const excelDateToJSDate = (serial) => {
    return new Date(utc_value * 1000);
 };
 
-// Helpers de Mapeamento Dinâmico para leitura (mantidos)
 const getValFromRow = (row, headerMap, possibleKeys) => {
     for (const key of possibleKeys) {
         const normalizedKey = key.toUpperCase().trim();
@@ -108,7 +107,6 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 // ROTAS DA APLICAÇÃO
 // ==========================================
 
-// --- ROTA 1: BUSCAR DADOS MESTRE ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -129,7 +127,6 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
-// --- ROTA 2: ATUALIZAR BASE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -159,7 +156,6 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA 3: ATUALIZAR STATUS DO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   try {
@@ -203,19 +199,16 @@ app.post('/api/cloud-sync', async (req, res) => {
     const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig') : [];
     const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig') : [];
 
-    // Função interna para processar cada aba
     const processSheet = async (data, sheetName, headerRef) => {
         if (!data || data.length === 0) return;
 
         let sheet = sheets.find(s => s.properties.title === sheetName);
         
-        // Se a aba não existe, cria
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Verifica cabeçalho
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
             const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
@@ -231,9 +224,8 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // Prepara linhas para envio
         const rows = data.map(c => {
-             // CORREÇÃO AQUI: Verifica se é "Garçons" (plural) ou "Garçom" (singular)
+             // CORREÇÃO AQUI: Garante que 'Garçons' (plural) entre no IF
              if (sheetName.includes('Garço') || sheetName.includes('Garco')) {
                  
                  let val = c.diferencaPagarReceber;
@@ -254,7 +246,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, c.operatorName
                      ];
                  } else { 
-                     // Garçons Normais (8% e 10%)
+                     // Garçons Normais (8% e 10%) - ENTRA AQUI AGORA
                      return [
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
@@ -263,7 +255,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                      ];
                  }
              } else { 
-                 // Caixas
+                 // Caixas - ANTES ESTAVA CAINDO AQUI
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -273,10 +265,9 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
-        // Verifica duplicatas pelo Protocolo
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
-        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
+        const protocolIdx = (sheetName.includes('Caixas')) ? 0 : 1; 
         const protocolMap = new Map();
         
         existingRows.slice(1).forEach((row, idx) => {
@@ -296,7 +287,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         if (toAdd.length > 0) {
             await googleSheets.spreadsheets.values.append({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: sheetName, // O Google decide onde colocar, geralmente na primeira linha vazia
+                range: sheetName, 
                 valueInputOption: 'USER_ENTERED', 
                 resource: { values: toAdd } 
             });
@@ -334,8 +325,6 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-
-// --- ROTA 5: EXPORTAÇÃO PARA EXCEL ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
   if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -379,8 +368,6 @@ app.post('/api/export-online-data', async (req, res) => {
   }
 });
 
-
-// --- ROTA 6: HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -401,7 +388,6 @@ app.post('/api/online-history', async (req, res) => {
 
         let allClosings = [];
 
-        // Função Genérica para processar qualquer aba com Mapeamento Dinâmico
         const processGenericSheet = (result, typeCategory) => {
             if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
                 const [header, ...rows] = result.value.data.values;
@@ -504,8 +490,6 @@ app.post('/api/online-history', async (req, res) => {
     }
 });
 
-
-// --- ROTA 7: CONCILIAÇÃO YUZER ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) return res.status(400).json({ message: 'Dados incompletos.' });
@@ -610,7 +594,6 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
   }
 });
 
-// --- ROTA 8: DELETAR REGISTRO ---
 app.post('/api/delete-closing', async (req, res) => {
     const { eventName, protocolToDelete, password } = req.body;
     if (!eventName || !protocolToDelete) {
