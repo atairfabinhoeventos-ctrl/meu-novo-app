@@ -1,5 +1,5 @@
-// server.js (CORREÇÃO DE ALINHAMENTO A:A + MAPEAMENTO DE DADOS)
-console.log("--- EXECUTANDO VERSÃO: FIX RANGE A:A + DATA MAPPING ---"); 
+// server.js (CORREÇÃO DEFINITIVA: CASCATA + DADOS GARÇOM)
+console.log("--- EXECUTANDO VERSÃO: FIX FINAL (APPEND A:A + INSERT_ROWS) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -179,7 +179,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (CORREÇÃO DE RANGE A:A E LOGICA) ---
+// --- ROTA DE SYNC PARA A NUVEM (CORREÇÃO DE CASCATA E DADOS FALTANDO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -211,7 +211,7 @@ app.post('/api/cloud-sync', async (req, res) => {
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Verifica cabeçalho
+            // Verifica cabeçalho para garantir consistência
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
             const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
@@ -227,19 +227,19 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
-        // DETECÇÃO DE TIPO DE ABA (Robustez)
         const isWaiterSheet = sheetName.includes('Garço') || sheetName.includes('Garco');
 
-        // Prepara linhas para envio
+        // Prepara linhas para envio (MAPEAMENTO CORRIGIDO)
         const rows = data.map(c => {
              if (isWaiterSheet) {
-                 // --- LÓGICA DE GARÇOM (Mapeia campos do waiterData) ---
+                 // --- LÓGICA DE GARÇOM ---
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
                  let acertoFinal = absVal; 
+                 // Define sinal baseado no label (Pagar ao Garçom = Negativo para o caixa / Receber = Positivo)
                  if (label.includes('pagar') || label.includes('faltou')) {
                      acertoFinal = -absVal; 
                  }
@@ -261,7 +261,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                      ];
                  }
              } else { 
-                 // --- LÓGICA DE CAIXA (Mapeia campos do cashierData) ---
+                 // --- LÓGICA DE CAIXA ---
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -272,55 +272,54 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
         // Verifica duplicatas pelo Protocolo
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:B` });
         const existingRows = response.data.values || [];
         const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
         const protocolMap = new Map();
         
-        existingRows.slice(1).forEach((row, idx) => {
-            if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 2);
+        // Mapeia Protocolo -> Linha (Index + 1)
+        existingRows.forEach((row, idx) => {
+            if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 1);
         });
 
         const toAdd = [], toUpdate = [];
         rows.forEach(row => {
             const p = String(row[protocolIdx]).trim();
             if (protocolMap.has(p)) {
-                toUpdate.push({ range: `${sheetName}!A${protocolMap.get(p)}`, values: [row] });
+                // Se existe, atualiza na linha específica
+                const rowNum = protocolMap.get(p);
+                toUpdate.push({ range: `${sheetName}!A${rowNum}`, values: [row] });
             } else {
+                // Se não existe, vai para a lista de novos
                 toAdd.push(row);
             }
         });
 
+        // --- CORREÇÃO DE CASCATA ---
         if (toAdd.length > 0) {
-            // --- CORREÇÃO DEFINITIVA: POSICIONAMENTO CALCULADO ---
+            console.log(`[BACKEND] Adicionando ${toAdd.length} novos registros em ${sheetName}`);
             
-            // 1. Descobre a próxima linha vazia baseada no que já foi lido
-            // Se existingRows tiver 1 linha (cabeçalho), o length é 1. A próxima é a 2.
-            // Se existingRows for vazio (erro), assume linha 1 (ou 2 se garantir cabeçalho).
-            const nextRow = (existingRows.length > 0) ? existingRows.length + 1 : 2;
-
-            // 2. Define o alvo EXATO. Ex: "Garçons - Evento!A2"
-            // Isso proíbe o Google de escrever na coluna Q ou Z. Ele é obrigado a começar no A.
-            const targetRange = `${sheetName}!A${nextRow}`;
-
-            console.log(`[BACKEND] Gravando ${toAdd.length} registros em ${targetRange}`);
-
-            // 3. Usa 'update' (escrita direta) em vez de 'append' (anexar)
-            await googleSheets.spreadsheets.values.update({ 
+            // Usa APPEND com insertDataOption: 'INSERT_ROWS'
+            // Isso força o Google a criar linhas novas e evita escrever em colunas laterais ou sobrescrever
+            await googleSheets.spreadsheets.values.append({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: targetRange,
+                range: `${sheetName}!A:A`, // Força a busca na coluna A
                 valueInputOption: 'USER_ENTERED', 
+                insertDataOption: 'INSERT_ROWS', // CRUCIAL PARA EVITAR CASCATA
                 resource: { values: toAdd } 
             });
 
-            // Contadores (Mantidos para o seu retorno no frontend)
+            // Contadores
             if (sheetName.includes('GarçomZIG')) counts.newZ += toAdd.length;
-            else if (sheetName.includes('Garçons') || sheetName.includes('Garco')) counts.newW += toAdd.length;
+            else if (isWaiterSheet) counts.newW += toAdd.length;
             else counts.newC += toAdd.length;
         }
         
         if (toUpdate.length > 0) {
-            await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
+            await googleSheets.spreadsheets.values.batchUpdate({ 
+                spreadsheetId: spreadsheetId_cloud_sync, 
+                resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } 
+            });
             if (isWaiterSheet) {
                  if(sheetName.includes('ZIG')) counts.updZ += toUpdate.length;
                  else counts.updW += toUpdate.length;
