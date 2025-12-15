@@ -292,27 +292,28 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
         if (toAdd.length > 0) {
-            // LÓGICA DE POSICIONAMENTO ABSOLUTO (CORREÇÃO DEFINITIVA)
-            // 1. Pega o número de linhas que já existem (lidas anteriormente para checar duplicatas)
-            // 2. A próxima linha será o comprimento atual + 1
-            const nextRow = existingRows.length + 1;
+            // --- CORREÇÃO DEFINITIVA: POSICIONAMENTO CALCULADO ---
+            
+            // 1. Descobre a próxima linha vazia baseada no que já foi lido
+            // Se existingRows tiver 1 linha (cabeçalho), o length é 1. A próxima é a 2.
+            // Se existingRows for vazio (erro), assume linha 1 (ou 2 se garantir cabeçalho).
+            const nextRow = (existingRows.length > 0) ? existingRows.length + 1 : 2;
 
-            // 3. Monta o range EXATO: "NomeDaAba!A{LinhaCalculada}"
-            // Isso força o Google a começar a escrever na Coluna A daquela linha específica.
+            // 2. Define o alvo EXATO. Ex: "Garçons - Evento!A2"
+            // Isso proíbe o Google de escrever na coluna Q ou Z. Ele é obrigado a começar no A.
             const targetRange = `${sheetName}!A${nextRow}`;
 
-            console.log(`[BACKEND] Gravando ${toAdd.length} novos registros em ${targetRange}`);
+            console.log(`[BACKEND] Gravando ${toAdd.length} registros em ${targetRange}`);
 
-            // 4. Usa 'update' (Ordem Direta) ao invés de 'append' (Adivinhação)
+            // 3. Usa 'update' (escrita direta) em vez de 'append' (anexar)
             await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
                 range: targetRange,
                 valueInputOption: 'USER_ENTERED', 
                 resource: { values: toAdd } 
             });
-            
-            // Contadores (Mantidos iguais)
-            // Lógica para contar Garçons vs ZIG vs Caixas
+
+            // Contadores (Mantidos para o seu retorno no frontend)
             if (sheetName.includes('GarçomZIG')) counts.newZ += toAdd.length;
             else if (sheetName.includes('Garçons') || sheetName.includes('Garco')) counts.newW += toAdd.length;
             else counts.newC += toAdd.length;
