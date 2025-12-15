@@ -1,5 +1,5 @@
-// server.js (VERSÃO COMPLETA E ROBUSTA: MAPEAMENTO DINÂMICO DE COLUNAS)
-console.log("--- EXECUTANDO VERSÃO: FULL ROBUST + DYNAMIC MAPPING ---"); 
+// server.js (CORREÇÃO DE ROTEAMENTO DE GARÇONS + ROBUST)
+console.log("--- EXECUTANDO VERSÃO: CORREÇÃO CRÍTICA GARÇONS vs CAIXAS ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -19,42 +19,31 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
 // ==========================================
-// FUNÇÕES AUXILIARES E PARSERS (CORRIGIDOS)
+// FUNÇÕES AUXILIARES E PARSERS
 // ==========================================
 
-// 1. Parser de Moeda Blindado (Lê números e textos com sinal negativo)
 const parseSisfoCurrency = (val) => {
-    // Se já vier como número (graças ao UNFORMATTED_VALUE), retorna direto
     if (typeof val === 'number') return val;
     if (val === null || val === undefined) return 0;
     
     let originalString = String(val).trim();
     if (originalString === '') return 0;
 
-    // Limpeza prévia para detecção de sinal
     let cleanCheck = originalString.replace(/R\$|\s/gi, '');
-    
-    // Detecção de negativo (Traço no início, meio, fim ou Parênteses)
     const isNegative = cleanCheck.includes('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
 
     let cleanString = originalString;
-    // Remove parênteses contábeis
     if (cleanCheck.startsWith('(') && cleanCheck.endsWith(')')) {
         cleanString = cleanString.replace(/[()]/g, '');
     }
-    
-    // Remove tudo que não é dígito, ponto ou vírgula
     cleanString = cleanString.replace(/[^0-9.,]/g, '');
 
-    // Resolve confusão Ponto vs Vírgula (BR vs US)
     const lastPoint = cleanString.lastIndexOf('.');
     const lastComma = cleanString.lastIndexOf(',');
 
     if (lastComma > lastPoint) {
-        // Formato BR: 1.000,00 -> 1000.00
         cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
     } else if (lastPoint > lastComma) {
-         // Formato US: 1,000.00 -> 1000.00
          cleanString = cleanString.replace(/,/g, '');
     }
 
@@ -64,20 +53,13 @@ const parseSisfoCurrency = (val) => {
     return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
 };
 
-// 2. Parser de Data do Excel (Serial Number)
 const excelDateToJSDate = (serial) => {
    const utc_days  = Math.floor(serial - 25569);
    const utc_value = utc_days * 86400;
    return new Date(utc_value * 1000);
 };
 
-const normalizeToCentavos = (val) => {
-    const numberValue = parseSisfoCurrency(val);
-    return Math.round(numberValue * 100);
-};
-
-// 3. HELPER: BUSCA VALOR NUMÉRICO PELA COLUNA (MAPEAMENTO DINÂMICO)
-// Procura o nome da coluna no mapa e retorna o valor tratado
+// Helpers de Mapeamento Dinâmico para leitura (mantidos)
 const getValFromRow = (row, headerMap, possibleKeys) => {
     for (const key of possibleKeys) {
         const normalizedKey = key.toUpperCase().trim();
@@ -86,10 +68,9 @@ const getValFromRow = (row, headerMap, possibleKeys) => {
             return parseSisfoCurrency(row[index]);
         }
     }
-    return 0; // Padrão se não encontrar
+    return 0;
 };
 
-// 4. HELPER: BUSCA TEXTO PELA COLUNA (MAPEAMENTO DINÂMICO)
 const getTextFromRow = (row, headerMap, possibleKeys) => {
     for (const key of possibleKeys) {
         const normalizedKey = key.toUpperCase().trim();
@@ -98,7 +79,7 @@ const getTextFromRow = (row, headerMap, possibleKeys) => {
             return String(row[index]).trim();
         }
     }
-    return ''; // Padrão se não encontrar
+    return '';
 };
 
 // ==========================================
@@ -127,7 +108,7 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 // ROTAS DA APLICAÇÃO
 // ==========================================
 
-// --- ROTA 1: BUSCAR DADOS MESTRE (GARÇONS E EVENTOS) ---
+// --- ROTA 1: BUSCAR DADOS MESTRE ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -141,7 +122,6 @@ app.get('/api/sync/master-data', async (req, res) => {
           name: row[0],
           active: row[1] ? row[1].toUpperCase() === 'ATIVO' : true,
         })).filter(e => e.name);
-        
         res.status(200).json({ waiters, events });
     } catch (error) {
         console.error('Erro master-data:', error);
@@ -149,30 +129,24 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
-// --- ROTA 2: ATUALIZAR BASE (UPLOAD DE PLANILHA) ---
+// --- ROTA 2: ATUALIZAR BASE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
     const googleSheets = await getGoogleSheetsClient();
-    
-    // Atualiza Garçons
     if (waiters && waiters.length > 0) {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A2:A' });
       const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
       const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
-      
       if (newWaiters.length > 0) {
         const values = newWaiters.map(w => [w.cpf, w.name]);
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
       }
     }
-    
-    // Atualiza Eventos
     if (events && events.length > 0) {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-      
       if (newEvents.length > 0) {
         const values = newEvents.map(e => [e.name, e.active ? 'ATIVO' : 'INATIVO']);
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
@@ -185,7 +159,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA 3: ATUALIZAR STATUS DO EVENTO (ATIVO/INATIVO) ---
+// --- ROTA 3: ATUALIZAR STATUS DO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   try {
@@ -209,7 +183,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (ENVIO DE DADOS LOCAIS) ---
+// --- ROTA 4: SYNC PARA A NUVEM (CORRIGIDA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -259,11 +233,12 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         // Prepara linhas para envio
         const rows = data.map(c => {
-             if (sheetName.includes('Garçom')) {
+             // CORREÇÃO AQUI: Verifica se é "Garçons" (plural) ou "Garçom" (singular)
+             if (sheetName.includes('Garço') || sheetName.includes('Garco')) {
+                 
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  
-                 // Garante envio negativo se o label for pagar
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
                  let acertoFinal = absVal; 
@@ -279,6 +254,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, c.operatorName
                      ];
                  } else { 
+                     // Garçons Normais (8% e 10%)
                      return [
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
@@ -287,6 +263,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                      ];
                  }
              } else { 
+                 // Caixas
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -317,7 +294,12 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
         if (toAdd.length > 0) {
-            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueInputOption: 'USER_ENTERED', resource: { values: toAdd } });
+            await googleSheets.spreadsheets.values.append({ 
+                spreadsheetId: spreadsheetId_cloud_sync, 
+                range: sheetName, // O Google decide onde colocar, geralmente na primeira linha vazia
+                valueInputOption: 'USER_ENTERED', 
+                resource: { values: toAdd } 
+            });
             if (sheetName.includes('GarçomZIG')) counts.newZ += toAdd.length;
             else if (sheetName.includes('Garçons')) counts.newW += toAdd.length;
             else counts.newC += toAdd.length;
@@ -363,7 +345,6 @@ app.post('/api/export-online-data', async (req, res) => {
     const googleSheets = await getGoogleSheetsClient();
     const fetchWithExtras = async (sheetName) => {
         try {
-            // Usa UNFORMATTED_VALUE para garantir dados numéricos
             const response = await googleSheets.spreadsheets.values.get({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
                 range: sheetName,
@@ -399,7 +380,7 @@ app.post('/api/export-online-data', async (req, res) => {
 });
 
 
-// --- ROTA 6: HISTÓRICO ONLINE (AQUI ESTÁ A CORREÇÃO PRINCIPAL) ---
+// --- ROTA 6: HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -410,7 +391,6 @@ app.post('/api/online-history', async (req, res) => {
         const googleSheets = await getGoogleSheetsClient();
         const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
         
-        // 1. Busca todas as abas com UNFORMATTED_VALUE (para pegar -70 ao invés de "R$ -70,00")
         const results = await Promise.allSettled(sheetNames.map(sn => 
             googleSheets.spreadsheets.values.get({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
@@ -421,104 +401,87 @@ app.post('/api/online-history', async (req, res) => {
 
         let allClosings = [];
 
-        // ... (dentro de server.js)
+        // Função Genérica para processar qualquer aba com Mapeamento Dinâmico
+        const processGenericSheet = (result, typeCategory) => {
+            if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
+                const [header, ...rows] = result.value.data.values;
+                const headerMap = {};
+                header.forEach((col, idx) => {
+                    if (col) headerMap[String(col).trim().toUpperCase()] = idx;
+                });
 
-// Função Genérica para processar qualquer aba com Mapeamento Dinâmico
-const processGenericSheet = (result, typeCategory) => {
-    if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
-        const [header, ...rows] = result.value.data.values;
-        
-        // 2. CRIA O MAPA DE COLUNAS (Nome -> Índice)
-        const headerMap = {};
-        header.forEach((col, idx) => {
-            if (col) headerMap[String(col).trim().toUpperCase()] = idx;
-        });
+                return rows.map(row => {
+                    const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
+                    const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
+                    const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
+                    const vPix   = getValFromRow(row, headerMap, ['PIX']);
+                    const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
+                    const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
+                    const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
+                    const vCom   = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
+                    const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
+                    const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
+                    const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
+                    const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
 
-        return rows.map(row => {
-            // 3. BUSCA INTELIGENTE DE VALORES
-            const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
-            const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
-            const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
-            const vPix   = getValFromRow(row, headerMap, ['PIX']);
-            const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
-            const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
-            const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
-            const vCom   = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
-            const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
-            const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
-            const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
-            const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
+                    const cpf = getTextFromRow(row, headerMap, ['CPF']);
+                    const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
+                    const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
+                    const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
+                    const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
+                    
+                    let data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
 
-            // Busca textos
-            const cpf = getTextFromRow(row, headerMap, ['CPF']);
-            const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
-            
-            // --- CORREÇÃO AQUI: Mudado de 'protocolo' para 'protocol' ---
-            const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
-            // -----------------------------------------------------------
+                    if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
+                        const vendaLiquida = vTotal - vEst;
+                        let pgtosDigitais = vCred + vDeb + vPix;
+                        if (typeCategory === 'waiter') { pgtosDigitais += vCash; }
+                        const dinheiroNaMao = vendaLiquida - pgtosDigitais;
+                        const diffCalculada = dinheiroNaMao - vCom;
+                        const isPagar = diffCalculada < -0.05; 
 
-            const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
-            const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
-            
-            // Tratamento de Data
-            let data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
-
-            if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
-                // ... (lógica de cálculo permanece igual) ...
-                
-                // Venda Líquida = Venda Bruta - Estornos
-                const vendaLiquida = vTotal - vEst;
-                let pgtosDigitais = vCred + vDeb + vPix;
-                if (typeCategory === 'waiter') { pgtosDigitais += vCash; }
-                const dinheiroNaMao = vendaLiquida - pgtosDigitais;
-                const diffCalculada = dinheiroNaMao - vCom;
-                const isPagar = diffCalculada < -0.05; 
-
-                return {
-                    type: typeCategory, 
-                    cpf, 
-                    waiterName: nome, 
-                    protocol, // Agora esta variável existe!
-                    valorTotal: vTotal, 
-                    valorEstorno: vEst, 
-                    comissaoTotal: vCom,
-                    diferencaPagarReceber: Math.abs(diffCalculada),
-                    diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
-                    credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                    valorTotalProdutos: vProd, 
-                    numeroMaquina: maquina, 
-                    operatorName: operador, 
-                    timestamp: data
-                };
-            } else {
-                // Lógica para Caixas
-                const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
-                const base = {
-                    protocol, // Agora esta variável existe!
-                    eventName, operatorName: operador, timestamp: data, cpf,
-                    cashierName: nome, numeroMaquina: maquina,
-                    valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
-                    cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
-                    dinheiroFisico: vFisico, valorAcerto: vAcerto,
-                    diferenca: vDif, temEstorno: vEst > 0
-                };
-                return { 
-                    ...base, 
-                    type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', 
-                    groupProtocol: base.protocol 
-                };
+                        return {
+                            type: typeCategory, 
+                            cpf, 
+                            waiterName: nome, 
+                            protocol, 
+                            valorTotal: vTotal, 
+                            valorEstorno: vEst, 
+                            comissaoTotal: vCom,
+                            diferencaPagarReceber: Math.abs(diffCalculada),
+                            diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
+                            credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
+                            valorTotalProdutos: vProd, 
+                            numeroMaquina: maquina, 
+                            operatorName: operador, 
+                            timestamp: data
+                        };
+                    } else {
+                        const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
+                        const base = {
+                            protocol, 
+                            eventName, operatorName: operador, timestamp: data, cpf,
+                            cashierName: nome, numeroMaquina: maquina,
+                            valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
+                            cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
+                            dinheiroFisico: vFisico, valorAcerto: vAcerto,
+                            diferenca: vDif, temEstorno: vEst > 0
+                        };
+                        return { 
+                            ...base, 
+                            type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', 
+                            groupProtocol: base.protocol 
+                        };
+                    }
+                });
             }
-        });
-    }
-    return [];
-};
+            return [];
+        };
 
-        // Processa as 3 planilhas
         allClosings.push(...processGenericSheet(results[0], 'waiter'));
         allClosings.push(...processGenericSheet(results[1], 'waiter_zig'));
         allClosings.push(...processGenericSheet(results[2], 'cashier'));
 
-        // 5. Ajuste Final de Data (Serial -> ISO String)
         allClosings.forEach(c => {
              if(typeof c.timestamp === 'number') {
                  c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
@@ -542,7 +505,7 @@ const processGenericSheet = (result, typeCategory) => {
 });
 
 
-// --- ROTA 7: CONCILIAÇÃO YUZER (CORRIGIDA) ---
+// --- ROTA 7: CONCILIAÇÃO YUZER ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) return res.status(400).json({ message: 'Dados incompletos.' });
@@ -550,7 +513,6 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
     const googleSheets = await getGoogleSheetsClient();
     const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
     
-    // Busca dados
     const results = await Promise.allSettled(sheetNames.map(sn => 
         googleSheets.spreadsheets.values.get({ 
             spreadsheetId: spreadsheetId_cloud_sync, 
@@ -622,7 +584,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
         };
         
         const check = (f, yV, sV) => { 
-            if(Math.abs(yV-sV) > 1) { // Tolerância de 1 centavo
+            if(Math.abs(yV-sV) > 1) { 
                 divergences.push({ 
                     name: sRec.name, cpf, machine: machineKey, field: f, 
                     yuzerValue: (yV/100).toFixed(2), 
@@ -713,10 +675,6 @@ app.post('/api/delete-closing', async (req, res) => {
         res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
     }
 });
-
-// ==========================================
-// INICIALIZAÇÃO DO SERVIDOR
-// ==========================================
 
 module.exports = app;
 if (!isRunningInElectron) {
