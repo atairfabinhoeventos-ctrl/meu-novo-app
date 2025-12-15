@@ -38,34 +38,38 @@ function CloudSyncPage() {
         return;
       }
 
-      // --- MUDANÇA AQUI ---
-      // Filtra todos os tipos de garçom (waiter, waiter_10, waiter_zig)
+      // src/pages/CloudSyncPage.jsx
+
+// ... dentro da função handleCloudSync ...
+
+      // --- 1. MAPEAMENTO DE GARÇONS ---
       const waiterData = eventClosings
         .filter(c => c.type && c.type.startsWith('waiter'))
         .map(c => ({
-            // Adiciona o 'type' para o backend saber qual é
             type: c.type, 
             timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
             protocol: c.protocol,
             cpf: c.cpf, 
             waiterName: c.waiterName,
             numeroMaquina: c.numeroMaquina,
-            valorTotal: c.valorTotal,
-            credito: c.credito,
-            debito: c.debito,
-            pix: c.pix,
-            cashless: c.cashless || 0, // Garante 0 se for ZIG
-            // Adiciona o novo campo
-            valorTotalProdutos: c.valorTotalProdutos || 0, 
-            valorEstorno: c.temEstorno ? c.valorEstorno : 0,
-            comissaoTotal: c.comissaoTotal,
-            // Envia o 'diferencaLabel' para o backend (que agora espera)
+            valorTotal: Number(c.valorTotal || 0),
+            credito: Number(c.credito || 0),
+            debito: Number(c.debito || 0),
+            pix: Number(c.pix || 0),
+            cashless: Number(c.cashless || 0), 
+            valorTotalProdutos: Number(c.valorTotalProdutos || 0), 
+            valorEstorno: c.temEstorno ? Number(c.valorEstorno || 0) : 0,
+            
+            // --- NOVO: Enviar as comissões separadas ---
+            comissao8: Number(c.comissao8 || 0), 
+            comissao4: Number(c.comissao4 || 0),
+            // ------------------------------------------
+            
+            comissaoTotal: Number(c.comissaoTotal || 0),
             diferencaLabel: c.diferencaLabel, 
-            diferencaPagarReceber: c.diferencaPagarReceber,
-            // Lógica antiga de 'acerto' removida, pois o backend agora usa os 2 campos acima
+            diferencaPagarReceber: Number(c.diferencaPagarReceber || 0),
             operatorName: c.operatorName
         }));
-      // --- FIM DA MUDANÇA ---
 
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas)) // Filtra Caixas Móveis E Grupos de Caixas Fixos

@@ -125,11 +125,39 @@ app.post('/api/cloud-sync', async (req, res) => {
                  const maq = String(c.numeroMaquina || '').trim();
                  const op = String(c.operatorName || '').trim();
 
+                 // ... dentro do if (isWaiterSheet) ...
+
                  if (sheetName.includes('GarçomZIG')) {
-                     return [ts, proto, 'waiter_zig', cpf, nome, maq, c.valorTotal||0, c.credito||0, c.debito||0, c.pix||0, c.valorTotalProdutos||0, c.valorEstorno||0, c.comissaoTotal||0, acertoFinal, op];
+                     // ZIG (Geralmente não tem 8% e 4% separados, mas mantive o padrão antigo se não usar)
+                     return [
+                        timestamp, protocol, 'waiter_zig', cpf, waiterName, numeroMaquina,
+                        c.valorTotal??0, c.credito??0, c.debito??0, c.pix??0, 
+                        c.valorTotalProdutos??0, c.valorEstorno??0, c.comissaoTotal??0, 
+                        acertoFinal, operatorName
+                     ];
                  } else { 
-                     // Garçom 8% / 10%
-                     return [ts, proto, type, cpf, nome, maq, c.valorTotal||0, c.credito||0, c.debito||0, c.pix||0, c.cashless||0, c.valorEstorno||0, c.comissaoTotal||0, acertoFinal, op];
+                     // Garçons Normais (8% e 10%) - AQUI ESTÁ A MUDANÇA
+                     return [
+                        timestamp, 
+                        protocol, 
+                        type, 
+                        cpf, 
+                        waiterName, 
+                        numeroMaquina,
+                        c.valorTotal ?? 0, 
+                        c.credito ?? 0, 
+                        c.debito ?? 0, 
+                        c.pix ?? 0, 
+                        c.cashless ?? 0,
+                        c.valorEstorno ?? 0, 
+                        // NOVAS COLUNAS NA ORDEM
+                        c.comissao8 ?? 0,   // Comissão 8% (ou 10%)
+                        c.comissao4 ?? 0,   // Comissão 4%
+                        c.comissaoTotal ?? 0, 
+                        // ---------------------
+                        acertoFinal, 
+                        operatorName
+                     ];
                  }
              } else { 
                  return [c.protocol||'', c.timestamp||'', c.type||'', c.cpf||'', c.cashierName||'', c.numeroMaquina||'', c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName||''];
@@ -186,7 +214,25 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
-    const headerGarcom = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
+    const headerGarcom = [
+        "Data", 
+        "Protocolo", 
+        "Tipo", 
+        "CPF", 
+        "Nome Garçom", 
+        "Nº Máquina", 
+        "Venda Total", 
+        "Crédito", 
+        "Débito", 
+        "Pix", 
+        "Cashless", 
+        "Devolução/Estorno", 
+        "Comissão (%)",      // Representa os 8% ou 10%
+        "Comissão (4%)",     // Representa o Cashless
+        "Comissão Total", 
+        "Acerto", 
+        "Operador"
+    ];
     const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
     const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador"];
 
