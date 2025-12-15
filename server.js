@@ -1,5 +1,5 @@
-// server.js (CORREÇÃO DEFINITIVA: ROTEAMENTO PLURAL/SINGULAR)
-console.log("--- EXECUTANDO VERSÃO: CORREÇÃO PLURAL GARÇONS ---"); 
+// server.js (CORREÇÃO DE ALINHAMENTO A:A + MAPEAMENTO DE DADOS)
+console.log("--- EXECUTANDO VERSÃO: FIX RANGE A:A + DATA MAPPING ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -19,7 +19,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
 // ==========================================
-// FUNÇÕES AUXILIARES E PARSERS
+// FUNÇÕES AUXILIARES
 // ==========================================
 
 const parseSisfoCurrency = (val) => {
@@ -179,7 +179,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (CORRIGIDA) ---
+// --- ROTA 4: SYNC PARA A NUVEM (CORREÇÃO DE RANGE A:A E LOGICA) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -199,16 +199,19 @@ app.post('/api/cloud-sync', async (req, res) => {
     const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig') : [];
     const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig') : [];
 
+    // Função interna para processar cada aba
     const processSheet = async (data, sheetName, headerRef) => {
         if (!data || data.length === 0) return;
 
         let sheet = sheets.find(s => s.properties.title === sheetName);
         
+        // Se a aba não existe, cria
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
+            // Verifica cabeçalho
             const headerCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
             const currentHeader = headerCheck.data.values ? headerCheck.data.values[0] : [];
             const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
@@ -224,10 +227,13 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         }
 
+        // DETECÇÃO DE TIPO DE ABA (Robustez)
+        const isWaiterSheet = sheetName.includes('Garço') || sheetName.includes('Garco');
+
+        // Prepara linhas para envio
         const rows = data.map(c => {
-             // CORREÇÃO AQUI: Garante que 'Garçons' (plural) entre no IF
-             if (sheetName.includes('Garço') || sheetName.includes('Garco')) {
-                 
+             if (isWaiterSheet) {
+                 // --- LÓGICA DE GARÇOM (Mapeia campos do waiterData) ---
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
                  
@@ -246,7 +252,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, c.operatorName
                      ];
                  } else { 
-                     // Garçons Normais (8% e 10%) - ENTRA AQUI AGORA
+                     // Garçons Normais (8% e 10%)
                      return [
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
                         c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
@@ -255,7 +261,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                      ];
                  }
              } else { 
-                 // Caixas - ANTES ESTAVA CAINDO AQUI
+                 // --- LÓGICA DE CAIXA (Mapeia campos do cashierData) ---
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -265,9 +271,10 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
+        // Verifica duplicatas pelo Protocolo
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName });
         const existingRows = response.data.values || [];
-        const protocolIdx = (sheetName.includes('Caixas')) ? 0 : 1; 
+        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
         const protocolMap = new Map();
         
         existingRows.slice(1).forEach((row, idx) => {
@@ -285,21 +292,31 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
         if (toAdd.length > 0) {
+            // --- CORREÇÃO DO RANGE DE APPEND ---
+            // Força a escrita na coluna A, o que faz o Google buscar a primeira linha vazia
             await googleSheets.spreadsheets.values.append({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: sheetName, 
+                range: `${sheetName}!A:A`, // <--- AQUI ESTAVA O ERRO DE ALINHAMENTO LATERAL
                 valueInputOption: 'USER_ENTERED', 
                 resource: { values: toAdd } 
             });
-            if (sheetName.includes('GarçomZIG')) counts.newZ += toAdd.length;
-            else if (sheetName.includes('Garçons')) counts.newW += toAdd.length;
-            else counts.newC += toAdd.length;
+            
+            if (isWaiterSheet) {
+                 if(sheetName.includes('ZIG')) counts.newZ += toAdd.length;
+                 else counts.newW += toAdd.length;
+            } else {
+                 counts.newC += toAdd.length;
+            }
         }
+        
         if (toUpdate.length > 0) {
             await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-            if (sheetName.includes('GarçomZIG')) counts.updZ += toUpdate.length;
-            else if (sheetName.includes('Garçons')) counts.updW += toUpdate.length;
-            else counts.updC += toUpdate.length;
+            if (isWaiterSheet) {
+                 if(sheetName.includes('ZIG')) counts.updZ += toUpdate.length;
+                 else counts.updW += toUpdate.length;
+            } else {
+                 counts.updC += toUpdate.length;
+            }
         }
     };
 
