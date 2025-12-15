@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: CORREÇÃO DE CASCATA + ALINHAMENTO DE SEQUÊNCIA 8%)
-console.log("--- EXECUTANDO VERSÃO: SYNC ALIGNMENT & INSERT_ROWS FIX ---"); 
+// server.js (VERSÃO COMPLETA: FIX COLUNA G + ORDEM GARÇOM 8% + HISTÓRICO CONFIÁVEL)
+console.log("--- EXECUTANDO VERSÃO: FORCED COORDINATE A{ROW} (NO APPEND) ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -19,7 +19,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
 // ==========================================
-// FUNÇÕES AUXILIARES
+// 1. FUNÇÕES AUXILIARES
 // ==========================================
 
 const parseSisfoCurrency = (val) => {
@@ -29,9 +29,7 @@ const parseSisfoCurrency = (val) => {
     let originalString = String(val).trim();
     if (originalString === '') return 0;
 
-    // Remove R$ e espaços
     let cleanCheck = originalString.replace(/R\$|\s/gi, '');
-    // Verifica sinal negativo (hífen ou parênteses)
     const isNegative = cleanCheck.includes('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
 
     let cleanString = originalString.replace(/[()]/g, '').replace(/[^0-9.,]/g, '');
@@ -39,12 +37,10 @@ const parseSisfoCurrency = (val) => {
     const lastPoint = cleanString.lastIndexOf('.');
     const lastComma = cleanString.lastIndexOf(',');
 
-    // Lógica para detectar se o separador decimal é ponto ou vírgula
+    // Lógica para detectar formato BR (1.000,00) vs US (1,000.00)
     if (lastComma > lastPoint) {
-        // Formato BR (1.000,00) -> Converte para US (1000.00)
         cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
     } else if (lastPoint > lastComma) {
-        // Formato US (1,000.00) -> Remove vírgulas
         cleanString = cleanString.replace(/,/g, '');
     }
 
@@ -55,7 +51,6 @@ const parseSisfoCurrency = (val) => {
 };
 
 const excelDateToJSDate = (serial) => {
-   // Converte data serial do Excel para JS
    const utc_days  = Math.floor(serial - 25569);
    const utc_value = utc_days * 86400;
    return new Date(utc_value * 1000);
@@ -84,7 +79,7 @@ const getTextFromRow = (row, headerMap, possibleKeys) => {
 };
 
 // ==========================================
-// CLIENTE GOOGLE SHEETS
+// 2. CLIENTE GOOGLE SHEETS
 // ==========================================
 
 async function getGoogleSheetsClient() {
@@ -106,7 +101,7 @@ const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
 // ==========================================
-// ROTAS DA APLICAÇÃO
+// 3. ROTAS DA APLICAÇÃO
 // ==========================================
 
 // --- ROTA: DADOS MESTRE (GARÇONS/EVENTOS) ---
@@ -130,12 +125,12 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
-// --- ROTA: ATUALIZAR BASE DE DADOS ---
+// --- ROTA: ATUALIZAR BASE LOCAL PARA ONLINE ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
     const googleSheets = await getGoogleSheetsClient();
-    if (waiters && waiters.length > 0) {
+    if (waiters?.length > 0) {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A2:A' });
       const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
       const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
@@ -144,7 +139,7 @@ app.post('/api/update-base', async (req, res) => {
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
       }
     }
-    if (events && events.length > 0) {
+    if (events?.length > 0) {
       const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
       const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
       const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
@@ -153,10 +148,10 @@ app.post('/api/update-base', async (req, res) => {
         await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
       }
     }
-    res.status(200).json({ message: 'Base atualizada com sucesso.' });
+    res.status(200).json({ message: 'Base atualizada.' });
   } catch (error) {
     console.error('Erro update-base:', error);
-    res.status(500).json({ message: 'Erro ao atualizar base de dados.' });
+    res.status(500).json({ message: 'Erro ao atualizar base.' });
   }
 });
 
@@ -168,7 +163,6 @@ app.post('/api/update-event-status', async (req, res) => {
     const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:B' });
     const rows = response.data.values || [];
     const eventIndex = rows.findIndex(row => row[0] && row[0].trim() === name.trim());
-    
     if (eventIndex !== -1) {
         await googleSheets.spreadsheets.values.update({
             spreadsheetId: spreadsheetId_sync,
@@ -177,23 +171,21 @@ app.post('/api/update-event-status', async (req, res) => {
             resource: { values: [[active ? 'ATIVO' : 'INATIVO']] },
         });
     }
-    res.status(200).json({ message: 'Status do evento atualizado.' });
+    res.status(200).json({ message: 'Status atualizado.' });
   } catch (error) {
-    console.error('Erro update-event-status:', error);
-    res.status(500).json({ message: 'Erro ao atualizar status do evento.' });
+    console.error('Erro status:', error);
+    res.status(500).json({ message: 'Erro ao atualizar status.' });
   }
 });
 
-// --- ROTA: SYNC PARA A NUVEM (CORREÇÃO DE CASCATA E ORDEM DE DADOS) ---
+// --- ROTA DE SYNC (CORREÇÃO: UPDATE A{ROW}) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
-  if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
+  if (!eventName) return res.status(400).json({ message: 'Evento obrigatório.' });
 
-  if (syncingEvents.has(eventName)) {
-    return res.status(429).json({ message: `Sincronização já em andamento para ${eventName}.` });
-  }
+  if (syncingEvents.has(eventName)) return res.status(429).json({ message: `Sync em andamento para ${eventName}.` });
   syncingEvents.add(eventName);
-  console.log(`[BACKEND][cloud-sync][${eventName}] Iniciando sincronização...`);
+  console.log(`[SYNC] Iniciando ${eventName}...`);
 
   try {
     const googleSheets = await getGoogleSheetsClient();
@@ -204,67 +196,56 @@ app.post('/api/cloud-sync', async (req, res) => {
     const processSheet = async (data, sheetName, headerRef) => {
         if (!data || data.length === 0) return;
 
-        // 1. Garante que a aba existe
+        // 1. Cria Aba se não existir
         let sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${sheetName}...`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
             await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Verifica cabeçalho para garantir que as colunas batem
             const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1:Z1` });
-            const currentHeader = hCheck.data.values ? hCheck.data.values[0] : [];
-            const isOutdated = headerRef.length > currentHeader.length || headerRef.some((h, i) => currentHeader[i] !== h);
-            
-            if (isOutdated) {
-                console.log(`[BACKEND] Atualizando cabeçalho da aba: ${sheetName}`);
-                await googleSheets.spreadsheets.values.update({
-                    spreadsheetId: spreadsheetId_cloud_sync,
-                    range: `${sheetName}!A1`,
-                    valueInputOption: 'USER_ENTERED',
-                    resource: { values: [headerRef] }
-                });
+            if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length) {
+                await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
             }
         }
 
         const isWaiterSheet = sheetName.includes('Garço') || sheetName.includes('Garco');
 
-        // 2. Mapeamento dos Dados (SEQUÊNCIA CORRIGIDA)
+        // 2. Prepara Dados (SEQUÊNCIA ALINHADA COM DADOS LOCAIS)
         const rows = data.map(c => {
              if (isWaiterSheet) {
-                 // --- LÓGICA DE GARÇOM ---
+                 // --- GARÇOM ---
                  let val = c.diferencaPagarReceber;
                  if (val === undefined || val === null) val = 0;
-                 
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
-                 // Se o label diz "pagar" (empresa paga garçom) ou "faltou", é negativo para o caixa
+                 // Se "Pagar" ou "Faltou", é negativo para a empresa/caixa.
                  let acertoFinal = absVal; 
                  if (label.includes('pagar') || label.includes('faltou')) {
                      acertoFinal = -absVal; 
                  }
 
                  if (sheetName.includes('GarçomZIG')) {
-                     // ZIG (Possui Valor Total Produtos e Recarga)
                      return [
                         c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
-                        c.valorTotal ?? 0, // Recarga
+                        c.valorTotal ?? 0, 
                         c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
                         c.valorTotalProdutos ?? 0, c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
                         acertoFinal, c.operatorName
                      ];
                  } else { 
-                     // Garçons Normais (8% e 10%) - SEQUÊNCIA ALINHADA
+                     // Garçom 8% / 10%
+                     // ORDEM: Venda -> Crédito -> Débito -> Pix -> Cashless -> Estorno -> Comissão -> Acerto
                      return [
                         c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
-                        c.valorTotal ?? 0, // Venda Total
+                        c.valorTotal ?? 0, 
                         c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
                         c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
                         acertoFinal, c.operatorName
                      ];
                  }
              } else { 
-                 // --- LÓGICA DE CAIXA ---
+                 // --- CAIXA ---
                  return [
                     c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
@@ -274,41 +255,49 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
-        // 3. Verificação de Duplicatas
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:B` });
+        // 3. LÊ COLUNA A PARA SABER ONDE GRAVAR (FIM DO BUG DA COLUNA G)
+        // Pegamos todas as linhas existentes para calcular nextRowIndex
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:A` });
         const existingRows = response.data.values || [];
-        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
-        const protocolMap = new Map();
         
-        // Mapeia Protocolo -> Linha Real (Index + 1)
-        existingRows.forEach((row, idx) => {
+        let nextRowIndex = existingRows.length + 1; // Se tem 0 linhas, começa na 1. Se tem 10, começa na 11.
+
+        // Mapa de duplicatas (lendo A:B para pegar protocolo)
+        const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
+        const fullCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${sheetName}!A:B` });
+        const checkRows = fullCheck.data.values || [];
+        
+        const protocolMap = new Map();
+        checkRows.forEach((row, idx) => {
             if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 1);
         });
 
         const toAdd = [], toUpdate = [];
+        
         rows.forEach(row => {
             const p = String(row[protocolIdx]).trim();
             if (protocolMap.has(p)) {
-                // Atualiza na linha encontrada
+                // Se já existe, atualiza na linha mapeada
                 const rowNum = protocolMap.get(p);
                 toUpdate.push({ range: `${sheetName}!A${rowNum}`, values: [row] });
             } else {
-                // Adiciona na lista de novos
+                // Se é novo, adiciona na lista de inserção
                 toAdd.push(row);
             }
         });
 
-        // 4. Inserção com CORREÇÃO DE CASCATA (INSERT_ROWS)
+        // 4. GRAVAÇÃO DOS NOVOS (UPDATE FORÇADO NA COLUNA A)
         if (toAdd.length > 0) {
-            console.log(`[BACKEND] Inserindo ${toAdd.length} registros em ${sheetName}`);
+            console.log(`[BACKEND] Gravando ${toAdd.length} novos em ${sheetName} iniciando na linha ${nextRowIndex}`);
             
-            // APPEND forçando A:A e INSERT_ROWS obriga o Google a criar linhas novas
-            // no começo da área vazia da coluna A, evitando escrever na lateral.
-            await googleSheets.spreadsheets.values.append({ 
+            // Constroi o range exato (ex: Garçons!A15)
+            const targetRange = `${sheetName}!A${nextRowIndex}`;
+            
+            // Usa UPDATE (não append) para garantir a célula exata.
+            await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: `${sheetName}!A:A`, 
+                range: targetRange, 
                 valueInputOption: 'USER_ENTERED', 
-                insertDataOption: 'INSERT_ROWS',
                 resource: { values: toAdd } 
             });
 
@@ -317,22 +306,16 @@ app.post('/api/cloud-sync', async (req, res) => {
             else counts.newC += toAdd.length;
         }
         
-        // 5. Atualização (Batch)
+        // 5. ATUALIZAÇÃO DOS EXISTENTES
         if (toUpdate.length > 0) {
-            await googleSheets.spreadsheets.values.batchUpdate({ 
-                spreadsheetId: spreadsheetId_cloud_sync, 
-                resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } 
-            });
+            await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
             if (isWaiterSheet) {
                  if(sheetName.includes('ZIG')) counts.updZ += toUpdate.length;
                  else counts.updW += toUpdate.length;
-            } else {
-                 counts.updC += toUpdate.length;
-            }
+            } else counts.updC += toUpdate.length;
         }
     };
 
-    // --- CABEÇALHOS DEFINIDOS (GARANTIA DE ORDEM) ---
     const headerGarcom = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
     const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
     const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador"];
@@ -370,11 +353,7 @@ app.post('/api/online-history', async (req, res) => {
         const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
         
         const results = await Promise.allSettled(sheetNames.map(sn => 
-            googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_cloud_sync, 
-                range: sn, 
-                valueRenderOption: 'UNFORMATTED_VALUE' 
-            })
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sn, valueRenderOption: 'UNFORMATTED_VALUE' })
         ));
 
         let allClosings = [];
@@ -383,12 +362,9 @@ app.post('/api/online-history', async (req, res) => {
             if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
                 const [header, ...rows] = result.value.data.values;
                 const headerMap = {};
-                header.forEach((col, idx) => {
-                    if (col) headerMap[String(col).trim().toUpperCase()] = idx;
-                });
+                header.forEach((col, idx) => { if(col) headerMap[String(col).trim().toUpperCase()] = idx; });
 
                 return rows.map(row => {
-                    // Leitura dos valores (suporta variações de nome na coluna)
                     const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
                     const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
                     const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
@@ -401,7 +377,6 @@ app.post('/api/online-history', async (req, res) => {
                     const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
                     const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
                     
-                    // LÊ O VALOR DO ACERTO DIRETAMENTE (Sem recalcular para evitar erro de centavos)
                     const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
 
                     const cpf = getTextFromRow(row, headerMap, ['CPF']);
@@ -409,123 +384,47 @@ app.post('/api/online-history', async (req, res) => {
                     const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
                     const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
                     const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
-                    
-                    let data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
+                    const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
 
                     if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
-                        // Lógica: Se vAcerto < 0 (Negativo) -> Empresa deve pagar (Faltou)
-                        // Lógica: Se vAcerto > 0 (Positivo) -> Garçom deve devolver (Sobrou)
                         const isPagar = vAcerto < -0.001; 
-
                         return {
-                            type: typeCategory, 
-                            cpf, 
-                            waiterName: nome, 
-                            protocol, 
-                            valorTotal: vTotal, 
-                            valorEstorno: vEst, 
-                            comissaoTotal: vCom,
-                            // Retorna sempre o valor absoluto para a interface
+                            type: typeCategory, cpf, waiterName: nome, protocol, 
+                            valorTotal: vTotal, valorEstorno: vEst, comissaoTotal: vCom,
                             diferencaPagarReceber: Math.abs(vAcerto),
                             diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                             credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                            valorTotalProdutos: vProd, 
-                            numeroMaquina: maquina, 
-                            operatorName: operador, 
-                            timestamp: data
+                            valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data
                         };
                     } else {
                         const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
                         const base = {
-                            protocol, 
-                            eventName, operatorName: operador, timestamp: data, cpf,
+                            protocol, eventName, operatorName: operador, timestamp: data, cpf,
                             cashierName: nome, numeroMaquina: maquina,
                             valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
                             cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
                             dinheiroFisico: vFisico, valorAcerto: vAcerto,
                             diferenca: vDif, temEstorno: vEst > 0
                         };
-                        return { 
-                            ...base, 
-                            type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', 
-                            groupProtocol: base.protocol 
-                        };
+                        return { ...base, type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', groupProtocol: base.protocol };
                     }
                 });
             }
             return [];
         };
-
         allClosings.push(...processGenericSheet(results[0], 'waiter'));
         allClosings.push(...processGenericSheet(results[1], 'waiter_zig'));
         allClosings.push(...processGenericSheet(results[2], 'cashier'));
-
-        // Formata datas para o formato ISO (evita erro no frontend)
         allClosings.forEach(c => {
-             if(typeof c.timestamp === 'number') {
-                 c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
-             } else if(typeof c.timestamp === 'string') {
+             if(typeof c.timestamp === 'number') c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
+             else if(typeof c.timestamp === 'string' && c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)) {
                  const m = c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                 if(m) {
-                     c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString();
-                 } else if(!isNaN(Date.parse(c.timestamp))) {
-                     c.timestamp = new Date(c.timestamp).toISOString();
-                 }
+                 c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString();
              }
         });
-
         if (allClosings.length === 0) return res.status(404).json({ message: 'Nenhum dado encontrado.' });
         res.status(200).json(allClosings);
-
-    } catch(error) { 
-        console.error('Erro history:', error); 
-        res.status(500).json({message:'Erro interno ao buscar histórico.'}); 
-    }
-});
-
-// --- ROTA: EXPORTAÇÃO DE DADOS ---
-app.post('/api/export-online-data', async (req, res) => {
-  const { password, eventName } = req.body;
-  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-    return res.status(401).json({ message: 'Acesso não autorizado.' });
-  }
-  try {
-    const googleSheets = await getGoogleSheetsClient();
-    const fetchWithExtras = async (sheetName) => {
-        try {
-            const response = await googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_cloud_sync, 
-                range: sheetName,
-                valueRenderOption: 'UNFORMATTED_VALUE'
-            });
-            if (!response.data.values || response.data.values.length < 2) return [];
-            const header = response.data.values[0];
-            const rows = response.data.values.slice(1);
-            return rows.map(row => {
-                const rowData = { eventName };
-                header.forEach((key, index) => { rowData[key] = row[index] || ''; });
-                // Captura colunas extras
-                if (row.length > header.length) {
-                    for (let i = header.length; i < row.length; i++) {
-                        rowData[`EXTRA_${i}`] = row[i];
-                    }
-                }
-                return rowData;
-            });
-        } catch (e) { return []; }
-    };
-    const waiters = await fetchWithExtras(`Garçons - ${eventName}`);
-    const zigWaiters = await fetchWithExtras(`GarçomZIG - ${eventName}`);
-    const cashiers = await fetchWithExtras(`Caixas - ${eventName}`);
-
-    if (!waiters.length && !zigWaiters.length && !cashiers.length) {
-        return res.status(404).json({ message: 'Nenhum dado encontrado para este evento.' });
-    }
-    res.status(200).json({ waiters, zigWaiters, cashiers });
-  } catch (error) {
-    console.error('Erro export:', error);
-    res.status(500).json({ message: 'Erro interno na exportação.' });
-  }
+    } catch(error) { res.status(500).json({message:'Erro interno.'}); }
 });
 
 // --- ROTA: CONCILIAÇÃO YUZER ---
@@ -537,11 +436,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
     const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
     
     const results = await Promise.allSettled(sheetNames.map(sn => 
-        googleSheets.spreadsheets.values.get({ 
-            spreadsheetId: spreadsheetId_cloud_sync, 
-            range: sn, 
-            valueRenderOption: 'UNFORMATTED_VALUE' 
-        })
+        googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sn, valueRenderOption: 'UNFORMATTED_VALUE' })
     ));
     
     let sisfoData = new Map();
@@ -552,16 +447,13 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             const [header, ...rows] = result.value.data.values;
             const headerMap = {};
             header.forEach((col, idx) => { if(col) headerMap[String(col).trim().toUpperCase()] = idx; });
-            
             rows.forEach(row => {
                 const cpf = getTextFromRow(row, headerMap, ['CPF']).replace(/\D/g,'');
                 if(cpf) {
                     if(!sisfoData.has(cpf)) sisfoData.set(cpf,[]);
-                    
                     sisfoData.get(cpf).push({
                         name: getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']),
                         machine: getLast8Digits(getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA'])),
-                        
                         total: Math.round(getValFromRow(row, headerMap, isZ ? ['RECARGA CASHLESS'] : ['VENDA TOTAL'])*100),
                         credit: Math.round(getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO'])*100),
                         debit: Math.round(getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO'])*100),
@@ -572,32 +464,23 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             });
         }
     };
-
-    processSheet(results[0]); 
-    processSheet(results[1], true); 
-    processSheet(results[2]);
+    processSheet(results[0]); processSheet(results[1], true); processSheet(results[2]);
 
     let divergences=[], totemsFound=0, recordsCompared=0, unmatchedYuzerRecords=0;
-    
     yuzerData.forEach(y => {
         if (String(y['Operador de Caixa']||'').toLowerCase().includes('pdv')) { totemsFound++; return; }
-        
         const cpf = String(y['CPF']||'').replace(/\D/g,'');
         const serial = y['Serial'];
         const machineKey = getLast8Digits(serial);
-        
         if(!cpf || !machineKey) return;
-        
         if(!sisfoData.has(cpf)) { unmatchedYuzerRecords++; return; }
         
         const recs = sisfoData.get(cpf);
         const rIdx = recs.findIndex(r => r.machine === machineKey);
-        
         if(rIdx === -1) { unmatchedYuzerRecords++; return; }
         
         recordsCompared++;
         const sRec = recs[rIdx];
-        
         const yRec = { 
             total: Math.round(parseSisfoCurrency(y['Total'])*100), 
             credit: Math.round(parseSisfoCurrency(y['Crédito'])*100), 
@@ -605,107 +488,78 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             pix: Math.round(parseSisfoCurrency(y['Pix'])*100), 
             cashless: Math.round(parseSisfoCurrency(y['Cashless'])*100) 
         };
-        
         const check = (f, yV, sV) => { 
-            if(Math.abs(yV-sV) > 1) { 
-                divergences.push({ 
-                    name: sRec.name, cpf, machine: machineKey, field: f, 
-                    yuzerValue: (yV/100).toFixed(2), 
-                    sisfoValue: (sV/100).toFixed(2) 
-                }); 
-            }
+            if(Math.abs(yV-sV) > 1) divergences.push({ name: sRec.name, cpf, machine: machineKey, field: f, yuzerValue: (yV/100).toFixed(2), sisfoValue: (sV/100).toFixed(2) }); 
         };
-        
-        check('Valor Total', yRec.total, sRec.total); 
-        check('Crédito', yRec.credit, sRec.credit); 
-        check('Débito', yRec.debit, sRec.debit); 
-        check('PIX', yRec.pix, sRec.pix); 
-        check('Cashless', yRec.cashless, sRec.cashless);
-        
+        check('Valor Total', yRec.total, sRec.total); check('Crédito', yRec.credit, sRec.credit); 
+        check('Débito', yRec.debit, sRec.debit); check('PIX', yRec.pix, sRec.pix); check('Cashless', yRec.cashless, sRec.cashless);
         recs.splice(rIdx, 1);
     });
-    
     res.status(200).json({ recordsCompared, totemsFound, unmatchedYuzerRecords, divergencesFound: divergences.length, divergences });
+  } catch(error) { res.status(500).json({message:'Erro interno do servidor ao processar a conciliação.'}); }
+});
 
-  } catch(error) { 
-      console.error('Erro na conciliação Yuzer:', error); 
-      res.status(500).json({message:'Erro interno do servidor ao processar a conciliação.'}); 
-  }
+// --- ROTA: EXPORTAÇÃO DE DADOS ---
+app.post('/api/export-online-data', async (req, res) => {
+  const { password, eventName } = req.body;
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso negado.' });
+  try {
+    const googleSheets = await getGoogleSheetsClient();
+    const fetchWithExtras = async (sheetName) => {
+        try {
+            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: sheetName, valueRenderOption: 'UNFORMATTED_VALUE'});
+            if (!response.data.values || response.data.values.length < 2) return [];
+            const header = response.data.values[0];
+            const rows = response.data.values.slice(1);
+            return rows.map(row => {
+                const rowData = { eventName };
+                header.forEach((key, index) => { rowData[key] = row[index] || ''; });
+                if (row.length > header.length) { for (let i = header.length; i < row.length; i++) rowData[`EXTRA_${i}`] = row[i]; }
+                return rowData;
+            });
+        } catch (e) { return []; }
+    };
+    const waiters = await fetchWithExtras(`Garçons - ${eventName}`);
+    const zigWaiters = await fetchWithExtras(`GarçomZIG - ${eventName}`);
+    const cashiers = await fetchWithExtras(`Caixas - ${eventName}`);
+    if (!waiters.length && !zigWaiters.length && !cashiers.length) return res.status(404).json({ message: 'Vazio.' });
+    res.status(200).json({ waiters, zigWaiters, cashiers });
+  } catch (error) { res.status(500).json({ message: 'Erro export.' }); }
 });
 
 // --- ROTA: EXCLUIR REGISTRO ---
 app.post('/api/delete-closing', async (req, res) => {
     const { eventName, protocolToDelete, password } = req.body;
-    if (!eventName || !protocolToDelete) {
-        return res.status(400).json({ message: 'Nome do evento e protocolo são obrigatórios.' });
-    }
-    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) {
-        return res.status(401).json({ message: 'Senha incorreta para exclusão online.' });
-    }
-    
+    if (!eventName || !protocolToDelete) return res.status(400).json({ message: 'Dados incompletos.' });
+    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Senha inválida.' });
     try {
         const googleSheets = await getGoogleSheetsClient();
-        const spreadsheetId = spreadsheetId_cloud_sync;
-
-        const isZigProtocol = protocolToDelete.startsWith('GZ-');
-        const isWaiterProtocol = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
-
-        let sheetName;
-        let protocolColumnIndex; 
-
-        if (isZigProtocol) { sheetName = `GarçomZIG - ${eventName}`; protocolColumnIndex = 1; } 
-        else if (isWaiterProtocol) { sheetName = `Garçons - ${eventName}`; protocolColumnIndex = 1; } 
-        else { sheetName = `Caixas - ${eventName}`; protocolColumnIndex = 0; }
-
-        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId });
+        const isZig = protocolToDelete.startsWith('GZ-');
+        const isWaiter = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
+        let sheetName = isZig ? `GarçomZIG - ${eventName}` : (isWaiter ? `Garçons - ${eventName}` : `Caixas - ${eventName}`);
+        let protocolCol = isZig || isWaiter ? 1 : 0;
+        
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
         const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) return res.status(404).json({ message: `Aba não encontrada.` });
         
-        if (!sheet) return res.status(404).json({ message: `Registro não encontrado.` });
-        
-        const sheetId = sheet.properties.sheetId;
-        const rangeToRead = `${sheetName}!${String.fromCharCode(65 + protocolColumnIndex)}:${String.fromCharCode(65 + protocolColumnIndex)}`;
-        
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId, range: rangeToRead });
-        const protocolsInSheet = response.data.values || [];
-
-        const rowIndicesToDelete = [];
-        protocolsInSheet.forEach((row, index) => {
-            if (row && row[0]) {
-                const currentProtocol = String(row[0]).trim();
-                if (currentProtocol === protocolToDelete || currentProtocol.startsWith(protocolToDelete + '-')) {
-                    rowIndicesToDelete.push(index);
-                }
-            }
+        const range = `${sheetName}!${String.fromCharCode(65 + protocolCol)}:${String.fromCharCode(65 + protocolCol)}`;
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range });
+        const rows = response.data.values || [];
+        const indices = [];
+        rows.forEach((row, idx) => {
+            if (row && String(row[0]).trim().startsWith(protocolToDelete)) indices.push(idx);
         });
-
-        if (rowIndicesToDelete.length === 0) return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
-
-        // Exclui de baixo para cima para não afetar índices
-        rowIndicesToDelete.sort((a, b) => b - a); 
-        let requests = [];
-        rowIndicesToDelete.forEach(rowIndex => {
-            requests.push({
-                deleteDimension: {
-                    range: { sheetId: sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
-                }
-            });
-        });
-
-        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId, resource: { requests } });
-        res.status(200).json({ message: `${requests.length} registro(s) excluído(s) com sucesso da planilha online.` });
-
-    } catch (error) {
-        console.error(`[BACKEND][delete-closing][${eventName}] Erro:`, error.message);
-        res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
-    }
+        if (indices.length === 0) return res.status(404).json({ message: 'Registro não encontrado.' });
+        indices.sort((a, b) => b - a);
+        let requests = indices.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
+        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests } });
+        res.status(200).json({ message: 'Excluído.' });
+    } catch (error) { res.status(500).json({ message: 'Erro delete.' }); }
 });
 
 module.exports = app;
 if (!isRunningInElectron) {
   const PORT = process.env.PORT || 10000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor backend (Render) rodando na porta ${PORT}`);
-  });
-} else {
-  console.log('Servidor Express pronto para ser iniciado pelo Electron.');
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
 }
