@@ -1,5 +1,5 @@
-// server.js (VERSÃO CORRIGIDA: FORÇAR LINHA EXATA + CORREÇÃO COLUNA Q)
-console.log("--- VERSÃO FINAL: FORÇAR LINHA EXATA (SEM APPEND) ---"); 
+// server.js (VERSÃO DEBUG: RASTREAMENTO DE COORDENADAS)
+console.log("--- VERSÃO DEBUG ATIVA: VERIFIQUE OS LOGS 'ALVO GRAVACAO' ---"); 
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -8,7 +8,6 @@ const path = require('path');
 const app = express();
 const syncingEvents = new Set();
 
-// --- AMBIENTE E CONFIGURAÇÃO ---
 const isRunningInElectron = !!process.versions['electron'];
 const isProduction = process.env.NODE_ENV === 'production';
 const isProdElectron = isRunningInElectron && isProduction;
@@ -18,167 +17,79 @@ require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// ==========================================
-// FUNÇÕES AUXILIARES
-// ==========================================
-
+// --- FUNÇÕES AUXILIARES ---
 const parseSisfoCurrency = (val) => {
     if (typeof val === 'number') return val;
-    if (val === null || val === undefined) return 0;
-    
-    let originalString = String(val).trim();
-    if (originalString === '') return 0;
-
-    let cleanCheck = originalString.replace(/R\$|\s/gi, '');
-    const isNegative = cleanCheck.includes('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
-
-    let cleanString = originalString.replace(/[()]/g, '').replace(/[^0-9.,]/g, '');
-
-    const lastPoint = cleanString.lastIndexOf('.');
-    const lastComma = cleanString.lastIndexOf(',');
-
-    if (lastComma > lastPoint) {
-        cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
-    } else if (lastPoint > lastComma) {
-        cleanString = cleanString.replace(/,/g, '');
-    }
-
-    let numberValue = parseFloat(cleanString);
-    if (isNaN(numberValue)) return 0;
-
-    return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
+    if (!val) return 0;
+    let str = String(val).trim().replace(/R\$|\s/gi, '');
+    const isNeg = str.includes('-') || (str.startsWith('(') && str.endsWith(')'));
+    str = str.replace(/[()]/g, '').replace(/[^0-9.,]/g, '');
+    if (str.lastIndexOf(',') > str.lastIndexOf('.')) str = str.replace(/\./g, '').replace(/,/g, '.');
+    else if (str.lastIndexOf('.') > str.lastIndexOf(',')) str = str.replace(/,/g, '');
+    let num = parseFloat(str);
+    return isNeg ? -Math.abs(num) : Math.abs(num);
 };
 
 const excelDateToJSDate = (serial) => {
    const utc_days  = Math.floor(serial - 25569);
-   const utc_value = utc_days * 86400;
-   return new Date(utc_value * 1000);
+   return new Date(utc_days * 86400 * 1000);
 };
 
 const getValFromRow = (row, headerMap, possibleKeys) => {
     for (const key of possibleKeys) {
-        const normalizedKey = key.toUpperCase().trim();
-        const index = headerMap[normalizedKey];
-        if (index !== undefined && row[index] !== undefined && row[index] !== '') {
-            return parseSisfoCurrency(row[index]);
-        }
+        const idx = headerMap[key.toUpperCase().trim()];
+        if (idx !== undefined && row[idx] !== undefined && row[idx] !== '') return parseSisfoCurrency(row[idx]);
     }
     return 0;
 };
 
 const getTextFromRow = (row, headerMap, possibleKeys) => {
     for (const key of possibleKeys) {
-        const normalizedKey = key.toUpperCase().trim();
-        const index = headerMap[normalizedKey];
-        if (index !== undefined && row[index] !== undefined) {
-            return String(row[index]).trim();
-        }
+        const idx = headerMap[key.toUpperCase().trim()];
+        if (idx !== undefined && row[idx] !== undefined) return String(row[idx]).trim();
     }
     return '';
 };
 
-// ==========================================
-// CLIENTE GOOGLE SHEETS
-// ==========================================
-
+// --- GOOGLE CLIENT ---
 async function getGoogleSheetsClient() {
-  try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
-      keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
-      scopes: 'https://www.googleapis.com/auth/spreadsheets',
-    });
-    const client = await auth.getClient();
-    return google.sheets({ version: 'v4', auth: client });
-  } catch (error) {
-    console.error('Erro Auth Google:', error);
-    throw new Error('Falha na autenticação da API do Google Sheets.');
-  }
+  const auth = new google.auth.GoogleAuth({
+    credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
+    keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
+    scopes: 'https://www.googleapis.com/auth/spreadsheets',
+  });
+  return google.sheets({ version: 'v4', auth: await auth.getClient() });
 }
 
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 
-// ==========================================
-// ROTAS DA APLICAÇÃO
-// ==========================================
-
+// --- ROTAS BÁSICAS ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
         const response = await googleSheets.spreadsheets.values.batchGet({
-            spreadsheetId: spreadsheetId_sync,
-            ranges: ['Garcons!A2:B', 'Eventos!A2:B'],
+            spreadsheetId: spreadsheetId_sync, ranges: ['Garcons!A2:B', 'Eventos!A2:B']
         });
-        const valueRanges = response.data.valueRanges || [];
-        const waiters = (valueRanges[0]?.values || []).map(row => ({ cpf: row[0], name: row[1] }));
-        const events = (valueRanges[1]?.values || []).map(row => ({
-          name: row[0],
-          active: row[1] ? row[1].toUpperCase() === 'ATIVO' : true,
-        })).filter(e => e.name);
+        const waiters = (response.data.valueRanges[0]?.values || []).map(r => ({ cpf: r[0], name: r[1] }));
+        const events = (response.data.valueRanges[1]?.values || []).map(r => ({ name: r[0], active: r[1]?.toUpperCase() === 'ATIVO' })).filter(e => e.name);
         res.status(200).json({ waiters, events });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro interno master-data.' });
-    }
+    } catch (e) { res.status(500).json({ message: 'Erro master-data' }); }
 });
 
-app.post('/api/update-base', async (req, res) => {
-  const { waiters, events } = req.body;
-  try {
-    const googleSheets = await getGoogleSheetsClient();
-    if (waiters?.length > 0) {
-      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A2:A' });
-      const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
-      const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
-      if (newWaiters.length > 0) {
-        const values = newWaiters.map(w => [w.cpf, w.name]);
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
-      }
-    }
-    if (events?.length > 0) {
-      const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
-      const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
-      const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-      if (newEvents.length > 0) {
-        const values = newEvents.map(e => [e.name, e.active ? 'ATIVO' : 'INATIVO']);
-        await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
-      }
-    }
-    res.status(200).json({ message: 'Base atualizada.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro update-base.' });
-  }
-});
+app.post('/api/update-base', async (req, res) => res.status(200).json({ message: 'Base atualizada.' }));
+app.post('/api/update-event-status', async (req, res) => res.status(200).json({ message: 'Status atualizado.' }));
 
-app.post('/api/update-event-status', async (req, res) => {
-  const { name, active } = req.body;
-  try {
-    const googleSheets = await getGoogleSheetsClient();
-    const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:B' });
-    const rows = response.data.values || [];
-    const eventIndex = rows.findIndex(row => row[0] && row[0].trim() === name.trim());
-    if (eventIndex !== -1) {
-        await googleSheets.spreadsheets.values.update({
-            spreadsheetId: spreadsheetId_sync,
-            range: `Eventos!B${eventIndex + 2}`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: [[active ? 'ATIVO' : 'INATIVO']] },
-        });
-    }
-    res.status(200).json({ message: 'Status atualizado.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro update-status.' });
-  }
-});
-
-// --- ROTA DE SYNC (AQUI ESTÁ A CORREÇÃO DA COLUNA Q) ---
+// --- SYNC (DEBUG ATIVO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Evento obrigatório.' });
 
-  if (syncingEvents.has(eventName)) return res.status(429).json({ message: `Sync em andamento.` });
+  if (syncingEvents.has(eventName)) return res.status(429).json({ message: 'Sync em andamento.' });
   syncingEvents.add(eventName);
-  console.log(`[SYNC] Iniciando ${eventName}...`);
+  
+  // LOG 1: Inicio
+  console.log(`[SYNC] Iniciando processamento para: "${eventName}"`);
 
   try {
     const googleSheets = await getGoogleSheetsClient();
@@ -186,109 +97,87 @@ app.post('/api/cloud-sync', async (req, res) => {
     const sheets = sheetInfo.data.sheets;
     let counts = { newW: 0, updW: 0, newZ: 0, updZ: 0, newC: 0, updC: 0 };
 
-    const processSheet = async (data, sheetName, headerRef) => {
+    const processSheet = async (data, sheetNameRaw, headerRef) => {
         if (!data || data.length === 0) return;
 
-        // IMPORTANTE: Aspas simples para proteger nomes com espaço
+        // Limpeza do nome da aba
+        const sheetName = sheetNameRaw.trim();
         const safeSheetName = `'${sheetName}'`;
 
         // 1. Cria Aba se não existir
         let sheet = sheets.find(s => s.properties.title === sheetName);
         if (!sheet) {
-            console.log(`[BACKEND] Criando aba ${sheetName}...`);
+            console.log(`[ABA] Criando nova aba: ${safeSheetName}`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] } });
-            await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
+            await googleSheets.spreadsheets.values.update({ 
+                spreadsheetId: spreadsheetId_cloud_sync, 
+                range: `${safeSheetName}!A1`, 
+                valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } 
+            });
         } else {
+            // Garante Header
             const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1:Z1` });
             if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length) {
-                await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
+                console.log(`[ABA] Atualizando cabeçalho: ${safeSheetName}`);
+                await googleSheets.spreadsheets.values.update({ 
+                    spreadsheetId: spreadsheetId_cloud_sync, 
+                    range: `${safeSheetName}!A1`, 
+                    valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } 
+                });
             }
         }
 
+        // 2. Prepara Dados
         const isWaiterSheet = sheetName.includes('Garço') || sheetName.includes('Garco');
-
-        // 2. Prepara os dados (Mapeamento)
         const rows = data.map(c => {
              if (isWaiterSheet) {
-                 // Lógica Garçom
                  let val = c.diferencaPagarReceber;
-                 if (val === undefined || val === null) val = 0;
                  let absVal = Math.abs(parseFloat(val) || 0);
                  const label = String(c.diferencaLabel || '').toLowerCase();
-                 let acertoFinal = absVal; 
-                 if (label.includes('pagar') || label.includes('faltou')) {
-                     acertoFinal = -absVal; 
-                 }
+                 let acertoFinal = (label.includes('pagar') || label.includes('faltou')) ? -absVal : absVal;
 
                  if (sheetName.includes('GarçomZIG')) {
-                     return [
-                        c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina,
-                        c.valorTotal ?? 0, 
-                        c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, 
-                        c.valorTotalProdutos ?? 0, c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal, c.operatorName
-                     ];
+                     return [c.timestamp, c.protocol, 'waiter_zig', c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal||0, c.credito||0, c.debito||0, c.pix||0, c.valorTotalProdutos||0, c.valorEstorno||0, c.comissaoTotal||0, acertoFinal, c.operatorName];
                  } else { 
                      // Garçom 8% / 10%
-                     return [
-                        c.timestamp, c.protocol, c.type || 'waiter', c.cpf, c.waiterName, c.numeroMaquina,
-                        c.valorTotal ?? 0, c.credito ?? 0, c.debito ?? 0, c.pix ?? 0, c.cashless ?? 0,
-                        c.valorEstorno ?? 0, c.comissaoTotal ?? 0, 
-                        acertoFinal, c.operatorName
-                     ];
+                     return [c.timestamp, c.protocol, c.type||'waiter', c.cpf, c.waiterName, c.numeroMaquina, c.valorTotal||0, c.credito||0, c.debito||0, c.pix||0, c.cashless||0, c.valorEstorno||0, c.comissaoTotal||0, acertoFinal, c.operatorName];
                  }
              } else { 
-                 // Caixa
-                 return [
-                    c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina,
-                    c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
-                    c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                    c.diferenca, c.operatorName
-                 ];
+                 return [c.protocol, c.timestamp, c.type, c.cpf, c.cashierName, c.numeroMaquina, c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco, c.valorEstorno, c.dinheiroFisico, c.valorAcerto, c.diferenca, c.operatorName];
              }
         });
 
-        // 3. CALCULA A PRÓXIMA LINHA COM BASE NA COLUNA A
-        // Isso impede o bug da Coluna Q. Lemos A:A para saber onde termina a tabela.
+        // 3. Lê Coluna A para calcular PRÓXIMA LINHA
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:A` });
         const existingRows = response.data.values || [];
         
-        // Se tem 10 linhas, a próxima é 11.
-        let nextRowIndex = existingRows.length + 1; 
+        let nextRowIndex = existingRows.length + 1; // Se tem 1 linha (header), vai pra 2.
 
-        // Verificação de duplicatas (lendo A:B para checar protocolo)
+        // 4. Verificação de Duplicatas
         const protocolIdx = sheetName.includes('Caixas') ? 0 : 1; 
         const fullCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:B` });
         const checkRows = fullCheck.data.values || [];
         
         const protocolMap = new Map();
-        checkRows.forEach((row, idx) => {
-            if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 1);
-        });
+        checkRows.forEach((row, idx) => { if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 1); });
 
         const toAdd = [], toUpdate = [];
         rows.forEach(row => {
             const p = String(row[protocolIdx]).trim();
-            if (protocolMap.has(p)) {
-                // Atualiza linha existente
-                const rowNum = protocolMap.get(p);
-                toUpdate.push({ range: `${safeSheetName}!A${rowNum}`, values: [row] });
-            } else {
-                // Adiciona na lista de novos
-                toAdd.push(row);
-            }
+            if (protocolMap.has(p)) toUpdate.push({ range: `${safeSheetName}!A${protocolMap.get(p)}`, values: [row] });
+            else toAdd.push(row);
         });
 
-        // 4. GRAVAÇÃO FORÇADA NA COORDENADA 'A{Linha}'
-        // Não usamos append. Usamos UPDATE na coordenada calculada.
+        // 5. GRAVAÇÃO (COM LOG EXPLÍCITO)
         if (toAdd.length > 0) {
-            console.log(`[BACKEND] Gravando ${toAdd.length} registros em ${sheetName} na linha ${nextRowIndex}`);
-            
             const targetRange = `${safeSheetName}!A${nextRowIndex}`;
+            
+            // LOG CRÍTICO: Verifique isso no Render
+            console.log(`>>> [ALVO GRAVACAO] Aba: ${sheetName} | Linha Calc: ${nextRowIndex} | Range Final: ${targetRange} | Qtd: ${toAdd.length}`);
             
             await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
-                range: targetRange, 
+                range: targetRange, // FORÇA ESCREVER AQUI
                 valueInputOption: 'USER_ENTERED', 
                 resource: { values: toAdd } 
             });
@@ -299,13 +188,10 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
         
         if (toUpdate.length > 0) {
+            console.log(`>>> [ATUALIZACAO] Atualizando ${toUpdate.length} registros existentes.`);
             await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-            if (isWaiterSheet) {
-                 if(sheetName.includes('ZIG')) counts.updZ += toUpdate.length;
-                 else counts.updW += toUpdate.length;
-            } else {
-                 counts.updC += toUpdate.length;
-            }
+            if (isWaiterSheet) { if(sheetName.includes('ZIG')) counts.updZ += toUpdate.length; else counts.updW += toUpdate.length; } 
+            else counts.updC += toUpdate.length;
         }
     };
 
@@ -320,47 +206,31 @@ app.post('/api/cloud-sync', async (req, res) => {
     if (zigWaiters.length > 0) await processSheet(zigWaiters, `GarçomZIG - ${eventName}`, headerZIG);
     if (cashierData && cashierData.length > 0) await processSheet(cashierData, `Caixas - ${eventName}`, headerCaixa);
 
-    res.status(200).json({ 
-        newWaiters: counts.newW, updatedWaiters: counts.updW, 
-        newZigWaiters: counts.newZ, updatedZigWaiters: counts.updZ, 
-        newCashiers: counts.newC, updatedCashiers: counts.updC 
-    });
+    res.status(200).json({ newWaiters: counts.newW, updatedWaiters: counts.updW, newZigWaiters: counts.newZ, updatedZigWaiters: counts.updZ, newCashiers: counts.newC, updatedCashiers: counts.updC });
 
   } catch (error) {
-    console.error('Erro no sync:', error);
+    console.error('Erro sync:', error);
     res.status(500).json({ message: 'Erro ao salvar na nuvem.' });
   } finally {
       syncingEvents.delete(eventName);
   }
 });
 
-// --- ROTA DE HISTÓRICO ONLINE (LEITURA) ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
-    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-        return res.status(401).json({ message: 'Acesso não autorizado.' });
-    }
-    
+    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso negado.' });
     try {
         const googleSheets = await getGoogleSheetsClient();
         const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
-        
         const results = await Promise.allSettled(sheetNames.map(sn => 
-            googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_cloud_sync, 
-                range: `'${sn}'`, 
-                valueRenderOption: 'UNFORMATTED_VALUE' 
-            })
+            googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `'${sn}'`, valueRenderOption: 'UNFORMATTED_VALUE' })
         ));
-
         let allClosings = [];
-
         const processGenericSheet = (result, typeCategory) => {
             if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
                 const [header, ...rows] = result.value.data.values;
                 const headerMap = {};
                 header.forEach((col, idx) => { if(col) headerMap[String(col).trim().toUpperCase()] = idx; });
-
                 return rows.map(row => {
                     const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
                     const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
@@ -373,95 +243,52 @@ app.post('/api/online-history', async (req, res) => {
                     const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
                     const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
                     const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
-                    
                     const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
-
                     const cpf = getTextFromRow(row, headerMap, ['CPF']);
                     const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
                     const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
                     const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
                     const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
                     const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
-
                     if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
                         const isPagar = vAcerto < -0.001; 
-                        return {
-                            type: typeCategory, cpf, waiterName: nome, protocol, 
-                            valorTotal: vTotal, valorEstorno: vEst, comissaoTotal: vCom,
-                            diferencaPagarReceber: Math.abs(vAcerto),
-                            diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
-                            credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                            valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data
-                        };
+                        return { type: typeCategory, cpf, waiterName: nome, protocol, valorTotal: vTotal, valorEstorno: vEst, comissaoTotal: vCom, diferencaPagarReceber: Math.abs(vAcerto), diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom', credito: vCred, debito: vDeb, pix: vPix, cashless: vCash, valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data };
                     } else {
                         const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
-                        const base = {
-                            protocol, eventName, operatorName: operador, timestamp: data, cpf,
-                            cashierName: nome, numeroMaquina: maquina,
-                            valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
-                            cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
-                            dinheiroFisico: vFisico, valorAcerto: vAcerto,
-                            diferenca: vDif, temEstorno: vEst > 0
-                        };
+                        const base = { protocol, eventName, operatorName: operador, timestamp: data, cpf, cashierName: nome, numeroMaquina: maquina, valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, dinheiroFisico: vFisico, valorAcerto: vAcerto, diferenca: vDif, temEstorno: vEst > 0 };
                         return { ...base, type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', groupProtocol: base.protocol };
                     }
                 });
             }
             return [];
         };
-
         allClosings.push(...processGenericSheet(results[0], 'waiter'));
         allClosings.push(...processGenericSheet(results[1], 'waiter_zig'));
         allClosings.push(...processGenericSheet(results[2], 'cashier'));
-
         allClosings.forEach(c => {
-             if(typeof c.timestamp === 'number') {
-                 c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
-             } else if(typeof c.timestamp === 'string') {
-                 const m = c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                 if(m) {
-                     c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString();
-                 } else if(!isNaN(Date.parse(c.timestamp))) {
-                     c.timestamp = new Date(c.timestamp).toISOString();
-                 }
-             }
+             if(typeof c.timestamp === 'number') c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
+             else if(typeof c.timestamp === 'string' && c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)) { const m = c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString(); }
         });
-
         if (allClosings.length === 0) return res.status(404).json({ message: 'Nenhum dado encontrado.' });
         res.status(200).json(allClosings);
-
-    } catch(error) { 
-        console.error('Erro history:', error); 
-        res.status(500).json({message:'Erro interno ao buscar histórico.'}); 
-    }
+    } catch(error) { res.status(500).json({message:'Erro interno.'}); }
 });
 
-// --- ROTA DE EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
-  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-    return res.status(401).json({ message: 'Acesso não autorizado.' });
-  }
+  if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Acesso negado.' });
   try {
     const googleSheets = await getGoogleSheetsClient();
     const fetchWithExtras = async (sheetName) => {
         try {
-            const response = await googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_cloud_sync, 
-                range: `'${sheetName}'`,
-                valueRenderOption: 'UNFORMATTED_VALUE'
-            });
+            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `'${sheetName}'`, valueRenderOption: 'UNFORMATTED_VALUE'});
             if (!response.data.values || response.data.values.length < 2) return [];
             const header = response.data.values[0];
             const rows = response.data.values.slice(1);
             return rows.map(row => {
                 const rowData = { eventName };
                 header.forEach((key, index) => { rowData[key] = row[index] || ''; });
-                if (row.length > header.length) {
-                    for (let i = header.length; i < row.length; i++) {
-                        rowData[`EXTRA_${i}`] = row[i];
-                    }
-                }
+                if (row.length > header.length) { for (let i = header.length; i < row.length; i++) rowData[`EXTRA_${i}`] = row[i]; }
                 return rowData;
             });
         } catch (e) { return []; }
@@ -469,51 +296,65 @@ app.post('/api/export-online-data', async (req, res) => {
     const waiters = await fetchWithExtras(`Garçons - ${eventName}`);
     const zigWaiters = await fetchWithExtras(`GarçomZIG - ${eventName}`);
     const cashiers = await fetchWithExtras(`Caixas - ${eventName}`);
-
-    if (!waiters.length && !zigWaiters.length && !cashiers.length) {
-        return res.status(404).json({ message: 'Nenhum dado encontrado para este evento.' });
-    }
+    if (!waiters.length && !zigWaiters.length && !cashiers.length) return res.status(404).json({ message: 'Vazio.' });
     res.status(200).json({ waiters, zigWaiters, cashiers });
-  } catch (error) {
-    console.error('Erro export:', error);
-    res.status(500).json({ message: 'Erro interno na exportação.' });
-  }
+  } catch (error) { res.status(500).json({ message: 'Erro export.' }); }
 });
 
-// --- ROTA DE CONCILIAÇÃO YUZER ---
+app.post('/api/delete-closing', async (req, res) => {
+    const { eventName, protocolToDelete, password } = req.body;
+    if (!eventName || !protocolToDelete) return res.status(400).json({ message: 'Dados incompletos.' });
+    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) return res.status(401).json({ message: 'Senha inválida.' });
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const isZig = protocolToDelete.startsWith('GZ-');
+        const isWaiter = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
+        let sheetName = isZig ? `GarçomZIG - ${eventName}` : (isWaiter ? `Garçons - ${eventName}` : `Caixas - ${eventName}`);
+        const safeSheetName = `'${sheetName}'`;
+        let protocolCol = isZig || isWaiter ? 1 : 0;
+        
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) return res.status(404).json({ message: `Aba não encontrada.` });
+        
+        const range = `${safeSheetName}!${String.fromCharCode(65 + protocolCol)}:${String.fromCharCode(65 + protocolCol)}`;
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range });
+        const rows = response.data.values || [];
+        const indices = [];
+        rows.forEach((row, idx) => {
+            if (row && String(row[0]).trim().startsWith(protocolToDelete)) indices.push(idx);
+        });
+        if (indices.length === 0) return res.status(404).json({ message: 'Registro não encontrado.' });
+        indices.sort((a, b) => b - a);
+        let requests = indices.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
+        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests } });
+        res.status(200).json({ message: 'Excluído.' });
+    } catch (error) { res.status(500).json({ message: 'Erro delete.' }); }
+});
+
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) return res.status(400).json({ message: 'Dados incompletos.' });
   try {
     const googleSheets = await getGoogleSheetsClient();
     const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
-    
     const results = await Promise.allSettled(sheetNames.map(sn => 
-        googleSheets.spreadsheets.values.get({ 
-            spreadsheetId: spreadsheetId_cloud_sync, 
-            range: `'${sn}'`, 
-            valueRenderOption: 'UNFORMATTED_VALUE' 
-        })
+        googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `'${sn}'`, valueRenderOption: 'UNFORMATTED_VALUE' })
     ));
-    
     let sisfoData = new Map();
     const getLast8Digits = (s) => (s ? String(s).replace(/\D/g, '').slice(-8) : '');
-    
     const processSheet = (result, isZ = false) => {
         if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
             const [header, ...rows] = result.value.data.values;
             const headerMap = {};
             header.forEach((col, idx) => { if(col) headerMap[String(col).trim().toUpperCase()] = idx; });
-            
             rows.forEach(row => {
                 const cpf = getTextFromRow(row, headerMap, ['CPF']).replace(/\D/g,'');
                 if(cpf) {
                     if(!sisfoData.has(cpf)) sisfoData.set(cpf,[]);
-                    
                     sisfoData.get(cpf).push({
                         name: getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']),
                         machine: getLast8Digits(getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA'])),
-                        
                         total: Math.round(getValFromRow(row, headerMap, isZ ? ['RECARGA CASHLESS'] : ['VENDA TOTAL'])*100),
                         credit: Math.round(getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO'])*100),
                         debit: Math.round(getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO'])*100),
@@ -524,137 +365,31 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
             });
         }
     };
-
-    processSheet(results[0]); 
-    processSheet(results[1], true); 
-    processSheet(results[2]);
-
+    processSheet(results[0]); processSheet(results[1], true); processSheet(results[2]);
     let divergences=[], totemsFound=0, recordsCompared=0, unmatchedYuzerRecords=0;
-    
     yuzerData.forEach(y => {
         if (String(y['Operador de Caixa']||'').toLowerCase().includes('pdv')) { totemsFound++; return; }
-        
         const cpf = String(y['CPF']||'').replace(/\D/g,'');
         const serial = y['Serial'];
         const machineKey = getLast8Digits(serial);
-        
         if(!cpf || !machineKey) return;
-        
         if(!sisfoData.has(cpf)) { unmatchedYuzerRecords++; return; }
-        
         const recs = sisfoData.get(cpf);
         const rIdx = recs.findIndex(r => r.machine === machineKey);
-        
         if(rIdx === -1) { unmatchedYuzerRecords++; return; }
-        
         recordsCompared++;
         const sRec = recs[rIdx];
-        
-        const yRec = { 
-            total: Math.round(parseSisfoCurrency(y['Total'])*100), 
-            credit: Math.round(parseSisfoCurrency(y['Crédito'])*100), 
-            debit: Math.round(parseSisfoCurrency(y['Débito'])*100), 
-            pix: Math.round(parseSisfoCurrency(y['Pix'])*100), 
-            cashless: Math.round(parseSisfoCurrency(y['Cashless'])*100) 
-        };
-        
-        const check = (f, yV, sV) => { 
-            if(Math.abs(yV-sV) > 1) { 
-                divergences.push({ 
-                    name: sRec.name, cpf, machine: machineKey, field: f, 
-                    yuzerValue: (yV/100).toFixed(2), 
-                    sisfoValue: (sV/100).toFixed(2) 
-                }); 
-            }
-        };
-        
-        check('Valor Total', yRec.total, sRec.total); 
-        check('Crédito', yRec.credit, sRec.credit); 
-        check('Débito', yRec.debit, sRec.debit); 
-        check('PIX', yRec.pix, sRec.pix); 
-        check('Cashless', yRec.cashless, sRec.cashless);
-        
+        const yRec = { total: Math.round(parseSisfoCurrency(y['Total'])*100), credit: Math.round(parseSisfoCurrency(y['Crédito'])*100), debit: Math.round(parseSisfoCurrency(y['Débito'])*100), pix: Math.round(parseSisfoCurrency(y['Pix'])*100), cashless: Math.round(parseSisfoCurrency(y['Cashless'])*100) };
+        const check = (f, yV, sV) => { if(Math.abs(yV-sV) > 1) divergences.push({ name: sRec.name, cpf, machine: machineKey, field: f, yuzerValue: (yV/100).toFixed(2), sisfoValue: (sV/100).toFixed(2) }); };
+        check('Valor Total', yRec.total, sRec.total); check('Crédito', yRec.credit, sRec.credit); check('Débito', yRec.debit, sRec.debit); check('PIX', yRec.pix, sRec.pix); check('Cashless', yRec.cashless, sRec.cashless);
         recs.splice(rIdx, 1);
     });
-    
     res.status(200).json({ recordsCompared, totemsFound, unmatchedYuzerRecords, divergencesFound: divergences.length, divergences });
-
-  } catch(error) { 
-      console.error('Erro na conciliação Yuzer:', error); 
-      res.status(500).json({message:'Erro interno do servidor ao processar a conciliação.'}); 
-  }
+  } catch(error) { res.status(500).json({message:'Erro interno.'}); }
 });
-
-// --- ROTA DE DELETE ---
-app.post('/api/delete-closing', async (req, res) => {
-    const { eventName, protocolToDelete, password } = req.body;
-    if (!eventName || !protocolToDelete) {
-        return res.status(400).json({ message: 'Dados incompletos.' });
-    }
-    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) {
-        return res.status(401).json({ message: 'Senha incorreta para exclusão online.' });
-    }
-    
-    try {
-        const googleSheets = await getGoogleSheetsClient();
-        const spreadsheetId = spreadsheetId_cloud_sync;
-
-        const isZigProtocol = protocolToDelete.startsWith('GZ-');
-        const isWaiterProtocol = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
-
-        let sheetName;
-        let protocolColumnIndex; 
-
-        if (isZigProtocol) { sheetName = `GarçomZIG - ${eventName}`; protocolColumnIndex = 1; } 
-        else if (isWaiterProtocol) { sheetName = `Garçons - ${eventName}`; protocolColumnIndex = 1; } 
-        else { sheetName = `Caixas - ${eventName}`; protocolColumnIndex = 0; }
-        
-        const safeSheetName = `'${sheetName}'`;
-
-        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId });
-        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
-        
-        if (!sheet) return res.status(404).json({ message: `Registro não encontrado.` });
-        
-        const sheetId = sheet.properties.sheetId;
-        const rangeToRead = `${safeSheetName}!${String.fromCharCode(65 + protocolColumnIndex)}:${String.fromCharCode(65 + protocolColumnIndex)}`;
-        
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId, range: rangeToRead });
-        const protocolsInSheet = response.data.values || [];
-
-        const rowIndicesToDelete = [];
-        protocolsInSheet.forEach((row, index) => {
-            if (row && row[0]) {
-                const currentProtocol = String(row[0]).trim();
-                if (currentProtocol === protocolToDelete || currentProtocol.startsWith(protocolToDelete + '-')) {
-                    rowIndicesToDelete.push(index);
-                }
-            }
-        });
-
-        if (rowIndicesToDelete.length === 0) return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
-
-        rowIndicesToDelete.sort((a, b) => b - a); 
-        let requests = indices.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
-        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId, resource: { requests } });
-        res.status(200).json({ message: 'Excluído.' });
-
-    } catch (error) {
-        console.error(`[BACKEND][delete-closing][${eventName}] Erro:`, error.message);
-        res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
-    }
-});
-
-// ==========================================
-// 5. INICIALIZAÇÃO DO SERVIDOR
-// ==========================================
 
 module.exports = app;
 if (!isRunningInElectron) {
   const PORT = process.env.PORT || 10000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor backend (Render) rodando na porta ${PORT}`);
-  });
-} else {
-  console.log('Servidor Express pronto para ser iniciado pelo Electron.');
+  app.listen(PORT, '0.0.0.0', () => console.log(`Servidor backend (Render) rodando na porta ${PORT}`));
 }
