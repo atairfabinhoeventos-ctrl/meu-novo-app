@@ -1,9 +1,9 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO FINAL: TIPOS EXPLICITOS 8% e 10%)
+// src/pages/CloudSyncPage.jsx (VERSÃO FINAL COM COLUNA DE VERSÃO)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './CloudSyncPage.css';
 import FeedbackModal from '../components/FeedbackModal';
-import { API_URL } from '../config'; 
+import { API_URL, APP_VERSION } from '../config'; // <--- IMPORTAR APP_VERSION
 
 function CloudSyncPage() {
   const [activeEvent, setActiveEvent] = useState('');
@@ -19,7 +19,7 @@ function CloudSyncPage() {
   useEffect(() => {
     const eventName = localStorage.getItem('activeEvent') || '';
     setActiveEvent(eventName);
-    console.log(`[CloudSync] URL da API carregada: ${API_URL}`);
+    console.log(`[CloudSync] URL: ${API_URL} | Versão: ${APP_VERSION}`);
   }, []);
 
   const handleCloudSync = async () => {
@@ -39,11 +39,10 @@ function CloudSyncPage() {
         return;
       }
 
-      // --- 1. MAPEAMENTO DE GARÇONS ---
+      // --- 1. GARÇONS ---
       const waiterData = eventClosings
         .filter(c => c.type && c.type.startsWith('waiter'))
         .map(c => {
-            // Valores base
             const vTotal = Number(c.valorTotal || 0);
             const vEstorno = c.temEstorno ? Number(c.valorEstorno || 0) : 0;
             const vCashless = Number(c.cashless || 0);
@@ -52,38 +51,25 @@ function CloudSyncPage() {
             let valComissao10 = Number(c.comissao10 || 0);
             let valComissao4 = Number(c.comissao4 || 0);
             
-            // --- DEFINIÇÃO DO TIPO PARA EXIBIÇÃO NA PLANILHA ---
-            let displayType = 'Garçom 8%'; // Padrão
+            let displayType = 'Garçom 8%'; 
+            if (c.type === 'waiter_zig') { displayType = 'Garçom ZIG'; } 
+            else if (c.subType === '10_percent') { displayType = 'Garçom 10%'; } 
+            else { displayType = 'Garçom 8%'; }
             
-            if (c.type === 'waiter_zig') {
-                displayType = 'Garçom ZIG';
-            } else if (c.subType === '10_percent') {
-                displayType = 'Garçom 10%';
-            } else {
-                displayType = 'Garçom 8%';
-            }
-            // ---------------------------------------------------
-            
-            // Recálculo de Segurança (se for registro antigo)
             if (valComissao8 === 0 && valComissao10 === 0 && valComissao4 === 0) {
                 const vendaLiquida = (vTotal - vEstorno) - vCashless;
                 valComissao4 = vCashless * 0.04;
-                
-                if (c.subType === '10_percent') {
-                    valComissao10 = vendaLiquida * 0.10;
-                } else {
-                    valComissao8 = vendaLiquida * 0.08;
-                }
+                if (c.subType === '10_percent') { valComissao10 = vendaLiquida * 0.10; } 
+                else { valComissao8 = vendaLiquida * 0.08; }
             }
 
             return {
-                type: displayType, // Envia o texto bonitinho ("Garçom 10%" ou "Garçom 8%")
+                type: displayType, 
                 timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
                 protocol: c.protocol,
                 cpf: c.cpf, 
                 waiterName: c.waiterName,
                 numeroMaquina: c.numeroMaquina,
-                
                 valorTotal: vTotal,
                 credito: Number(c.credito || 0),
                 debito: Number(c.debito || 0),
@@ -91,19 +77,19 @@ function CloudSyncPage() {
                 cashless: vCashless, 
                 valorTotalProdutos: Number(c.valorTotalProdutos || 0), 
                 valorEstorno: vEstorno,
-                
                 comissao8: valComissao8,
                 comissao10: valComissao10,
                 comissao4: valComissao4,
                 comissaoTotal: Number(c.comissaoTotal || (valComissao8 + valComissao10 + valComissao4)),
-                
                 diferencaLabel: c.diferencaLabel, 
                 diferencaPagarReceber: Number(c.diferencaPagarReceber || 0),
-                operatorName: c.operatorName
+                operatorName: c.operatorName,
+                
+                appVersion: APP_VERSION || '1.0' // <--- NOVA COLUNA DE VERSÃO
             };
         });
 
-      // --- 2. MAPEAMENTO DE CAIXAS ---
+      // --- 2. CAIXAS ---
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
         .flatMap(c => {
@@ -118,7 +104,8 @@ function CloudSyncPage() {
                         cpf: caixa.cpf, cashierName: caixa.cashierName, numeroMaquina: caixa.numeroMaquina, 
                         valorTotalVenda: Number(caixa.valorTotalVenda || 0), credito: Number(caixa.credito || 0), debito: Number(caixa.debito || 0), pix: Number(caixa.pix || 0), cashless: Number(caixa.cashless || 0), 
                         valorTroco: index === 0 ? Number(c.valorTroco || 0) : 0, valorEstorno: (caixa.temEstorno ? Number(caixa.valorEstorno) : 0), dinheiroFisico: Number(caixa.dinheiroFisico || 0), 
-                        valorAcerto: Number(acertoCaixa), diferenca: Number(diferencaCaixa), operatorName: c.operatorName 
+                        valorAcerto: Number(acertoCaixa), diferenca: Number(diferencaCaixa), operatorName: c.operatorName,
+                        appVersion: APP_VERSION || '1.0' // <--- NOVA COLUNA DE VERSÃO
                     };
                 });
             } else {
@@ -126,12 +113,12 @@ function CloudSyncPage() {
                     protocol: c.protocol, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Móvel', 
                     cpf: c.cpf, cashierName: c.cashierName, numeroMaquina: c.numeroMaquina, 
                     valorTotalVenda: Number(c.valorTotalVenda || 0), credito: Number(c.credito || 0), debito: Number(c.debito || 0), pix: Number(c.pix || 0), cashless: Number(c.cashless || 0), 
-                    valorTroco: Number(c.valorTroco || 0), valorEstorno: (c.temEstorno ? Number(c.valorEstorno) : 0), dinheiroFisico: Number(c.dinheiroFisico || 0), valorAcerto: Number(c.valorAcerto || 0), diferenca: Number(c.diferenca || 0), operatorName: c.operatorName 
+                    valorTroco: Number(c.valorTroco || 0), valorEstorno: (c.temEstorno ? Number(c.valorEstorno) : 0), dinheiroFisico: Number(c.dinheiroFisico || 0), valorAcerto: Number(c.valorAcerto || 0), diferenca: Number(c.diferenca || 0), operatorName: c.operatorName,
+                    appVersion: APP_VERSION || '1.0' // <--- NOVA COLUNA DE VERSÃO
                 }];
             }
         });
 
-      // ENVIO
       const url = `${API_URL}/api/cloud-sync`;
       const payload = { eventName: activeEvent, waiterData, cashierData };
 

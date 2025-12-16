@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: LEITURA E GRAVAÇÃO DE 10%, 8% E 4%)
-console.log("--- INICIANDO SERVIDOR: SYNC E EXPORTAÇÃO COM 10% ---");
+// server.js (VERSÃO FINAL: COM COLUNA DE VERSÃO DO SISTEMA)
+console.log("--- INICIANDO SERVIDOR: SYNC COM VERSÃO DO SISTEMA ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -198,7 +198,7 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         const safeSheetName = `'${sheetNameRaw.trim()}'`;
 
-        // 1. Cria Aba se não existir
+        // 1. Cria Aba
         let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${safeSheetName}`);
@@ -214,7 +214,6 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         const isWaiterSheet = sheetNameRaw.includes('Garço') || sheetNameRaw.includes('Garco');
 
-        // 2. Prepara os dados
         const rows = data.map(c => {
              if (isWaiterSheet) {
                  let val = c.diferencaPagarReceber;
@@ -233,6 +232,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                  const nome = String(c.waiterName || '').trim();
                  const maq = String(c.numeroMaquina || '').trim();
                  const op = String(c.operatorName || '').trim();
+                 const appVer = String(c.appVersion || '').trim(); // Versão do Sistema
 
                  if (sheetNameRaw.includes('GarçomZIG')) {
                      return [
@@ -240,10 +240,10 @@ app.post('/api/cloud-sync', async (req, res) => {
                         c.valorTotal??0, 
                         c.credito??0, c.debito??0, c.pix??0, 
                         c.valorTotalProdutos??0, c.valorEstorno??0, c.comissaoTotal??0, 
-                        acertoFinal, op
+                        acertoFinal, op, appVer
                      ];
                  } else { 
-                     // GRAVAÇÃO DAS COMISSÕES SEPARADAS
+                     // GRAVAÇÃO DAS COMISSÕES + VERSÃO
                      return [
                         ts, proto, tp, cpf, nome, maq,
                         c.valorTotal??0, 
@@ -253,7 +253,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                         c.comissao10 || 0,
                         c.comissao4  || 0,
                         c.comissaoTotal??0, 
-                        acertoFinal, op
+                        acertoFinal, op, appVer
                      ];
                  }
              } else { 
@@ -264,12 +264,13 @@ app.post('/api/cloud-sync', async (req, res) => {
                  const nome = String(c.cashierName || '').trim();
                  const maq = String(c.numeroMaquina || '').trim();
                  const op = String(c.operatorName || '').trim();
+                 const appVer = String(c.appVersion || '').trim();
 
                  return [
                     proto, ts, tp, cpf, nome, maq,
                     c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
                     c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                    c.diferenca, op
+                    c.diferenca, op, appVer
                  ];
              }
         });
@@ -326,15 +327,16 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
+    // CABEÇALHOS (COM COLUNA VERSÃO)
     const headerGarcom = [
         "Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", 
         "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", 
         "Comissão (8%)", "Comissão (10%)", "Comissão (4%)", "Comissão Total", 
-        "Acerto", "Operador"
+        "Acerto", "Operador", "Versão"
     ];
     
-    const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador"];
-    const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador"];
+    const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador", "Versão"];
+    const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador", "Versão"];
 
     const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig') : [];
     const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig') : [];
@@ -387,7 +389,6 @@ app.post('/api/online-history', async (req, res) => {
                 });
 
                 return rows.map(row => {
-                    // Mapeamento Genérico
                     const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
                     const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
                     const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
@@ -396,12 +397,10 @@ app.post('/api/online-history', async (req, res) => {
                     const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
                     const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
                     
-                    // --- LEITURA DAS COMISSÕES ESPECÍFICAS (CORRIGIDO) ---
                     const vCom8  = getValFromRow(row, headerMap, ['COMISSÃO (8%)', 'COMISSAO (8%)']);
-                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']); // <-- Lê a coluna de 10%
+                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']); 
                     const vCom4  = getValFromRow(row, headerMap, ['COMISSÃO (4%)', 'COMISSAO (4%)']);
                     const vComTotal = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
-                    // -----------------------------------------------------
 
                     const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
                     const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
@@ -415,22 +414,20 @@ app.post('/api/online-history', async (req, res) => {
                     const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
                     const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
 
+                    // Ler versão (Opcional para exibição)
+                    const versao = getTextFromRow(row, headerMap, ['VERSÃO', 'VERSAO', 'VERSION']);
+
                     if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
                         const isPagar = vAcerto < -0.001; 
                         return {
                             type: typeCategory, cpf, waiterName: nome, protocol, 
                             valorTotal: vTotal, valorEstorno: vEst, 
-                            
-                            // Retornando as comissões separadas para o frontend
-                            comissao8: vCom8,
-                            comissao10: vCom10,
-                            comissao4: vCom4,
-                            comissaoTotal: vComTotal,
-                            
+                            comissao8: vCom8, comissao10: vCom10, comissao4: vCom4, comissaoTotal: vComTotal,
                             diferencaPagarReceber: Math.abs(vAcerto),
                             diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                             credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                            valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data
+                            valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data,
+                            appVersion: versao
                         };
                     } else {
                         const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
@@ -440,7 +437,8 @@ app.post('/api/online-history', async (req, res) => {
                             valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
                             cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
                             dinheiroFisico: vFisico, valorAcerto: vAcerto,
-                            diferenca: vDif, temEstorno: vEst > 0
+                            diferenca: vDif, temEstorno: vEst > 0,
+                            appVersion: versao
                         };
                         return { ...base, type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', groupProtocol: base.protocol };
                     }
