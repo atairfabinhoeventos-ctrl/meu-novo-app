@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: 8%, 10% e 4% TOTALMENTE SEPARADOS)
-console.log("--- INICIANDO SERVIDOR: LAYOUT COM 3 COMISSÕES (8, 10, 4) ---");
+// server.js (VERSÃO FINAL: LEITURA E GRAVAÇÃO DE 10%, 8% E 4%)
+console.log("--- INICIANDO SERVIDOR: SYNC E EXPORTAÇÃO COM 10% ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -176,7 +176,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (CORRIGIDO PARA 3 COLUNAS DE COMISSÃO) ---
+// --- ROTA 4: SYNC PARA A NUVEM (GRAVAÇÃO) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -198,14 +198,14 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         const safeSheetName = `'${sheetNameRaw.trim()}'`;
 
-        // 1. Cria Aba
+        // 1. Cria Aba se não existir
         let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${safeSheetName}`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetNameRaw.trim() } } }] } });
             await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Atualiza Header se estiver desatualizado (Adicionou colunas novas?)
+            // Atualiza Header se necessário
             const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1:Z1` });
             if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length || hCheck.data.values[0].join(',') !== headerRef.join(',')) {
                 await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
@@ -226,7 +226,6 @@ app.post('/api/cloud-sync', async (req, res) => {
                      acertoFinal = -absVal; 
                  }
 
-                 // Tratamento de Strings
                  const ts = String(c.timestamp || '').trim();
                  const proto = String(c.protocol || '').trim();
                  const tp = String(c.type || 'waiter').trim();
@@ -244,24 +243,20 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, op
                      ];
                  } else { 
-                     // Garçons Normais (8% / 10%) - AQUI ESTÁ A MUDANÇA PRINCIPAL
+                     // GRAVAÇÃO DAS COMISSÕES SEPARADAS
                      return [
                         ts, proto, tp, cpf, nome, maq,
                         c.valorTotal??0, 
                         c.credito??0, c.debito??0, c.pix??0, c.cashless??0,
                         c.valorEstorno??0, 
-                        
-                        // NOVAS COLUNAS ORDENADAS:
-                        c.comissao8  || 0, // Coluna M (8%)
-                        c.comissao10 || 0, // Coluna N (10% - NOVO)
-                        c.comissao4  || 0, // Coluna O (4%)
-                        
+                        c.comissao8  || 0,
+                        c.comissao10 || 0,
+                        c.comissao4  || 0,
                         c.comissaoTotal??0, 
                         acertoFinal, op
                      ];
                  }
              } else { 
-                 // Caixa
                  const ts = String(c.timestamp || '').trim();
                  const proto = String(c.protocol || '').trim();
                  const tp = String(c.type || '').trim();
@@ -279,7 +274,7 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
-        // 3. CALCULA A LINHA (Fix Coluna G)
+        // 3. CALCULA A LINHA
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:A` });
         const existingRows = response.data.values || [];
         
@@ -307,10 +302,7 @@ app.post('/api/cloud-sync', async (req, res) => {
             }
         });
 
-        // 4. GRAVAÇÃO
         if (toAdd.length > 0) {
-            console.log(`[BACKEND] Gravando ${toAdd.length} registros em ${safeSheetName} na linha A${nextRowIndex}`);
-            
             await googleSheets.spreadsheets.values.update({ 
                 spreadsheetId: spreadsheetId_cloud_sync, 
                 range: `${safeSheetName}!A${nextRowIndex}`, 
@@ -334,14 +326,10 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
-    // CABEÇALHOS ATUALIZADOS (COM A NOVA COLUNA DE 10%)
     const headerGarcom = [
         "Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", 
         "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", 
-        "Comissão (8%)",  // Antes era "Comissão (%)"
-        "Comissão (10%)", // NOVO
-        "Comissão (4%)", 
-        "Comissão Total", 
+        "Comissão (8%)", "Comissão (10%)", "Comissão (4%)", "Comissão Total", 
         "Acerto", "Operador"
     ];
     
@@ -399,6 +387,7 @@ app.post('/api/online-history', async (req, res) => {
                 });
 
                 return rows.map(row => {
+                    // Mapeamento Genérico
                     const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
                     const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
                     const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
@@ -406,7 +395,14 @@ app.post('/api/online-history', async (req, res) => {
                     const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
                     const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
                     const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
-                    const vCom   = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
+                    
+                    // --- LEITURA DAS COMISSÕES ESPECÍFICAS (CORRIGIDO) ---
+                    const vCom8  = getValFromRow(row, headerMap, ['COMISSÃO (8%)', 'COMISSAO (8%)']);
+                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']); // <-- Lê a coluna de 10%
+                    const vCom4  = getValFromRow(row, headerMap, ['COMISSÃO (4%)', 'COMISSAO (4%)']);
+                    const vComTotal = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
+                    // -----------------------------------------------------
+
                     const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
                     const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
                     const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
@@ -423,7 +419,14 @@ app.post('/api/online-history', async (req, res) => {
                         const isPagar = vAcerto < -0.001; 
                         return {
                             type: typeCategory, cpf, waiterName: nome, protocol, 
-                            valorTotal: vTotal, valorEstorno: vEst, comissaoTotal: vCom,
+                            valorTotal: vTotal, valorEstorno: vEst, 
+                            
+                            // Retornando as comissões separadas para o frontend
+                            comissao8: vCom8,
+                            comissao10: vCom10,
+                            comissao4: vCom4,
+                            comissaoTotal: vComTotal,
+                            
                             diferencaPagarReceber: Math.abs(vAcerto),
                             diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
                             credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
@@ -671,7 +674,7 @@ app.post('/api/delete-closing', async (req, res) => {
         if (rowIndicesToDelete.length === 0) return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
 
         rowIndicesToDelete.sort((a, b) => b - a); 
-        let requests = indices.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
+        let requests = rowIndicesToDelete.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
         await googleSheets.spreadsheets.batchUpdate({ spreadsheetId, resource: { requests } });
         res.status(200).json({ message: `${requests.length} registro(s) excluído(s) com sucesso da planilha online.` });
 

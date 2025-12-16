@@ -1,4 +1,4 @@
-// src/pages/CloudSyncPage.jsx (VERSÃO ATUALIZADA: COMISSÃO 10% SEPARADA)
+// src/pages/CloudSyncPage.jsx (VERSÃO FINAL: TIPOS EXPLICITOS 8% e 10%)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './CloudSyncPage.css';
@@ -39,103 +39,101 @@ function CloudSyncPage() {
         return;
       }
 
-      // --- 1. MAPEAMENTO DE GARÇONS (AGORA COM 8%, 10% E 4% SEPARADOS) ---
+      // --- 1. MAPEAMENTO DE GARÇONS ---
       const waiterData = eventClosings
         .filter(c => c.type && c.type.startsWith('waiter'))
-        .map(c => ({
-            type: c.type, 
-            timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
-            protocol: c.protocol,
-            cpf: c.cpf, 
-            waiterName: c.waiterName,
-            numeroMaquina: c.numeroMaquina,
+        .map(c => {
+            // Valores base
+            const vTotal = Number(c.valorTotal || 0);
+            const vEstorno = c.temEstorno ? Number(c.valorEstorno || 0) : 0;
+            const vCashless = Number(c.cashless || 0);
             
-            // Conversão forçada para garantir NÚMEROS
-            valorTotal: Number(c.valorTotal || 0),
-            credito: Number(c.credito || 0),
-            debito: Number(c.debito || 0),
-            pix: Number(c.pix || 0),
-            cashless: Number(c.cashless || 0), 
-            valorTotalProdutos: Number(c.valorTotalProdutos || 0), 
-            valorEstorno: c.temEstorno ? Number(c.valorEstorno || 0) : 0,
+            let valComissao8 = Number(c.comissao8 || 0);
+            let valComissao10 = Number(c.comissao10 || 0);
+            let valComissao4 = Number(c.comissao4 || 0);
             
-            // --- MUDANÇA AQUI: TRÊS COMISSÕES SEPARADAS ---
-            comissao8: Number(c.comissao8 || 0),   // Apenas 8%
-            comissao10: Number(c.comissao10 || 0), // Apenas 10% (Nova Coluna)
-            comissao4: Number(c.comissao4 || 0),   // Apenas 4%
-            // ---------------------------------------------
+            // --- DEFINIÇÃO DO TIPO PARA EXIBIÇÃO NA PLANILHA ---
+            let displayType = 'Garçom 8%'; // Padrão
             
-            comissaoTotal: Number(c.comissaoTotal || 0),
+            if (c.type === 'waiter_zig') {
+                displayType = 'Garçom ZIG';
+            } else if (c.subType === '10_percent') {
+                displayType = 'Garçom 10%';
+            } else {
+                displayType = 'Garçom 8%';
+            }
+            // ---------------------------------------------------
             
-            // Campos de Acerto/Diferença
-            diferencaLabel: c.diferencaLabel, 
-            diferencaPagarReceber: Number(c.diferencaPagarReceber || 0),
-            operatorName: c.operatorName
-        }));
+            // Recálculo de Segurança (se for registro antigo)
+            if (valComissao8 === 0 && valComissao10 === 0 && valComissao4 === 0) {
+                const vendaLiquida = (vTotal - vEstorno) - vCashless;
+                valComissao4 = vCashless * 0.04;
+                
+                if (c.subType === '10_percent') {
+                    valComissao10 = vendaLiquida * 0.10;
+                } else {
+                    valComissao8 = vendaLiquida * 0.08;
+                }
+            }
 
-      // --- 2. MAPEAMENTO DE CAIXAS (Sem alterações) ---
+            return {
+                type: displayType, // Envia o texto bonitinho ("Garçom 10%" ou "Garçom 8%")
+                timestamp: new Date(c.timestamp).toLocaleString('pt-BR'),
+                protocol: c.protocol,
+                cpf: c.cpf, 
+                waiterName: c.waiterName,
+                numeroMaquina: c.numeroMaquina,
+                
+                valorTotal: vTotal,
+                credito: Number(c.credito || 0),
+                debito: Number(c.debito || 0),
+                pix: Number(c.pix || 0),
+                cashless: vCashless, 
+                valorTotalProdutos: Number(c.valorTotalProdutos || 0), 
+                valorEstorno: vEstorno,
+                
+                comissao8: valComissao8,
+                comissao10: valComissao10,
+                comissao4: valComissao4,
+                comissaoTotal: Number(c.comissaoTotal || (valComissao8 + valComissao10 + valComissao4)),
+                
+                diferencaLabel: c.diferencaLabel, 
+                diferencaPagarReceber: Number(c.diferencaPagarReceber || 0),
+                operatorName: c.operatorName
+            };
+        });
+
+      // --- 2. MAPEAMENTO DE CAIXAS ---
       const cashierData = eventClosings
         .filter(c => c.type === 'cashier' || Array.isArray(c.caixas))
         .flatMap(c => {
             if (Array.isArray(c.caixas)) {
-                // Caixa Fixo
                 return c.caixas.map((caixa, index) => {
                     const acertoCaixa = (caixa.valorTotalVenda || 0) - ((caixa.credito || 0) + (caixa.debito || 0) + (caixa.pix || 0) + (caixa.cashless || 0)) - (caixa.temEstorno ? (caixa.valorEstorno || 0) : 0);
                     const diferencaCaixa = (caixa.dinheiroFisico || 0) - acertoCaixa;
-                    
                     return { 
                         protocol: caixa.protocol || `${c.protocol}-${index + 1}`,
                         timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), 
                         type: 'Fixo', 
-                        cpf: caixa.cpf, 
-                        cashierName: caixa.cashierName, 
-                        numeroMaquina: caixa.numeroMaquina, 
-                        valorTotalVenda: Number(caixa.valorTotalVenda || 0), 
-                        credito: Number(caixa.credito || 0), 
-                        debito: Number(caixa.debito || 0), 
-                        pix: Number(caixa.pix || 0), 
-                        cashless: Number(caixa.cashless || 0), 
-                        valorTroco: index === 0 ? Number(c.valorTroco || 0) : 0, 
-                        valorEstorno: (caixa.temEstorno ? Number(caixa.valorEstorno) : 0), 
-                        dinheiroFisico: Number(caixa.dinheiroFisico || 0), 
-                        valorAcerto: Number(acertoCaixa), 
-                        diferenca: Number(diferencaCaixa), 
-                        operatorName: c.operatorName 
+                        cpf: caixa.cpf, cashierName: caixa.cashierName, numeroMaquina: caixa.numeroMaquina, 
+                        valorTotalVenda: Number(caixa.valorTotalVenda || 0), credito: Number(caixa.credito || 0), debito: Number(caixa.debito || 0), pix: Number(caixa.pix || 0), cashless: Number(caixa.cashless || 0), 
+                        valorTroco: index === 0 ? Number(c.valorTroco || 0) : 0, valorEstorno: (caixa.temEstorno ? Number(caixa.valorEstorno) : 0), dinheiroFisico: Number(caixa.dinheiroFisico || 0), 
+                        valorAcerto: Number(acertoCaixa), diferenca: Number(diferencaCaixa), operatorName: c.operatorName 
                     };
                 });
             } else {
-                // Caixa Móvel
                 return [{ 
-                    protocol: c.protocol, 
-                    timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), 
-                    type: 'Móvel', 
-                    cpf: c.cpf, 
-                    cashierName: c.cashierName, 
-                    numeroMaquina: c.numeroMaquina, 
-                    valorTotalVenda: Number(c.valorTotalVenda || 0), 
-                    credito: Number(c.credito || 0), 
-                    debito: Number(c.debito || 0), 
-                    pix: Number(c.pix || 0), 
-                    cashless: Number(c.cashless || 0), 
-                    valorTroco: Number(c.valorTroco || 0), 
-                    valorEstorno: (c.temEstorno ? Number(c.valorEstorno) : 0), 
-                    dinheiroFisico: Number(c.dinheiroFisico || 0), 
-                    valorAcerto: Number(c.valorAcerto || 0), 
-                    diferenca: Number(c.diferenca || 0), 
-                    operatorName: c.operatorName 
+                    protocol: c.protocol, timestamp: new Date(c.timestamp).toLocaleString('pt-BR'), type: 'Móvel', 
+                    cpf: c.cpf, cashierName: c.cashierName, numeroMaquina: c.numeroMaquina, 
+                    valorTotalVenda: Number(c.valorTotalVenda || 0), credito: Number(c.credito || 0), debito: Number(c.debito || 0), pix: Number(c.pix || 0), cashless: Number(c.cashless || 0), 
+                    valorTroco: Number(c.valorTroco || 0), valorEstorno: (c.temEstorno ? Number(c.valorEstorno) : 0), dinheiroFisico: Number(c.dinheiroFisico || 0), valorAcerto: Number(c.valorAcerto || 0), diferenca: Number(c.diferenca || 0), operatorName: c.operatorName 
                 }];
             }
         });
 
-      // ENVIO PARA O SERVIDOR
+      // ENVIO
       const url = `${API_URL}/api/cloud-sync`;
-      console.log(`[CloudSync] Enviando dados para: ${url}`);
-
-      const payload = {
-        eventName: activeEvent,
-        waiterData: waiterData,
-        cashierData: cashierData,
-      };
+      const payload = { eventName: activeEvent, waiterData, cashierData };
 
       const response = await axios.post(url, payload);
       const { newWaiters, updatedWaiters, newCashiers, updatedCashiers } = response.data;
@@ -146,7 +144,6 @@ function CloudSyncPage() {
       if (newCashiers > 0) messageParts.push(`- ${newCashiers} novo(s) fechamento(s) de caixa enviados.`);
       if (updatedCashiers > 0) messageParts.push(`- ${updatedCashiers} fechamento(s) de caixa atualizados.`);
       
-      // Atualiza status 'synced' localmente
       const protocolsSynced = new Set([...waiterData.map(w => w.protocol), ...cashierData.map(c => c.protocol)]);
       
       const allLocalClosingsUpdate = JSON.parse(localStorage.getItem('localClosings')) || [];
