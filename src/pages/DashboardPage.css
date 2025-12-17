@@ -1,4 +1,4 @@
-/* src/pages/DashboardPage.css (Com altura dos cards corrigida) */
+/* src/pages/DashboardPage.css */
 
 .dashboard-container {
   padding: 40px;
@@ -26,10 +26,8 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   text-align: left;
   transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-  border-left: 5px solid transparent;
+  border-left: 5px solid transparent; /* Define a espessura da borda padrão */
   
-  /* --- ALTERAÇÕES AQUI --- */
-  /* 1. Transforma o card em um container flexível vertical */
   display: flex;
   flex-direction: column;
 }
@@ -55,9 +53,6 @@
   font-size: 1rem;
   color: #666;
   line-height: 1.5;
-
-  /* --- ALTERAÇÃO AQUI --- */
-  /* 2. Faz a descrição crescer para ocupar o espaço vazio, empurrando o conteúdo para baixo */
   flex-grow: 1;
 }
 
@@ -70,14 +65,15 @@
   border-left-color: #28a745; /* Verde */
 }
 
-.update-card {
+/* RENOMEADO PARA EVITAR CONFLITO COM DataUpdatePage.css */
+.update-data-card {
   border-left-color: #fd7e14; /* Laranja */
 }
-/* Adicione esta regra ao final de DashboardPage.css */
+
 .cloud-card {
   border-left-color: #00ffbfe5; /* Azul claro */
 }
-/* Adicione esta regra ao final de DashboardPage.css */
+
 .admin-card {
   border-left-color: #6f42c1; /* Roxo */
 }

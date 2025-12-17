@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: ROTAS DE EDIÇÃO DE FUNCIONÁRIOS E CRIAÇÃO DE EVENTOS ADICIONADAS)
-console.log("--- INICIANDO SERVIDOR: SYNC, HISTORY E EXPORT COM VERSÃO ---");
+// server.js (VERSÃO FINAL: COMPLETA COM GESTÃO DE RECIBOS E EVENTOS)
+console.log("--- INICIANDO SERVIDOR: SYNC, HISTORY, EXPORT, EDIT, DELETE E RECIBOS ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -97,35 +97,116 @@ async function getGoogleSheetsClient() {
   }
 }
 
-// IDs das planilhas (Verifique se estão corretos no seu ambiente real)
-const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados (Garçons/Eventos)
-const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico de Fechamentos
+// IDs das Planilhas (Verifique seus IDs)
+const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados
+const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico
 
 // ==========================================
 // 4. ROTAS DA APLICAÇÃO
 // ==========================================
 
+// --- ROTA 1: OBTER DADOS MESTRE (GARÇONS, EVENTOS E RECIBOS) ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
+        // Busca agora também a aba 'DadosRecibos'
         const response = await googleSheets.spreadsheets.values.batchGet({
             spreadsheetId: spreadsheetId_sync,
-            ranges: ['Garcons!A2:B', 'Eventos!A2:B'],
+            ranges: ['Garcons!A2:B', 'Eventos!A2:B', 'DadosRecibos!A2:B'], 
         });
         const valueRanges = response.data.valueRanges || [];
+        
+        // Garçons
         const waiters = (valueRanges[0]?.values || []).map(row => ({ cpf: row[0], name: row[1] }));
+        
+        // Eventos
         const events = (valueRanges[1]?.values || []).map(row => ({
           name: row[0],
           active: row[1] ? row[1].toUpperCase() === 'ATIVO' : true,
         })).filter(e => e.name);
-        res.status(200).json({ waiters, events });
+
+        // Funções de Recibo (Novo)
+        const receiptRoles = (valueRanges[2]?.values || []).map(row => ({
+            role: row[0],
+            value: parseSisfoCurrency(row[1])
+        })).filter(r => r.role);
+
+        res.status(200).json({ waiters, events, receiptRoles });
     } catch (error) {
         console.error('Erro master-data:', error);
         res.status(500).json({ message: 'Erro interno ao buscar dados mestre.' });
     }
 });
 
-// --- ATUALIZAÇÃO EM MASSA (IMPORTAÇÃO VIA EXCEL) ---
+// --- ROTA: ADICIONAR FUNÇÃO DE RECIBO ---
+app.post('/api/add-receipt-role', async (req, res) => {
+    const { role, value } = req.body;
+    if (!role) return res.status(400).json({ message: 'Nome da função obrigatório.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        
+        // Verifica duplicidade
+        const response = await googleSheets.spreadsheets.values.get({ 
+            spreadsheetId: spreadsheetId_sync, 
+            range: 'DadosRecibos!A:A' 
+        });
+        const existingRoles = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
+        
+        if (existingRoles.includes(role.trim().toUpperCase())) {
+            return res.status(409).json({ message: 'Função já existe.' });
+        }
+
+        // Adiciona na aba DadosRecibos
+        await googleSheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'DadosRecibos!A:B',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: [[role.trim(), value]] }
+        });
+
+        res.status(200).json({ message: 'Função de recibo adicionada.' });
+    } catch (error) {
+        console.error('Erro add-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao adicionar função.' });
+    }
+});
+
+// --- ROTA: EXCLUIR FUNÇÃO DE RECIBO ---
+app.post('/api/delete-receipt-role', async (req, res) => {
+    const { role } = req.body;
+    if (!role) return res.status(400).json({ message: 'Função obrigatória.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_sync });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === 'DadosRecibos');
+        if (!sheet) return res.status(404).json({ message: 'Aba DadosRecibos não encontrada.' });
+
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'DadosRecibos!A:A' });
+        const rows = response.data.values || [];
+        const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim().toUpperCase() === String(role).trim().toUpperCase());
+
+        if (rowIndex === -1) return res.status(404).json({ message: 'Função não encontrada.' });
+
+        await googleSheets.spreadsheets.batchUpdate({
+            spreadsheetId: spreadsheetId_sync,
+            resource: {
+                requests: [{
+                    deleteDimension: {
+                        range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
+                    }
+                }]
+            }
+        });
+        res.status(200).json({ message: 'Função excluída.' });
+    } catch (error) {
+        console.error('Erro delete-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao excluir função.' });
+    }
+});
+
+// --- ROTA 2: ATUALIZAÇÃO EM MASSA (IMPORTAÇÃO VIA EXCEL) ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -155,90 +236,94 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- NOVO: ROTA PARA EDIÇÃO DE FUNCIONÁRIO (CPF/NOME) ---
+// --- ROTA 3: EDIÇÃO DE FUNCIONÁRIO (CPF/NOME) ---
 app.post('/api/edit-waiter', async (req, res) => {
     const { originalCpf, newCpf, newName } = req.body;
-    if (!originalCpf || !newCpf || !newName) {
-        return res.status(400).json({ message: 'Dados incompletos para edição.' });
-    }
+    if (!originalCpf || !newCpf || !newName) return res.status(400).json({ message: 'Dados incompletos.' });
 
     try {
         const googleSheets = await getGoogleSheetsClient();
-        
-        // 1. Busca todos os CPFs para encontrar a linha correta
-        const response = await googleSheets.spreadsheets.values.get({
-            spreadsheetId: spreadsheetId_sync,
-            range: 'Garcons!A:A', // Busca apenas a coluna de CPF
-        });
-
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:A' });
         const rows = response.data.values || [];
-        // Encontra o índice da linha (adiciona 1 pois array começa em 0 e planilha em 1)
         const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim() === String(originalCpf).trim());
 
-        if (rowIndex === -1) {
-            // Se não encontrou pelo CPF original, tenta adicionar como novo (fallback)
-            // mas o ideal é retornar erro ou aviso. Vamos retornar 404.
-            return res.status(404).json({ message: 'Funcionário original não encontrado na nuvem.' });
-        }
+        if (rowIndex === -1) return res.status(404).json({ message: 'Funcionário não encontrado.' });
 
-        const sheetRowNumber = rowIndex + 1; // Linha exata na planilha
-
-        // 2. Atualiza a linha encontrada com os novos dados
+        const sheetRowNumber = rowIndex + 1;
         await googleSheets.spreadsheets.values.update({
             spreadsheetId: spreadsheetId_sync,
             range: `Garcons!A${sheetRowNumber}:B${sheetRowNumber}`,
             valueInputOption: 'USER_ENTERED',
-            resource: {
-                values: [[newCpf, newName]]
-            }
+            resource: { values: [[newCpf, newName]] }
         });
-
-        res.status(200).json({ message: 'Funcionário atualizado na nuvem com sucesso.' });
-
+        res.status(200).json({ message: 'Atualizado com sucesso.' });
     } catch (error) {
         console.error('Erro edit-waiter:', error);
-        res.status(500).json({ message: 'Erro ao editar funcionário na nuvem.' });
+        res.status(500).json({ message: 'Erro ao editar.' });
     }
 });
 
-// --- NOVO: ROTA PARA ADICIONAR NOVO EVENTO ---
-app.post('/api/add-event', async (req, res) => {
-    const { name, active } = req.body;
-    if (!name) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
+// --- ROTA 4: EXCLUSÃO DE FUNCIONÁRIO ---
+app.post('/api/delete-waiter', async (req, res) => {
+    const { cpf } = req.body;
+    if (!cpf) return res.status(400).json({ message: 'CPF é obrigatório.' });
 
     try {
         const googleSheets = await getGoogleSheetsClient();
-        
-        // Verifica se já existe (opcional, mas bom para evitar duplicados se o frontend falhar)
-        const response = await googleSheets.spreadsheets.values.get({ 
-            spreadsheetId: spreadsheetId_sync, 
-            range: 'Eventos!A:A' 
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_sync });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === 'Garcons');
+        if (!sheet) return res.status(500).json({ message: 'Aba Garcons não encontrada.' });
+        const sheetId = sheet.properties.sheetId;
+
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:A' });
+        const rows = response.data.values || [];
+        const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim() === String(cpf).trim());
+
+        if (rowIndex === -1) return res.status(404).json({ message: 'Funcionário não encontrado na nuvem.' });
+
+        await googleSheets.spreadsheets.batchUpdate({
+            spreadsheetId: spreadsheetId_sync,
+            resource: {
+                requests: [{
+                    deleteDimension: {
+                        range: { sheetId: sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
+                    }
+                }]
+            }
         });
+
+        res.status(200).json({ message: 'Funcionário excluído.' });
+
+    } catch (error) {
+        console.error('Erro delete-waiter:', error);
+        res.status(500).json({ message: 'Erro ao excluir funcionário.' });
+    }
+});
+
+// --- ROTA 5: ADICIONAR NOVO EVENTO ---
+app.post('/api/add-event', async (req, res) => {
+    const { name, active } = req.body;
+    if (!name) return res.status(400).json({ message: 'Nome obrigatório.' });
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:A' });
+        const existing = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
         
-        const existingEvents = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
-        if (existingEvents.includes(name.trim().toUpperCase())) {
-            return res.status(409).json({ message: 'Evento já existe na nuvem.' });
+        if (existing.includes(name.trim().toUpperCase())) {
+            return res.status(409).json({ message: 'Evento já existe.' });
         }
 
-        // Adiciona nova linha
         await googleSheets.spreadsheets.values.append({
             spreadsheetId: spreadsheetId_sync,
             range: 'Eventos!A:B',
             valueInputOption: 'USER_ENTERED',
-            resource: {
-                values: [[name.trim(), active ? 'ATIVO' : 'INATIVO']]
-            }
+            resource: { values: [[name.trim(), active ? 'ATIVO' : 'INATIVO']] }
         });
-
-        res.status(200).json({ message: 'Evento criado na nuvem com sucesso.' });
-
-    } catch (error) {
-        console.error('Erro add-event:', error);
-        res.status(500).json({ message: 'Erro ao criar evento na nuvem.' });
-    }
+        res.status(200).json({ message: 'Evento criado.' });
+    } catch (error) { res.status(500).json({ message: 'Erro ao criar evento.' }); }
 });
 
-// --- ROTA: ATUALIZAR STATUS DO EVENTO (ATIVO/INATIVO) ---
+// --- ROTA 6: ATUALIZAR STATUS DO EVENTO ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   try {
@@ -255,18 +340,15 @@ app.post('/api/update-event-status', async (req, res) => {
             resource: { values: [[active ? 'ATIVO' : 'INATIVO']] },
         });
     }
-    res.status(200).json({ message: 'Status do evento atualizado.' });
+    res.status(200).json({ message: 'Status atualizado.' });
   } catch (error) {
     console.error('Erro update-event-status:', error);
-    res.status(500).json({ message: 'Erro ao atualizar status do evento.' });
+    res.status(500).json({ message: 'Erro ao atualizar status.' });
   }
 });
 
-// --- ROTA 4: SYNC PARA A NUVEM (GRAVAÇÃO) ---
+// --- ROTA 7: SYNC PARA A NUVEM (GRAVAÇÃO) ---
 app.post('/api/cloud-sync', async (req, res) => {
-  // ... (Código do cloud-sync MANTIDO IGUAL ao anterior)
-  // Vou manter o código existente aqui para brevidade, já que não solicitou alteração nesta parte específica
-  // Mas no arquivo final ele deve estar completo como na versão anterior
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
@@ -289,7 +371,6 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
         if (!sheet) {
-            console.log(`[BACKEND] Criando aba ${safeSheetName}`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetNameRaw.trim() } } }] } });
             await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
@@ -411,13 +492,7 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
-    const headerGarcom = [
-        "Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", 
-        "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", 
-        "Comissão (8%)", "Comissão (10%)", "Comissão (4%)", "Comissão Total", 
-        "Acerto", "Operador", "Versão"
-    ];
-    
+    const headerGarcom = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão (8%)", "Comissão (10%)", "Comissão (4%)", "Comissão Total", "Acerto", "Operador", "Versão"];
     const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador", "Versão"];
     const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador", "Versão"];
 
@@ -442,7 +517,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA 5: HISTÓRICO ONLINE (LEITURA COM VERSÃO) ---
+// --- ROTA 8: HISTÓRICO ONLINE ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -554,7 +629,7 @@ app.post('/api/online-history', async (req, res) => {
     }
 });
 
-// --- ROTA 6: EXPORTAÇÃO ---
+// --- ROTA 9: EXPORTAÇÃO ---
 app.post('/api/export-online-data', async (req, res) => {
   const { password, eventName } = req.body;
   if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -598,7 +673,7 @@ app.post('/api/export-online-data', async (req, res) => {
   }
 });
 
-// --- ROTA 7: CONCILIAÇÃO YUZER ---
+// --- ROTA 10: CONCILIAÇÃO YUZER ---
 app.post('/api/reconcile-yuzer', async (req, res) => {
   const { eventName, yuzerData } = req.body;
   if (!eventName || !yuzerData) return res.status(400).json({ message: 'Dados incompletos.' });
@@ -703,7 +778,7 @@ app.post('/api/reconcile-yuzer', async (req, res) => {
   }
 });
 
-// --- ROTA 8: DELETE ---
+// --- ROTA 11: DELETE CLOSING (ONLINE) ---
 app.post('/api/delete-closing', async (req, res) => {
     const { eventName, protocolToDelete, password } = req.body;
     if (!eventName || !protocolToDelete) {

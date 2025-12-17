@@ -1,4 +1,6 @@
-// src/pages/ExportDataPage.jsx (CORRIGIDO: DATA EXCEL SERIAL NUMBER)
+// src/pages/ExportDataPage.jsx
+// (VERSÃO FINAL: MODAL DE SENHA PADRONIZADO COM OLHO MÁGICO)
+
 import React, { useState, useEffect, useRef } from 'react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -9,6 +11,7 @@ import './ExportDataPage.css';
 function ExportDataPage() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // NOVO STATE
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -20,7 +23,12 @@ function ExportDataPage() {
     if (isPasswordModalOpen) setTimeout(() => passwordInputRef.current?.focus(), 100);
   }, [isPasswordModalOpen]);
 
-  const startOnlineExport = () => { setError(''); setPassword(''); setIsPasswordModalOpen(true); };
+  const startOnlineExport = () => { 
+      setError(''); 
+      setPassword(''); 
+      setShowPassword(false); // Reseta visibilidade
+      setIsPasswordModalOpen(true); 
+  };
 
   const getValue = (rowObj, possibleKeys) => {
     if (!rowObj) return '';
@@ -164,36 +172,22 @@ function ExportDataPage() {
         return parseFloat(s.replace(/[^0-9.-]/g, '')) || 0;
     };
     
-    // --- FUNÇÃO CORRIGIDA PARA DATA DO EXCEL ---
     const parseDate = (val) => {
         if (!val) return null;
-
-        // Se for um número, assumimos que é um Serial Number do Excel (Dias desde 1900)
-        // O Excel inicia em 30/12/1899. O JS inicia em 01/01/1970. Diferença: 25569 dias.
-        // Multiplica-se por 86400 (segundos no dia) e 1000 (ms).
         if (typeof val === 'number') {
-            // (Serial - 25569) * 86400 * 1000
-            // Adicionamos + 1 segundo ou fração para compensar arredondamentos de ponto flutuante
              const utc_days  = Math.floor(val - 25569);
              const utc_value = utc_days * 86400;
              const date_info = new Date(utc_value * 1000);
-
-             // A parte decimal do serial é a hora
              const fractional_day = val - Math.floor(val) + 0.0000001;
              const total_seconds_in_day = Math.floor(86400 * fractional_day);
              const seconds = total_seconds_in_day % 60;
              const minutes = Math.floor(total_seconds_in_day / 60) % 60;
              const hours   = Math.floor(total_seconds_in_day / 3600);
-
              date_info.setUTCHours(hours, minutes, seconds);
              return date_info;
         }
-
-        // Se for string, tentamos o parse normal
         let d = new Date(val);
-        
         if (isNaN(d.getTime())) {
-            // Tenta formato DD/MM/YYYY HH:mm:ss
             const parts = String(val).split(/[\s/:-]/);
             if (parts.length >= 3) {
                  const day = parseInt(parts[0], 10);
@@ -205,12 +199,8 @@ function ExportDataPage() {
                  d = new Date(year, month, day, hour, min, sec);
             }
         } else {
-             // Se vier com Z (UTC) do backend e queremos mostrar a hora local que foi registrada
-             if (String(val).endsWith('Z')) {
-                 d.setHours(d.getHours() - 3); 
-             }
+             if (String(val).endsWith('Z')) { d.setHours(d.getHours() - 3); }
         }
-        
         return isNaN(d.getTime()) ? val : d;
     };
     
@@ -237,15 +227,12 @@ function ExportDataPage() {
           { header: 'Operador', key: 'OPERADOR', width: 25 },
         ];
         waiterSheet.columns = cols;
-        
         waiterSheet.addRows(waitersData.map(r => {
             const row = {}; 
             const valVendaTotal = parseCurrency(r['VENDA TOTAL']);
             const valCashless = parseCurrency(r['CASHLESS']);
-
             r['VENDA 8%'] = valVendaTotal - valCashless;
             r['VENDA 4%'] = valCashless;
-
             cols.forEach(c => {
                 let val = r[c.key];
                 if (c.key === 'DATA') { val = parseDate(val); } 
@@ -412,18 +399,45 @@ function ExportDataPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL DE SENHA PADRONIZADO */}
       {isPasswordModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
-            <h2>Acesso à Nuvem</h2>
-            <input ref={passwordInputRef} type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()} />
-            <div className="modal-buttons">
-              <button className="cancel-button" onClick={() => setIsPasswordModalOpen(false)}>Cancelar</button>
-              <button className="confirm-button" onClick={handlePasswordSubmit}>Confirmar</button>
-            </div>
+          <div className="modal-content" style={{maxWidth: '400px', textAlign: 'center', padding: '30px'}}>
+             <div style={{fontSize: '40px', marginBottom: '15px'}}>🔒</div>
+             <h2 style={{color: '#333', marginBottom: '10px'}}>Acesso à Nuvem</h2>
+             <p style={{color: '#666', marginBottom: '20px'}}>Este histórico é armazenado na nuvem.<br/>Digite a senha do evento para continuar.</p>
+             
+             <div className="input-group" style={{marginBottom: '20px', position: 'relative'}}>
+                <input 
+                    ref={passwordInputRef}
+                    type={showPassword ? "text" : "password"} 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+                    placeholder="Digite a senha aqui..."
+                    style={{width: '100%', padding: '12px 40px 12px 12px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '6px', textAlign: 'center'}}
+                    autoFocus
+                />
+                <span 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', fontSize: '18px', userSelect: 'none'}}
+                    title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                >
+                    {showPassword ? "🙈" : "👁️"}
+                </span>
+             </div>
+             
+             {error && <div style={{color: 'red', fontSize: '14px', marginBottom: '15px', background: '#ffe6e6', padding: '8px', borderRadius: '4px'}}>{error}</div>}
+
+             <div className="modal-buttons" style={{justifyContent: 'center', gap: '10px'}}>
+               <button className="cancel-button" onClick={() => { setIsPasswordModalOpen(false); setError(''); setPassword(''); setShowPassword(false); }} style={{padding: '10px 20px', fontSize: '14px'}}>Cancelar</button>
+               <button className="confirm-button" onClick={handlePasswordSubmit} style={{padding: '10px 30px', fontSize: '14px', backgroundColor: '#1E63B8', color: '#fff'}}>Acessar</button>
+             </div>
           </div>
         </div>
       )}
+
       {isLoading && <div className="modal-overlay"><div className="loading-container"><div className="loading-spinner"></div><p>{loadingMessage}</p></div></div>}
     </div>
   );
