@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: COM COLUNA DE VERSÃO DO SISTEMA)
-console.log("--- INICIANDO SERVIDOR: SYNC COM VERSÃO DO SISTEMA ---");
+// server.js (VERSÃO FINAL: ROTAS DE EDIÇÃO DE FUNCIONÁRIOS E CRIAÇÃO DE EVENTOS ADICIONADAS)
+console.log("--- INICIANDO SERVIDOR: SYNC, HISTORY E EXPORT COM VERSÃO ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -97,8 +97,9 @@ async function getGoogleSheetsClient() {
   }
 }
 
-const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE';
-const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
+// IDs das planilhas (Verifique se estão corretos no seu ambiente real)
+const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados (Garçons/Eventos)
+const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico de Fechamentos
 
 // ==========================================
 // 4. ROTAS DA APLICAÇÃO
@@ -124,6 +125,7 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
+// --- ATUALIZAÇÃO EM MASSA (IMPORTAÇÃO VIA EXCEL) ---
 app.post('/api/update-base', async (req, res) => {
   const { waiters, events } = req.body;
   try {
@@ -153,6 +155,90 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
+// --- NOVO: ROTA PARA EDIÇÃO DE FUNCIONÁRIO (CPF/NOME) ---
+app.post('/api/edit-waiter', async (req, res) => {
+    const { originalCpf, newCpf, newName } = req.body;
+    if (!originalCpf || !newCpf || !newName) {
+        return res.status(400).json({ message: 'Dados incompletos para edição.' });
+    }
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        
+        // 1. Busca todos os CPFs para encontrar a linha correta
+        const response = await googleSheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'Garcons!A:A', // Busca apenas a coluna de CPF
+        });
+
+        const rows = response.data.values || [];
+        // Encontra o índice da linha (adiciona 1 pois array começa em 0 e planilha em 1)
+        const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim() === String(originalCpf).trim());
+
+        if (rowIndex === -1) {
+            // Se não encontrou pelo CPF original, tenta adicionar como novo (fallback)
+            // mas o ideal é retornar erro ou aviso. Vamos retornar 404.
+            return res.status(404).json({ message: 'Funcionário original não encontrado na nuvem.' });
+        }
+
+        const sheetRowNumber = rowIndex + 1; // Linha exata na planilha
+
+        // 2. Atualiza a linha encontrada com os novos dados
+        await googleSheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId_sync,
+            range: `Garcons!A${sheetRowNumber}:B${sheetRowNumber}`,
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [[newCpf, newName]]
+            }
+        });
+
+        res.status(200).json({ message: 'Funcionário atualizado na nuvem com sucesso.' });
+
+    } catch (error) {
+        console.error('Erro edit-waiter:', error);
+        res.status(500).json({ message: 'Erro ao editar funcionário na nuvem.' });
+    }
+});
+
+// --- NOVO: ROTA PARA ADICIONAR NOVO EVENTO ---
+app.post('/api/add-event', async (req, res) => {
+    const { name, active } = req.body;
+    if (!name) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        
+        // Verifica se já existe (opcional, mas bom para evitar duplicados se o frontend falhar)
+        const response = await googleSheets.spreadsheets.values.get({ 
+            spreadsheetId: spreadsheetId_sync, 
+            range: 'Eventos!A:A' 
+        });
+        
+        const existingEvents = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
+        if (existingEvents.includes(name.trim().toUpperCase())) {
+            return res.status(409).json({ message: 'Evento já existe na nuvem.' });
+        }
+
+        // Adiciona nova linha
+        await googleSheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'Eventos!A:B',
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [[name.trim(), active ? 'ATIVO' : 'INATIVO']]
+            }
+        });
+
+        res.status(200).json({ message: 'Evento criado na nuvem com sucesso.' });
+
+    } catch (error) {
+        console.error('Erro add-event:', error);
+        res.status(500).json({ message: 'Erro ao criar evento na nuvem.' });
+    }
+});
+
+// --- ROTA: ATUALIZAR STATUS DO EVENTO (ATIVO/INATIVO) ---
 app.post('/api/update-event-status', async (req, res) => {
   const { name, active } = req.body;
   try {
@@ -178,6 +264,9 @@ app.post('/api/update-event-status', async (req, res) => {
 
 // --- ROTA 4: SYNC PARA A NUVEM (GRAVAÇÃO) ---
 app.post('/api/cloud-sync', async (req, res) => {
+  // ... (Código do cloud-sync MANTIDO IGUAL ao anterior)
+  // Vou manter o código existente aqui para brevidade, já que não solicitou alteração nesta parte específica
+  // Mas no arquivo final ele deve estar completo como na versão anterior
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
@@ -198,14 +287,12 @@ app.post('/api/cloud-sync', async (req, res) => {
 
         const safeSheetName = `'${sheetNameRaw.trim()}'`;
 
-        // 1. Cria Aba
         let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
         if (!sheet) {
             console.log(`[BACKEND] Criando aba ${safeSheetName}`);
             await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetNameRaw.trim() } } }] } });
             await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
         } else {
-            // Atualiza Header se necessário
             const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1:Z1` });
             if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length || hCheck.data.values[0].join(',') !== headerRef.join(',')) {
                 await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
@@ -232,7 +319,7 @@ app.post('/api/cloud-sync', async (req, res) => {
                  const nome = String(c.waiterName || '').trim();
                  const maq = String(c.numeroMaquina || '').trim();
                  const op = String(c.operatorName || '').trim();
-                 const appVer = String(c.appVersion || '').trim(); // Versão do Sistema
+                 const appVer = String(c.appVersion || '').trim();
 
                  if (sheetNameRaw.includes('GarçomZIG')) {
                      return [
@@ -243,7 +330,6 @@ app.post('/api/cloud-sync', async (req, res) => {
                         acertoFinal, op, appVer
                      ];
                  } else { 
-                     // GRAVAÇÃO DAS COMISSÕES + VERSÃO
                      return [
                         ts, proto, tp, cpf, nome, maq,
                         c.valorTotal??0, 
@@ -275,14 +361,12 @@ app.post('/api/cloud-sync', async (req, res) => {
              }
         });
 
-        // 3. CALCULA A LINHA
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:A` });
         const existingRows = response.data.values || [];
         
         let nextRowIndex = existingRows.length + 1; 
         if (nextRowIndex < 2) nextRowIndex = 2; 
 
-        // Verificação de duplicatas
         const protocolIdx = sheetNameRaw.includes('Caixas') ? 0 : 1; 
         const fullCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:B` });
         const checkRows = fullCheck.data.values || [];
@@ -327,7 +411,6 @@ app.post('/api/cloud-sync', async (req, res) => {
         }
     };
 
-    // CABEÇALHOS (COM COLUNA VERSÃO)
     const headerGarcom = [
         "Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", 
         "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", 
@@ -359,7 +442,7 @@ app.post('/api/cloud-sync', async (req, res) => {
   }
 });
 
-// --- ROTA 5: HISTÓRICO ONLINE (LEITURA) ---
+// --- ROTA 5: HISTÓRICO ONLINE (LEITURA COM VERSÃO) ---
 app.post('/api/online-history', async (req, res) => {
     const { eventName, password } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
@@ -398,7 +481,7 @@ app.post('/api/online-history', async (req, res) => {
                     const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
                     
                     const vCom8  = getValFromRow(row, headerMap, ['COMISSÃO (8%)', 'COMISSAO (8%)']);
-                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']); 
+                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']);
                     const vCom4  = getValFromRow(row, headerMap, ['COMISSÃO (4%)', 'COMISSAO (4%)']);
                     const vComTotal = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
 
@@ -413,8 +496,6 @@ app.post('/api/online-history', async (req, res) => {
                     const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
                     const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
                     const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
-
-                    // Ler versão (Opcional para exibição)
                     const versao = getTextFromRow(row, headerMap, ['VERSÃO', 'VERSAO', 'VERSION']);
 
                     if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {

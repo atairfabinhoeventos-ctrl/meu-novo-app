@@ -1,4 +1,5 @@
-// src/pages/FixedCashierClosingPage.jsx (MODIFICADO PARA MODAL DE SUCESSO)
+// src/pages/FixedCashierClosingPage.jsx
+// (VERSÃO FINAL: MEIA FOLHA A4 + CORREÇÃO DE ERROS + DADOS PRESERVADOS)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -6,11 +7,12 @@ import { saveFixedCashierClosing } from '../services/apiService';
 import { attemptBackgroundSyncNewPersonnel } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { APP_VERSION } from '../config'; 
 import '../App.css';
 import './FixedCashierClosingPage.css';
 
 function useDebounce(value, delay) {
-  // ... (código do hook useDebounce sem alteração)
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
     const handler = setTimeout(() => { setDebouncedValue(value); }, delay);
@@ -20,15 +22,12 @@ function useDebounce(value, delay) {
 }
 
 // --- COMPONENTE INTERNO PARA CADA CAIXA ---
-// O componente CaixaFormItem permanece exatamente o MESMO
 const CaixaFormItem = ({
     item, index, handleInputChange, handleSelectCashier, personnelList,
     handleKeyDown, formRefs, isEditing, onRemoveCaixa, showRemoveButton,
     valorTroco, setValorTroco,
     addNewPersonnel, setAlertMessage
 }) => {
-    // ... (Todo o código do componente CaixaFormItem (linhas 31-233) permanece inalterado)
-    // ... (Ele já tem seu próprio modal de "Cadastrar Funcionário" que é independente)
     const [searchInput, setSearchInput] = useState(item.name || item.cpf || '');
     const [filteredPersonnel, setFilteredPersonnel] = useState([]);
     const [selectedCashier, setSelectedCashier] = useState(item.name ? { cpf: item.cpf, name: item.name } : null);
@@ -44,7 +43,6 @@ const CaixaFormItem = ({
         }
     }, [item, isEditing]);
 
-
     useEffect(() => {
         const query = searchInput.trim().toLowerCase();
         if (query.length > 0 && !selectedCashier) {
@@ -59,12 +57,7 @@ const CaixaFormItem = ({
 
             const cleanQueryCpf = query.replace(/\D/g, '');
             const isPotentialCpf = /^\d{11}$/.test(cleanQueryCpf);
-            if (isPotentialCpf && results.length === 0) {
-                setShowRegisterButton(true);
-            } else {
-                setShowRegisterButton(false);
-            }
-
+            setShowRegisterButton(isPotentialCpf && results.length === 0);
         } else {
             setFilteredPersonnel([]);
             setShowRegisterButton(false);
@@ -97,28 +90,19 @@ const CaixaFormItem = ({
             return;
         }
         const newCashier = { cpf: formatCpf(cleanCpf), name: newCashierName.trim() };
-
-        addNewPersonnel(newCashier); // Chama a função do pai para atualizar o localStorage e o state //
-        onSelect(newCashier); // Seleciona o novo caixa (função existente) //
-
+        addNewPersonnel(newCashier);
+        onSelect(newCashier);
         setRegisterModalVisible(false);
         setNewCashierName('');
         setAlertMessage(`Funcionário "${newCashier.name}" cadastrado localmente com sucesso!`);
     };
-
 
     return (
         <div className="caixa-item-container">
             <div className="caixa-header">
                 <h3 className="caixa-title">Caixa {index + 1}</h3>
                 {showRemoveButton && (
-                    <button
-                        type="button"
-                        className="remove-caixa-button"
-                        onClick={() => onRemoveCaixa(item.id)}
-                    >
-                        Remover
-                    </button>
+                    <button type="button" className="remove-caixa-button" onClick={() => onRemoveCaixa(item.id)}>Remover</button>
                 )}
             </div>
 
@@ -127,12 +111,7 @@ const CaixaFormItem = ({
                     <div className="switch-container">
                         <label>Recebeu Troco (Fundo de Caixa)?</label>
                         <label className="switch">
-                            <input
-                                type="checkbox"
-                                checked={valorTroco !== ''}
-                                onChange={(e) => setValorTroco(e.target.checked ? '0' : '')}
-                                disabled={isEditing} // Mantém desabilitado na edição por segurança
-                            />
+                            <input type="checkbox" checked={valorTroco !== ''} onChange={(e) => setValorTroco(e.target.checked ? '0' : '')} disabled={isEditing} />
                             <span className="slider round"></span>
                         </label>
                     </div>
@@ -144,14 +123,12 @@ const CaixaFormItem = ({
                                 onKeyDown={(e) => handleKeyDown(e, `cpf_${item.id}`)}
                                 value={formatCurrencyInput(valorTroco)}
                                 onChange={(e) => setValorTroco(String(e.target.value).replace(/\D/g, ''))}
-                                // disabled={isEditing} // <-- REMOVIDO para permitir edição
                                 inputMode="numeric"
                             />
                         </div>
                     )}
                 </div>
             )}
-
 
             <div className="form-row">
                 <div className="input-group" style={{ position: 'relative' }}>
@@ -163,13 +140,8 @@ const CaixaFormItem = ({
                         </div>
                     )}
                     {showRegisterButton && (
-                        <button
-                            type="button"
-                            className="login-button"
-                            style={{marginTop: '10px', backgroundColor: '#5bc0de', width: '100%'}}
-                            onClick={() => setRegisterModalVisible(true)}
-                        >
-                            CPF não encontrado. Cadastrar novo funcionário?
+                        <button type="button" className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de', width: '100%'}} onClick={() => setRegisterModalVisible(true)}>
+                            Cadastrar novo funcionário?
                         </button>
                     )}
                 </div>
@@ -207,19 +179,8 @@ const CaixaFormItem = ({
                 <div className="modal-overlay">
                     <div className="modal-content">
                         <h2>Cadastrar Novo Funcionário</h2>
-                        <div className="input-group">
-                            <label>CPF</label>
-                            <input type="text" value={formatCpf(searchInput)} readOnly />
-                        </div>
-                        <div className="input-group">
-                            <label>Nome do Funcionário</label>
-                            <input
-                                type="text"
-                                value={newCashierName}
-                                onChange={(e) => setNewCashierName(e.target.value)}
-                                placeholder="Digite o nome completo"
-                            />
-                        </div>
+                        <div className="input-group"><label>CPF</label><input type="text" value={formatCpf(searchInput)} readOnly /></div>
+                        <div className="input-group"><label>Nome do Funcionário</label><input type="text" value={newCashierName} onChange={(e) => setNewCashierName(e.target.value)} placeholder="Digite o nome completo" /></div>
                         <div className="modal-buttons">
                             <button type="button" className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button>
                             <button type="button" className="login-button" onClick={handleRegisterNewCashier}>Salvar</button>
@@ -231,7 +192,7 @@ const CaixaFormItem = ({
     );
 };
 
-// --- COMPONENTE PRINCIPAL DA PÁGINA ---
+// --- COMPONENTE PRINCIPAL ---
 function FixedCashierClosingPage() {
     const navigate = useNavigate();
     const { state } = useLocation();
@@ -247,13 +208,10 @@ function FixedCashierClosingPage() {
     const [alertMessage, setAlertMessage] = useState('');
     const [finalDiferenca, setFinalDiferenca] = useState(0);
     const [protocol, setProtocol] = useState(null);
-
-    // *** NOVO ESTADO ***
     const [modalState, setModalState] = useState('confirm');
 
     const formRefs = useRef({});
 
-    // ... (código dos hooks useDebounce, parseCurrency, formatForInput sem alteração)
     const debouncedCaixas = useDebounce(caixasDoGrupo, 500);
     const debouncedValorTroco = useDebounce(valorTroco, 500);
     const debouncedTotalDinheiroFisico = useDebounce(totalDinheiroFisico, 500);
@@ -267,20 +225,14 @@ function FixedCashierClosingPage() {
 
     const formatForInput = (value) => String(Math.round((value || 0) * 100));
 
-    // ... (código do useEffect [closingToEdit] sem alteração)
     useEffect(() => {
         if (closingToEdit) {
             setProtocol(closingToEdit.protocol);
-            // Carrega o troco normalmente
             setValorTroco(formatForInput(closingToEdit.valorTroco));
 
-            // Verifica se o total do grupo foi salvo explicitamente
             if (closingToEdit.totalDinheiroFisicoGrupo !== undefined && closingToEdit.totalDinheiroFisicoGrupo !== null) {
-                console.log("[FixedCashierEdit] Carregando totalDinheiroFisicoGrupo salvo:", closingToEdit.totalDinheiroFisicoGrupo);
                 setTotalDinheiroFisico(formatForInput(closingToEdit.totalDinheiroFisicoGrupo));
             } else {
-                // Fallback para registros antigos: Soma os individuais
-                console.log("[FixedCashierEdit] totalDinheiroFisicoGrupo não encontrado, somando individuais (fallback)...");
                 let totalDinheiroFisicoSalvo = 0;
                 closingToEdit.caixas.forEach((caixa) => {
                     totalDinheiroFisicoSalvo += (caixa.dinheiroFisico || 0);
@@ -288,7 +240,6 @@ function FixedCashierClosingPage() {
                 setTotalDinheiroFisico(formatForInput(totalDinheiroFisicoSalvo));
             }
 
-            // Mapeia os caixas individuais
             const caixasEdit = closingToEdit.caixas.map((caixa, index) => {
                 return {
                     id: index + 1,
@@ -302,14 +253,13 @@ function FixedCashierClosingPage() {
                     debito: formatForInput(caixa.debito),
                     pix: formatForInput(caixa.pix),
                     cashless: formatForInput(caixa.cashless),
-                    protocol: caixa.protocol // Preserva o protocolo individual //
+                    protocol: caixa.protocol
                 };
             });
             setCaixasDoGrupo(caixasEdit);
         }
     }, [closingToEdit]);
 
-    // ... (código do useEffect [personnelList] e addNewPersonnel sem alteração)
     useEffect(() => {
         const localPersonnel = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setPersonnelList(localPersonnel);
@@ -319,15 +269,12 @@ function FixedCashierClosingPage() {
         const updatedList = [...personnelList, newPersonnel];
         localStorage.setItem('master_waiters', JSON.stringify(updatedList));
         setPersonnelList(updatedList);
-
         attemptBackgroundSyncNewPersonnel(newPersonnel);
     };
 
-    // ... (código do useEffect [cálculo total] sem alteração)
     useEffect(() => {
         const numValorTrocoGrupo = parseCurrency(debouncedValorTroco);
         const numTotalDinheiroFisico = parseCurrency(debouncedTotalDinheiroFisico);
-
         let totalAcerto = 0;
 
         debouncedCaixas.forEach(caixa => {
@@ -337,15 +284,12 @@ function FixedCashierClosingPage() {
             const numDebito = parseCurrency(caixa.debito);
             const numPix = parseCurrency(caixa.pix);
             const numCashless = parseCurrency(caixa.cashless);
-
             totalAcerto += (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
         });
 
         setFinalDiferenca(numTotalDinheiroFisico - (totalAcerto + numValorTrocoGrupo));
-
     }, [debouncedCaixas, debouncedValorTroco, debouncedTotalDinheiroFisico]);
 
-    // ... (código de handleInputChange, handleSelectCashier, handleAddCaixa, handleRemoveCaixa sem alteração)
     const handleInputChange = (caixaId, field, value) => {
         setCaixasDoGrupo(prev => prev.map(caixa => caixa.id === caixaId ? { ...caixa, [field]: value } : caixa));
     };
@@ -365,7 +309,188 @@ function FixedCashierClosingPage() {
         setCaixasDoGrupo(prevCaixas => prevCaixas.filter(caixa => caixa.id !== idToRemove));
     };
 
-    // *** FUNÇÃO MODIFICADA ***
+    // --- IMPRESSÃO DE GRUPO (MEIA FOLHA - 140mm) ---
+    const handlePrint = (type) => {
+        if (!dataToConfirm || !dataToConfirm.caixas) return;
+        const logoSrc = '/logo.png'; 
+        const printTime = new Date().toLocaleString('pt-BR'); 
+
+        // Cálculo de totais
+        let totalVendaGrupo = 0;
+        let totalCredito = 0;
+        let totalDebito = 0;
+        let totalPix = 0;
+        let totalCashless = 0;
+        let totalEstorno = 0;
+
+        const linhasTabelaHTML = dataToConfirm.caixas.map(caixa => {
+            const vVenda = caixa.valorTotalVenda || 0;
+            const vCred = caixa.credito || 0;
+            const vDeb = caixa.debito || 0;
+            const vPix = caixa.pix || 0;
+            const vCash = caixa.cashless || 0;
+            const vEst = caixa.valorEstorno || 0;
+
+            totalVendaGrupo += vVenda;
+            totalCredito += vCred;
+            totalDebito += vDeb;
+            totalPix += vPix;
+            totalCashless += vCash;
+            totalEstorno += vEst;
+
+            return `
+                <tr>
+                    <td style="text-align:left;">${caixa.cashierName.split(' ')[0]} ${caixa.cashierName.split(' ')[1] || ''}</td>
+                    <td>${caixa.numeroMaquina}</td>
+                    <td>${formatCurrencyResult(vCred)}</td>
+                    <td>${formatCurrencyResult(vDeb)}</td>
+                    <td>${formatCurrencyResult(vPix)}</td>
+                    <td>${formatCurrencyResult(vCash)}</td>
+                    ${totalEstorno > 0 ? `<td style="color:red">-${formatCurrencyResult(vEst)}</td>` : ''}
+                </tr>
+            `;
+        }).join('');
+
+        // Assinaturas Dinâmicas (Compactas para meia folha)
+        const assinaturasHTML = dataToConfirm.caixas.map(caixa => `
+            <div class="sig-block" style="min-width: 100px; flex: 1;">
+                <div class="sig-line">${caixa.cashierName.split(' ')[0]}</div>
+                <div style="font-size:8px; font-weight:bold; text-transform:uppercase; margin-top:2px;">Operador</div>
+            </div>
+        `).join('');
+
+        const totalDigitais = totalCredito + totalDebito + totalPix + totalCashless;
+        const dinheiroEsperado = (totalVendaGrupo - totalDigitais - totalEstorno) + (dataToConfirm.valorTroco || 0);
+        const diffColor = dataToConfirm.diferencaCaixa >= 0 ? '#000' : 'red';
+
+        if (type === 'a4') {
+            const content = `
+                <html>
+                <head>
+                    <title>A4 - Grupo ${dataToConfirm.protocol}</title>
+                    <style>
+                        @page { size: A4 portrait; margin: 0; }
+                        /* Altura definida para MEIA FOLHA (140mm) */
+                        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10px; width: 210mm; height: 140mm; margin: 0; padding: 10px 25px; box-sizing: border-box; background: #fff; }
+                        .container { width: 100%; height: 100%; border: 2px solid #000; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; }
+                        
+                        /* HEADER (Logo Sobreposta) */
+                        .header { position: relative; display: flex; justify-content: center; align-items: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 5px; min-height: 60px; }
+                        .logo-wrapper { position: absolute; left: 0; top: -25px; z-index: 10; }
+                        .logo-img { max-height: 115px; max-width: 250px; width: auto; object-fit: contain; } 
+                        .header-right { position: absolute; right: 0; top: 0; text-align: right; font-size: 10px; display:flex; flex-direction:column; align-items: flex-end; }
+                        .header-center { text-align: center; padding: 0 10px; z-index: 1; }
+                        .title { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; }
+                        
+                        .info-strip { background-color: #f5f5f5; padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 8px; }
+                        
+                        /* RESUMO FINANCEIRO (Compacto) */
+                        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+                        .summary-box { border: 1px solid #000; border-radius: 4px; overflow: hidden; }
+                        .summary-title { background: #333; color: #fff; font-weight: bold; padding: 4px; text-align: center; text-transform: uppercase; font-size: 11px; }
+                        .summary-content { padding: 6px; }
+                        .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding: 3px 0; font-size: 11px; }
+                        .big-row { font-size: 13px; font-weight: bold; border-top: 2px solid #000; padding-top: 4px; margin-top: 4px; }
+
+                        /* TABELA DETALHADA */
+                        .details-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 9px; }
+                        .details-table th { background: #e0e0e0; border: 1px solid #999; padding: 3px; text-transform: uppercase; font-weight:bold; }
+                        .details-table td { border: 1px solid #ccc; padding: 3px; text-align: center; }
+
+                        /* ASSINATURAS (Flex Wrap para caberem vários) */
+                        .footer-sigs { margin-top: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding-top: 15px; margin-bottom: 5px; }
+                        .sig-block { text-align: center; margin-bottom: 5px; }
+                        .sig-line { border-top: 1px solid #000; padding-top: 2px; font-size: 9px; font-weight: bold; text-transform: uppercase; white-space: nowrap; }
+                        
+                        .system-footer { font-size: 8px; color: #555; text-align: center; width: 100%; border-top: 1px solid #eee; padding-top: 2px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div class="logo-wrapper"><img src="${logoSrc}" class="logo-img" alt="Logo" onerror="this.style.display='none'"/></div>
+                            <div class="header-center">
+                                <div class="title">Fechamento de Caixa Fixo</div>
+                                <div style="font-size: 11px; margin-top:2px;">Consolidado de Grupo</div>
+                            </div>
+                            <div class="header-right">
+                                <div class="protocol-box">PROT: ${dataToConfirm.protocol}</div>
+                                <svg id="barcodeA4"></svg>
+                            </div>
+                        </div>
+
+                        <div class="info-strip">
+                            <div><strong>Evento:</strong> ${dataToConfirm.eventName}</div>
+                            <div><strong>Responsável:</strong> ${dataToConfirm.operatorName}</div>
+                            <div><strong>Data:</strong> ${new Date(dataToConfirm.timestamp || Date.now()).toLocaleDateString('pt-BR')}</div>
+                        </div>
+
+                        <div class="summary-grid">
+                            <div class="summary-box">
+                                <div class="summary-title">Totais do Grupo</div>
+                                <div class="summary-content">
+                                    <div class="row"><span>Venda Bruta:</span> <strong>${formatCurrencyResult(totalVendaGrupo)}</strong></div>
+                                    <div class="row"><span>(-) Digitais:</span> <span>${formatCurrencyResult(totalDigitais)}</span></div>
+                                    <div class="row"><span>(-) Estornos:</span> <span>${formatCurrencyResult(totalEstorno)}</span></div>
+                                    <div class="row" style="color: blue;"><span>(+) Fundo Troco:</span> <strong>${formatCurrencyResult(dataToConfirm.valorTroco)}</strong></div>
+                                </div>
+                            </div>
+                            <div class="summary-box">
+                                <div class="summary-title">Conferência</div>
+                                <div class="summary-content">
+                                    <div class="row"><span>Dinheiro Esperado:</span> <span>${formatCurrencyResult(dinheiroEsperado)}</span></div>
+                                    <div class="row"><span>Dinheiro Contado:</span> <strong>${formatCurrencyResult(dataToConfirm.totalDinheiroFisicoGrupo)}</strong></div>
+                                    <div class="row big-row">
+                                        <span>DIFERENÇA:</span> 
+                                        <span style="color: ${diffColor};">${formatCurrencyResult(dataToConfirm.diferencaCaixa)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="font-weight:bold; margin-bottom:2px; text-transform:uppercase; font-size:10px;">Detalhamento por Freelancer</div>
+                        <table class="details-table">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Maq.</th>
+                                    <th>Crédito</th>
+                                    <th>Débito</th>
+                                    <th>PIX</th>
+                                    <th>Cashless</th>
+                                    ${totalEstorno > 0 ? '<th>Estorno</th>' : ''}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${linhasTabelaHTML}
+                            </tbody>
+                        </table>
+
+                        <div class="footer-sigs">
+                            ${assinaturasHTML}
+                            <div class="sig-block" style="min-width: 100px; flex: 1;">
+                                <div class="sig-line">Assinatura do Conferente</div>
+                                <div style="font-size:8px; font-weight:bold; text-transform:uppercase; margin-top:2px;">CONFERÊNCIA</div>
+                            </div>
+                        </div>
+
+                        <div class="system-footer">Sis.Versão: ${APP_VERSION || '1.0'} | Impresso em: ${printTime}</div>
+                    </div>
+                    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+                    <script>
+                        JsBarcode("#barcodeA4", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, height: 25, width: 1, margin: 0});
+                    </script>
+                </body>
+                </html>
+            `;
+            const printWindow = window.open('', '', 'height=600,width=800');
+            printWindow.document.write(content);
+            printWindow.document.close();
+            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
+        }
+    };
+
     const handleOpenConfirmation = () => {
         if (caixasDoGrupo.some(caixa => !caixa.name || !caixa.numeroMaquina)) {
             setAlertMessage('Por favor, preencha o nome e o número da máquina para todos os caixas.');
@@ -375,16 +500,17 @@ function FixedCashierClosingPage() {
             setAlertMessage('Por favor, preencha o "Total de Dinheiro Físico Contado (Grupo)".');
             return;
         }
+        
         setDataToConfirm({
             totalDiferenca: finalDiferenca,
             cashierNames: caixasDoGrupo.map(c => c.name),
-            protocol: null, // Será preenchido no sucesso
+            protocol: null, 
         });
-        setModalState('confirm'); // Garante que o modal abra na confirmação
+        setModalState('confirm'); 
         setModalVisible(true);
     };
 
-    // *** NOVAS FUNÇÕES ***
+    // FUNÇÕES RESTAURADAS NO ESCOPO CORRETO
     const resetForm = () => {
         setCaixasDoGrupo([{ id: 1, cpf: '', name: '', numeroMaquina: '', temEstorno: false, valorEstorno: '', valorTotalVenda: '', credito: '', debito: '', pix: '', cashless: '' }]);
         setValorTroco('');
@@ -401,22 +527,17 @@ function FixedCashierClosingPage() {
     };
 
     const handleBackToMenu = () => {
-        navigate('/financial-selection'); // Navega para o menu principal
+        navigate('/financial-selection'); 
     };
 
-
-    // *** FUNÇÃO MODIFICADA ***
-    // Lógica de salvamento alterada para usar o modalState
     const handleFinalSave = async () => {
         setIsSaving(true);
-        setModalState('saving'); // Mostra o spinner no modal
+        setModalState('saving');
         
         try {
             const eventName = localStorage.getItem('activeEvent');
             const operatorName = localStorage.getItem('loggedInUserName');
 
-            // ... (Toda a lógica de cálculo (linhas 408-485) permanece EXATAMENTE A MESMA)
-            // 1. Calcula acerto esperado SEM troco para cada caixa
             const caixasComAcerto = caixasDoGrupo.map(caixa => {
                 const numValorTotalVenda = parseCurrency(caixa.valorTotalVenda);
                 const numValorEstorno = parseCurrency(caixa.valorEstorno);
@@ -424,48 +545,29 @@ function FixedCashierClosingPage() {
                 const numDebito = parseCurrency(caixa.debito);
                 const numPix = parseCurrency(caixa.pix);
                 const numCashless = parseCurrency(caixa.cashless);
-                // Acerto esperado SEM troco (baseado apenas nas vendas e pagamentos daquele caixa)
                 const acertoEsperadoSemTroco = (numValorTotalVenda - (numCredito + numDebito + numPix + numCashless) - (caixa.temEstorno ? numValorEstorno : 0));
                 return { ...caixa, acertoEsperadoSemTroco };
             });
 
-            // 2. Calcula a Diferença GERAL do GRUPO (já calculada corretamente no useEffect 'finalDiferenca')
-            // finalDiferenca = (Dinheiro Total Contado) - (Soma de todos acertoEsperadoSemTroco + Troco Inicial)
-
-            // 3. Mapeia os caixas para o formato final de salvamento, distribuindo a diferença
             const caixasParaSalvar = caixasComAcerto.map((caixa, index) => {
-
-                // --- INÍCIO DA LÓGICA DE DISTRIBUIÇÃO ---
                 let dinheiroFisicoParaSalvar;
                 let diferencaParaSalvar;
                 const acertoEsperadoSemTroco_Num = Math.round(caixa.acertoEsperadoSemTroco * 100) / 100;
 
                 if (index === 0) {
-                    // CAIXA 1: Recebe o Troco Inicial e a Diferença do Grupo
                     const acertoEsperadoComTroco_Caixa1 = acertoEsperadoSemTroco_Num + parseCurrency(valorTroco);
-                    // O dinheiro físico dele é o esperado (com troco) + a diferença do grupo
                     const dinheiroFisicoCalculado = acertoEsperadoComTroco_Caixa1 + finalDiferenca;
-                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); // Garante >= 0 //
-                    // A diferença dele é a diferença GERAL do grupo
+                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); 
                     diferencaParaSalvar = Math.round(finalDiferenca * 100) / 100;
-
-                    console.log(`[FixedCashierSave][Caixa 1] Acerto S/ Troco: ${acertoEsperadoSemTroco_Num}, Troco: ${parseCurrency(valorTroco)}, Acerto C/ Troco: ${acertoEsperadoComTroco_Caixa1}, Dif Grupo: ${finalDiferenca}, Dinheiro Calc: ${dinheiroFisicoCalculado}, Dinheiro Salvo: ${dinheiroFisicoParaSalvar}, Diferença Salva: ${diferencaParaSalvar}`);
-
                 } else {
-                    // DEMAIS CAIXAS: Não recebem troco inicial nem diferença do grupo (idealmente)
-                    // O dinheiro físico deles é apenas o acerto esperado (sem troco)
                     const dinheiroFisicoCalculado = acertoEsperadoSemTroco_Num;
-                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); // Garante >= 0 //
-                    // A diferença deles é o dinheiro salvo menos o acerto esperado (deve ser 0, a menos que Math.max tenha atuado)
+                    dinheiroFisicoParaSalvar = Math.max(0, Math.round(dinheiroFisicoCalculado * 100) / 100); 
                     diferencaParaSalvar = dinheiroFisicoParaSalvar - acertoEsperadoSemTroco_Num;
-                    diferencaParaSalvar = Math.round(diferencaParaSalvar * 100) / 100; // Arredonda //
-
-                     console.log(`[FixedCashierSave][Caixa ${index + 1}] Acerto S/ Troco: ${acertoEsperadoSemTroco_Num}, Dinheiro Calc: ${dinheiroFisicoCalculado}, Dinheiro Salvo: ${dinheiroFisicoParaSalvar}, Diferença Salva: ${diferencaParaSalvar}`);
+                    diferencaParaSalvar = Math.round(diferencaParaSalvar * 100) / 100; 
                 }
-                // --- FIM DA LÓGICA DE DISTRIBUIÇÃO ---
 
                 return {
-                    protocol: caixa.protocol, // Preserva protocolo individual na edição //
+                    protocol: caixa.protocol, 
                     cpf: caixa.cpf,
                     cashierName: caixa.name,
                     numeroMaquina: caixa.numeroMaquina,
@@ -476,73 +578,58 @@ function FixedCashierClosingPage() {
                     debito: parseCurrency(caixa.debito),
                     pix: parseCurrency(caixa.pix),
                     cashless: parseCurrency(caixa.cashless),
-                    dinheiroFisico: dinheiroFisicoParaSalvar, // Valor distribuído e >= 0 //
-                    // Mantém 'valorAcerto' como o esperado SEM troco para consistência individual
+                    dinheiroFisico: dinheiroFisicoParaSalvar, 
                     valorAcerto: acertoEsperadoSemTroco_Num,
-                    diferenca: diferencaParaSalvar, // Diferença calculada conforme a distribuição //
+                    diferenca: diferencaParaSalvar, 
                 };
             });
 
-            // Objeto principal a ser salvo
             const closingData = {
                 type: 'fixed_cashier',
                 eventName, operatorName,
-                valorTroco: parseCurrency(valorTroco), // Troco inicial do grupo //
-                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), // Total contado digitado //
-                diferencaCaixa: finalDiferenca, // Diferença GERAL do grupo //
-                caixas: caixasParaSalvar, // Array com caixas individuais e valores/diferenças distribuídos //
+                valorTroco: parseCurrency(valorTroco), 
+                totalDinheiroFisicoGrupo: parseCurrency(totalDinheiroFisico), 
+                diferencaCaixa: finalDiferenca, 
+                caixas: caixasParaSalvar, 
                 protocol: protocol,
                 timestamp: closingToEdit?.timestamp
             };
 
-            console.log("[FixedCashierSave] Objeto final enviado para saveFixedCashierClosing:", JSON.stringify(closingData, null, 2));
-
             const response = await saveFixedCashierClosing(closingData);
-            const savedData = response.data;
-
-            // *** LÓGICA DE SUCESSO MODIFICADA ***
-            // Atualiza os dados para o modal de sucesso (com o protocolo)
-            setDataToConfirm(savedData);
-            // Muda para a tela de sucesso
+            const savedData = response.data || response; // Proteção para retorno
+            
+            // MERGE DE SEGURANÇA: Dados salvos + dados da tela
+            setDataToConfirm(prev => ({ ...prev, ...savedData }));
+            
             setModalState('success');
-            // Remove o alerta e a navegação automática
-            // setAlertMessage(`Fechamento de grupo salvo LOCALMENTE com sucesso!\nProtocolo: ${savedData.protocol}`);
-            // setTimeout(() => navigate('/closing-history'), 2000);
 
         } catch (error) {
             console.error("Erro ao salvar fechamento local:", error);
             setAlertMessage('Ocorreu um erro ao salvar o fechamento de grupo localmente.');
-            setModalVisible(false); // Fecha o modal em caso de erro
+            setModalVisible(false);
         } finally {
             setIsSaving(false);
-            // Não fecha mais o modal aqui (setModalVisible(false))
         }
     };
 
-
     const getDiferencaColor = (diff) => {
-      // ... (código da função sem alteração)
         if (diff < 0) return 'red';
         if (diff > 0) return 'green';
         return 'blue';
     };
 
     const handleKeyDown = (e, nextField) => {
-      // ... (código da função sem alteração)
       if (e.key === 'Enter') {
         e.preventDefault();
         const nextRef = formRefs.current[nextField];
         if (nextRef && nextRef.current) {
           nextRef.current.focus();
         } else if (nextField === 'saveButton') {
-           // Se o próximo for o botão salvar, tenta abrir a confirmação
            handleOpenConfirmation();
         } else if (nextField === 'addCaixaButton' && !closingToEdit) {
-            // Se o próximo for adicionar caixa (e não estiver editando)
             handleAddCaixa();
-            // Tenta focar no CPF do novo caixa (precisa de um pequeno delay)
             setTimeout(() => {
-                const nextCaixaId = caixasDoGrupo.length + 1; // ID aqui é baseado no length ANTES de adicionar
+                const nextCaixaId = caixasDoGrupo.length + 1; 
                 const nextCpfRef = formRefs.current[`cpf_${nextCaixaId}`];
                 if (nextCpfRef && nextCpfRef.current) {
                     nextCpfRef.current.focus();
@@ -553,8 +640,6 @@ function FixedCashierClosingPage() {
     };
 
     useEffect(() => {
-      // ... (código do useEffect [formRefs] sem alteração)
-        // Inicializa ou atualiza refs
         formRefs.current.valorTroco = formRefs.current.valorTroco || React.createRef();
         formRefs.current.totalDinheiroFisico = formRefs.current.totalDinheiroFisico || React.createRef();
         formRefs.current.addCaixaButton = formRefs.current.addCaixaButton || React.createRef();
@@ -580,9 +665,7 @@ function FixedCashierClosingPage() {
                 <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
                 <h1>{closingToEdit ? 'Editar Fechamento de Caixa Fixo' : 'Fechamento Caixa Fixo (Grupo)'}</h1>
 
-                {/* ... (JSX do map caixasDoGrupo (CaixaFormItem) sem alteração) ... */}
                 {caixasDoGrupo.map((caixa, index) => {
-                    // Passa isEditing para CaixaFormItem
                     return (
                         <CaixaFormItem
                             key={caixa.id}
@@ -595,7 +678,7 @@ function FixedCashierClosingPage() {
                             setAlertMessage={setAlertMessage}
                             handleKeyDown={handleKeyDown}
                             formRefs={formRefs}
-                            isEditing={!!closingToEdit} // Passa corretamente se está editando //
+                            isEditing={!!closingToEdit} 
                             onRemoveCaixa={handleRemoveCaixa}
                             showRemoveButton={caixasDoGrupo.length > 1 && !closingToEdit}
                             valorTroco={valorTroco}
@@ -604,10 +687,7 @@ function FixedCashierClosingPage() {
                     );
                 })}
 
-
-                {/* ... (JSX do footer-actions (botões e resultados) sem alteração) ... */}
                 <div className="footer-actions">
-                     {/* Botão Adicionar Caixa */}
                      <button
                          ref={formRefs.current.addCaixaButton}
                          onKeyDown={(e) => handleKeyDown(e, 'totalDinheiroFisico')}
@@ -619,7 +699,6 @@ function FixedCashierClosingPage() {
                      </button>
 
                     <div className="results-container" style={{borderTop: '2px solid #007bff', paddingTop: '20px'}}>
-                         {/* Input Dinheiro Físico Total */}
                          <div className="input-group" style={{maxWidth: '300px', margin: '0 auto 20px auto'}}>
                             <label style={{fontSize: '1.1rem', fontWeight: 'bold'}}>Total de Dinheiro Físico Contado (Grupo)</label>
                             <input
@@ -633,13 +712,11 @@ function FixedCashierClosingPage() {
                             />
                         </div>
 
-                        {/* Exibição da Diferença Final */}
                         <p className="total-text">Diferença Final (Sobra/Falta):
                             <strong style={{ color: getDiferencaColor(finalDiferenca), marginLeft: '10px' }}>
                                 {formatCurrencyResult(finalDiferenca)}
                             </strong>
                         </p>
-                        {/* Botão Salvar */}
                         <button
                             ref={formRefs.current.saveButton}
                             className="login-button"
@@ -652,12 +729,10 @@ function FixedCashierClosingPage() {
                 </div>
             </div>
 
-            {/* *** TODO O BLOCO DO MODAL FOI SUBSTITUÍDO *** */}
             {modalVisible && (
                 <div className="modal-overlay">
-                    <div className="modal-content">
+                    <div className="modal-content" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
 
-                        {/* ESTADO DE CONFIRMAÇÃO (O que já existia) */}
                         {modalState === 'confirm' && (
                             <>
                                 <h2>Confirmar Fechamento de Grupo</h2>
@@ -684,32 +759,29 @@ function FixedCashierClosingPage() {
                             </>
                         )}
                         
-                        {/* (NOVO) ESTADO 'SALVANDO' */}
                         {modalState === 'saving' && (
-                            <>
-                                <div className="spinner"></div>
-                                <p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p>
-                            </>
+                            <><div className="spinner"></div><p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p></>
                         )}
 
-                        {/* (NOVO) ESTADO 'SUCESSO' */}
                         {modalState === 'success' && (
-                            <>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
                                 <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
                                 <h2>Fechamento Salvo com Sucesso!</h2>
-                                {/* 'dataToConfirm' foi atualizado no 'handleFinalSave' com a resposta do servidor */}
                                 <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
-                                <div className="modal-buttons">
-                                    <button className="modal-button primary" onClick={handleRegisterNew}>
-                                        <span className="button-icon">➕</span>
-                                        <span>Registrar Novo Fechamento</span>
+                                
+                                <div className="modal-buttons" style={{ flexDirection: 'column', gap: '10px', marginTop: '20px', width: '100%' }}>
+                                    <button className="login-button" style={{ backgroundColor: '#2196F3', flex: 1, padding: '15px 0', width: '100%' }} onClick={() => handlePrint('a4')}>
+                                        <span style={{ fontSize: '16px' }}>📄 Imprimir Relatório de Grupo (A4)</span>
                                     </button>
-                                    <button className="modal-button secondary" onClick={handleBackToMenu}>
-                                        <span className="button-icon">📋</span>
-                                        <span>Voltar ao Menu Principal</span>
+
+                                    <button className="modal-button primary" style={{ width: '100%' }} onClick={handleRegisterNew}>
+                                        <span className="button-icon">➕</span> Registrar Novo Fechamento
+                                    </button>
+                                    <button className="modal-button secondary" style={{ width: '100%' }} onClick={handleBackToMenu}>
+                                        <span className="button-icon">📋</span> Voltar ao Menu Principal
                                     </button>
                                 </div>
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>

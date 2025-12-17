@@ -1,3 +1,6 @@
+// src/pages/WaiterClosing10Page.jsx
+// (VERSÃO FINAL: COLUNAS A4 REEQUILIBRADAS - 1ª REDUZIDA, COMISSÃO AUMENTADA)
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveWaiterClosing } from '../services/apiService';
@@ -5,10 +8,10 @@ import { attemptBackgroundSyncNewPersonnel } from '../services/syncService';
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { APP_VERSION } from '../config'; 
 import '../App.css';
-import './WaiterClosingPage.css'; // Usa o mesmo CSS do 8%
+import './WaiterClosingPage.css'; // Usa o mesmo CSS
 
-// Hook para evitar lentidão ao digitar (espera parar de digitar para calcular)
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -22,7 +25,6 @@ function WaiterClosing10Page() {
     const navigate = useNavigate();
     const location = useLocation(); 
 
-    // Referências para pular de campo com Enter
     const formRefs = {
       cpf: useRef(null), numeroCamiseta: useRef(null), numeroMaquina: useRef(null),
       valorTotal: useRef(null), valorEstorno: useRef(null), credito: useRef(null),
@@ -52,7 +54,7 @@ function WaiterClosing10Page() {
     const [pix, setPix] = useState('');
     const [cashless, setCashless] = useState('');
     
-    // --- NOVAS VARIÁVEIS DE COMISSÃO ---
+    // --- VARIÁVEIS DE COMISSÃO (10% + 4%) ---
     const [comissao10, setComissao10] = useState(0);
     const [comissao4, setComissao4] = useState(0);
     const [comissaoTotal, setComissaoTotal] = useState(0);
@@ -69,7 +71,6 @@ function WaiterClosing10Page() {
     const [registerModalVisible, setRegisterModalVisible] = useState(false);
     const [newWaiterName, setNewWaiterName] = useState('');
 
-    // Valores com delay para cálculo
     const debouncedValorTotal = useDebounce(valorTotal, 300);
     const debouncedCredito = useDebounce(credito, 300);
     const debouncedDebito = useDebounce(debito, 300);
@@ -90,13 +91,9 @@ function WaiterClosing10Page() {
         const localWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
         setWaiters(localWaiters);
         
-        // Verifica se é edição
         const closingToEdit = location.state?.closingToEdit;
         if (closingToEdit) {
-            const toDigits = (value) => {
-              if (value === null || value === undefined) return '';
-              return String(Math.round(Number(value) * 100));
-            };
+            const toDigits = (value) => value ? String(Math.round(Number(value) * 100)) : '';
             setProtocol(closingToEdit.protocol);
             setTimestamp(closingToEdit.timestamp);
             const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
@@ -134,7 +131,7 @@ function WaiterClosing10Page() {
         } else { setFilteredWaiters([]); setShowRegisterButton(false); }
     }, [searchInput, waiters, selectedWaiter]);
     
-    // --- CÁLCULO FINANCEIRO AUTOMÁTICO (10% + 4%) ---
+    // --- CÁLCULO FINANCEIRO (10% + 4%) ---
     useEffect(() => {
         const numValorTotal = getNumericValue(debouncedValorTotal);
         const numCredito = getNumericValue(debouncedCredito);
@@ -189,6 +186,383 @@ function WaiterClosing10Page() {
         setAlertMessage(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
     };
     
+    // --- FUNÇÃO DE IMPRESSÃO ---
+    const handlePrint = (type) => {
+        if (!dataToConfirm) return;
+        const logoSrc = '/logo.png'; 
+        const printTime = new Date().toLocaleString('pt-BR'); 
+
+        let content = '';
+
+        // ==========================================
+        // LAYOUT 1: CUPOM TÉRMICO (80mm) - Mantido
+        // ==========================================
+        if (type === 'receipt') {
+            const isReceivingFromWaiter = dataToConfirm.diferencaLabel === 'Receber do Garçom';
+            
+            const createManualRow = (label) => `
+                <div class="manual-row">
+                    <span class="manual-check">[&nbsp;&nbsp;]</span>
+                    <span class="manual-label">${label}</span>
+                    <span class="manual-line">R$</span>
+                </div>
+            `;
+
+            let paymentBlockHtml = '';
+            
+            if (isReceivingFromWaiter) {
+                paymentBlockHtml = `
+                    <div class="section-title">FORMA DE RECEBIMENTO</div>
+                    <div style="font-size:10px; margin-bottom:10px; text-align:center;">Preencha o valor recebido:</div>
+                    ${createManualRow('Vale')}
+                    ${createManualRow('Dinheiro')}
+                    ${createManualRow('PIX')}
+                    
+                    <div style="margin-top: 15px;">
+                        <div style="border-bottom: 1px solid #000; height: 18px; margin-bottom: 8px;"></div>
+                        <div style="border-bottom: 1px solid #000; height: 18px; margin-bottom: 8px;"></div>
+                        <div style="border-bottom: 1px solid #000; height: 18px;"></div>
+                    </div>
+                `;
+            } else {
+                paymentBlockHtml = `
+                    <div style="margin-top:10px; border: 1px solid #000;">
+                        <div style="background-color: #000; color: #fff; padding: 5px; text-align:center; font-weight:bold; font-size:12px;">
+                            PAGAMENTO REALIZADO?
+                        </div>
+                        <div style="padding:15px 5px; text-align:center; font-weight:bold; font-size:12px;">
+                           ( &nbsp;&nbsp; ) SIM &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ( &nbsp;&nbsp; ) NÃO
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <div style="border-bottom: 1px solid #000; height: 18px; margin-bottom: 8px;"></div>
+                        <div style="border-bottom: 1px solid #000; height: 18px; margin-bottom: 8px;"></div>
+                        <div style="border-bottom: 1px solid #000; height: 18px;"></div>
+                    </div>
+                `;
+            }
+
+            content = `
+                <html>
+                <head>
+                    <title>Cupom - ${dataToConfirm.protocol}</title>
+                    <style>
+                        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 11px; width: 290px; margin: 0 auto; padding: 10px 5px; color: #000; background: #fff; }
+                        .header { text-align: center; margin-bottom: 8px; }
+                        .logo-img { max-width: 250px; max-height: 100px; width: auto; margin-bottom: 5px; display: block; margin-left: auto; margin-right: auto; }
+                        .title { font-weight: 800; font-size: 16px; text-transform: uppercase; margin-bottom: 2px; }
+                        .subtitle { font-size: 11px; color: #333; }
+                        .line { border-bottom: 1px dashed #000; margin: 6px 0; }
+                        .info-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+                        .center-row { text-align: center; margin-bottom: 3px; }
+                        .bold { font-weight: 700; }
+                        .center { text-align: center; }
+                        .section-title { font-weight: 700; text-align: center; background-color: #ddd; color: #000; padding: 3px 0; margin: 5px 0; font-size: 11px; border-top: 1px solid #999; border-bottom: 1px solid #999; }
+                        .freelancer-data { font-size: 14px; font-weight: bold; }
+                        .table-style { width: 100%; border-collapse: collapse; margin-top: 2px; }
+                        .table-style td { padding: 4px 0; border-bottom: 1px dashed #ccc; font-size: 13px; } 
+                        .table-style td:last-child { text-align: right; font-weight: bold; }
+                        .big-result { border: 2px solid #000; padding: 8px; margin-top: 8px; text-align: center; border-radius: 4px; }
+                        .footer { margin-top: 15px; text-align: center; font-size: 9px; color: #555; }
+                        .barcode-container { text-align: center; margin-top: 5px; margin-bottom: 5px; }
+                        .manual-row { display: flex; align-items: flex-end; margin-bottom: 15px; font-size: 12px; }
+                        .manual-check { font-weight: bold; margin-right: 5px; min-width: 25px; }
+                        .manual-label { margin-right: 5px; }
+                        .manual-line { flex-grow: 1; border-bottom: 1px solid #000; text-align: right; padding-right: 2px; }
+                        .sig-text { font-size: 10px; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <img src="${logoSrc}" class="logo-img" alt="Logo" onerror="this.style.display='none'"/>
+                        <div class="title">Comprovante de Fechamento</div>
+                        <div class="subtitle">Garçom 10%</div>
+                    </div>
+                    <div class="line"></div>
+                    <div class="info-row"><span>Evento:</span> <span class="bold">${dataToConfirm.eventName}</span></div>
+                    <div class="center-row">
+                        <span>Prot: <span class="bold" style="font-size:14px;">${dataToConfirm.protocol}</span></span>
+                    </div>
+                    <div class="barcode-container"><svg id="barcode"></svg></div>
+                    <div class="info-row"><span>Data:</span> <span>${new Date(dataToConfirm.timestamp).toLocaleString('pt-BR')}</span></div>
+                    <div class="info-row"><span>Operador:</span> <span>${dataToConfirm.operatorName}</span></div>
+                    <div class="section-title">DADOS DO FREELANCER</div>
+                    <div class="info-row"><span>Nome:</span> <span class="freelancer-data">${dataToConfirm.waiterName}</span></div>
+                    <div class="info-row"><span>CPF:</span> <span class="freelancer-data">${dataToConfirm.cpf}</span></div>
+                    <div class="info-row" style="margin-top:2px;">
+                        <span>Máquina: <span class="freelancer-data">${dataToConfirm.numeroMaquina}</span></span>
+                        <span>Camisa: <span class="freelancer-data">${dataToConfirm.numeroCamiseta}</span></span>
+                    </div>
+                    <div class="section-title">DETALHAMENTO DE VENDAS</div>
+                    <table class="table-style">
+                        <tr><td>Crédito</td><td>${formatCurrencyResult(dataToConfirm.credito)}</td></tr>
+                        <tr><td>Débito</td><td>${formatCurrencyResult(dataToConfirm.debito)}</td></tr>
+                        <tr><td>PIX</td><td>${formatCurrencyResult(dataToConfirm.pix)}</td></tr>
+                        <tr><td>Cashless</td><td>${formatCurrencyResult(dataToConfirm.cashless)}</td></tr>
+                        ${dataToConfirm.temEstorno ? `<tr style="color:#000; font-weight:bold;"><td>(-) Estorno</td><td>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</td></tr>` : ''}
+                        <tr style="background:#f0f0f0; font-weight:bold; font-size:12px;"><td>VENDA BRUTA</td><td>${formatCurrencyResult(dataToConfirm.valorTotal)}</td></tr>
+                    </table>
+                    <div class="section-title">COMISSÕES</div>
+                    <table class="table-style">
+                        ${dataToConfirm.comissao8 > 0 ? `<tr><td>Comissão (8%)</td><td>${formatCurrencyResult(dataToConfirm.comissao8)}</td></tr>` : ''}
+                        
+                        <tr><td>Cashless (4%)</td><td>${formatCurrencyResult(dataToConfirm.comissao4)}</td></tr>
+                        
+                        ${dataToConfirm.comissao10 > 0 ? `<tr><td>Comissão (10%)</td><td>${formatCurrencyResult(dataToConfirm.comissao10)}</td></tr>` : ''}
+                        <tr style="font-weight:bold; border-top:1px solid #000; font-size:12px;"><td>TOTAL COMISSÃO</td><td>${formatCurrencyResult(dataToConfirm.comissaoTotal)}</td></tr>
+                    </table>
+                    <div class="big-result">
+                        <div style="font-size:10px; margin-bottom:2px;">RESULTADO FINAL</div>
+                        <div style="font-size:12px; font-weight:bold;">${dataToConfirm.diferencaLabel.toUpperCase()}</div>
+                        <div style="font-size:18px; font-weight:800; margin-top:4px;">${formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}</div>
+                    </div>
+                    ${paymentBlockHtml}
+                    <br/><br/>
+                    <div class="center">_______________________________</div>
+                    <div class="center sig-text">${dataToConfirm.waiterName}</div>
+                    <br/><br/>
+                    <div class="center">_______________________________</div>
+                    <div class="center sig-text">Assinatura do Conferente</div>
+                    <div class="footer">
+                        Sistema v${APP_VERSION || '1.0'}<br/>
+                        Impresso em ${printTime}
+                    </div>
+                    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+                    <script>
+                        JsBarcode("#barcode", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, fontSize: 14, height: 35, margin: 5});
+                    </script>
+                </body>
+                </html>
+            `;
+            const printWindow = window.open('', '', 'height=700,width=400');
+            printWindow.document.write(content);
+            printWindow.document.close();
+            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
+
+        } 
+        // ==========================================
+        // LAYOUT 2: A4 EM PÉ (MEIA FOLHA) - 3 COLUNAS, 1ª EMPILHADA E REDUZIDA
+        // ==========================================
+        else if (type === 'a4') {
+            const isReceivingA4 = dataToConfirm.diferencaLabel === 'Receber do Garçom';
+            
+            const createA4ManualRow = (label) => `
+                <div style="display: flex; align-items: flex-end; margin-bottom: 12px; font-size: 11px;">
+                    <span style="font-weight:bold; margin-right: 5px;">[ &nbsp; ]</span>
+                    <span style="margin-right: 5px;">${label}</span>
+                    <div style="flex:1; border-bottom: 1px solid #000;"></div>
+                </div>
+            `;
+
+            let a4PaymentBlock = '';
+            
+            if (isReceivingA4) {
+                 // CENÁRIO RECEBER
+                 a4PaymentBlock = `
+                    <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <div style="font-size: 10px; font-weight:bold; margin-bottom:8px;">FORMA DE RECEBIMENTO:</div>
+                        ${createA4ManualRow('Vale')}
+                        ${createA4ManualRow('Dinheiro')}
+                        ${createA4ManualRow('PIX')}
+                        
+                        <div style="margin-top: 5px;">
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
+                        </div>
+                    </div>
+                 `;
+            } else {
+                 // CENÁRIO PAGAR
+                 a4PaymentBlock = `
+                    <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <div style="border: 1px solid #000; margin-bottom: 10px;">
+                            <div style="background-color: #000; color: #fff; padding: 5px; text-align:center; font-weight:bold; font-size:11px;">
+                                PAGAMENTO REALIZADO?
+                            </div>
+                            <div style="padding:15px 5px; text-align:center; font-weight:bold; font-size:12px;">
+                                ( &nbsp;&nbsp; ) SIM &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ( &nbsp;&nbsp; ) NÃO
+                            </div>
+                        </div>
+                        <div style="margin-top: 5px;">
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
+                        </div>
+                    </div>
+                 `;
+            }
+
+            content = `
+                <html>
+                <head>
+                    <title>A4 - ${dataToConfirm.protocol}</title>
+                    <style>
+                        @page { size: A4 portrait; margin: 0; }
+                        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 11px; width: 210mm; height: 140mm; margin: 0; padding: 35px 25px 10px 25px; box-sizing: border-box; background: #fff; }
+                        .container { width: 100%; height: 100%; border: 2px solid #000; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; }
+                        
+                        .header { 
+                            position: relative;
+                            display: flex; 
+                            justify-content: center; /* Centraliza Título */
+                            align-items: center; 
+                            border-bottom: 2px solid #000; 
+                            padding-bottom: 5px; 
+                            margin-bottom: 5px; 
+                            min-height: 65px; /* Altura reduzida */
+                        }
+                        
+                        /* LOGO FLUTUANTE - TOP NEGATIVO PARA SUBIR E ALINHAR */
+                        .logo-wrapper {
+                            position: absolute;
+                            left: 0;
+                            top: -25px; 
+                            z-index: 10;
+                        }
+                        .logo-img { 
+                            max-height: 115px; /* Tamanho GRANDE */
+                            max-width: 250px; 
+                            width: auto; 
+                            object-fit: contain; 
+                        } 
+                        
+                        .header-right { 
+                            position: absolute;
+                            right: 0;
+                            top: 0;
+                            text-align: right; 
+                            font-size: 10px; 
+                            display:flex; 
+                            flex-direction:column; 
+                            align-items: flex-end; 
+                        }
+
+                        .header-center { text-align: center; padding: 0 10px; z-index: 1; }
+                        .title { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+                        
+                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; }
+                        .info-strip { background-color: #f5f5f5; padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
+                        
+                        /* GRID AJUSTADO: 3 COLUNAS, 1ª REDUZIDA */
+                        .grid { display: grid; grid-template-columns: 1.0fr 1.0fr 1.0fr; gap: 8px; flex: 1; }
+                        
+                        /* PILHA VERTICAL */
+                        .col-stack { display: flex; flex-direction: column; gap: 8px; }
+                        
+                        .box { border: 1px solid #999; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; }
+                        .box-title { background-color: #e0e0e0; color: #000; font-weight: bold; padding: 4px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #999; }
+                        .box-content { padding: 6px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+                        .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding: 3px 0; } 
+                        .row:last-child { border-bottom: none; }
+                        .row span:last-child { font-weight: bold; font-size: 13px; } 
+                        .row-total { background-color: #f0f0f0; font-weight: bold; padding: 5px 0; border-top: 1px solid #000; margin-top: auto; font-size: 12px; }
+                        .result-container { text-align: center; display: flex; flex-direction: column; justify-content: center; height: auto; margin-bottom: 10px; }
+                        .result-label { font-size: 12px; font-weight: bold; color: #555; text-transform: uppercase; }
+                        .result-value { font-size: 20px; font-weight: 900; margin-top: 5px; }
+                        
+                        /* RODAPÉ E ASSINATURAS */
+                        .footer-sigs { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; padding-top: 60px; margin-bottom: 10px; }
+                        .sig-block { text-align: center; width: 40%; }
+                        .sig-line { border-top: 1px solid #000; padding-top: 3px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+                        .system-footer { font-size: 9px; color: #555; text-align: center; width: 100%; border-top: 1px solid #eee; padding-top: 2px; padding-bottom: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div class="logo-wrapper">
+                                <img src="${logoSrc}" class="logo-img" alt="Logo" onerror="this.style.display='none'"/>
+                            </div>
+
+                            <div class="header-center">
+                                <div class="title">Recibo de Fechamento</div>
+                                <div style="font-size: 12px; margin-top:2px;">Garçom (Regime 10%)</div>
+                            </div>
+                            <div class="header-right">
+                                <div class="protocol-box">PROT: ${dataToConfirm.protocol}</div>
+                                <svg id="barcodeA4"></svg>
+                            </div>
+                        </div>
+
+                        <div class="info-strip">
+                            <div><strong>Evento:</strong> ${dataToConfirm.eventName}</div>
+                            <div><strong>Operador:</strong> ${dataToConfirm.operatorName}</div>
+                            <div><strong>Data de Fechamento:</strong> ${new Date(dataToConfirm.timestamp).toLocaleDateString('pt-BR')}</div>
+                        </div>
+
+                        <div class="grid">
+                            <div class="col-stack">
+                                <div class="box" style="flex: 0 0 auto;">
+                                    <div class="box-title">Identificação</div>
+                                    <div class="box-content">
+                                        <div class="row"><span>Freelancer:</span> <strong style="font-size:12px;">${dataToConfirm.waiterName}</strong></div>
+                                        <div class="row"><span>CPF:</span> <span>${dataToConfirm.cpf}</span></div>
+                                        
+                                        <div class="row"><span>Máquina:</span> <span>${dataToConfirm.numeroMaquina}</span></div>
+                                        <div class="row"><span>Camisa:</span> <span>${dataToConfirm.numeroCamiseta}</span></div>
+                                    </div>
+                                </div>
+
+                                <div class="box" style="flex: 1;">
+                                    <div class="box-title">Detalhes da Venda</div>
+                                    <div class="box-content">
+                                        <div class="row"><span>Crédito:</span> <span>${formatCurrencyResult(dataToConfirm.credito)}</span></div>
+                                        <div class="row"><span>Débito:</span> <span>${formatCurrencyResult(dataToConfirm.debito)}</span></div>
+                                        <div class="row"><span>PIX:</span> <span>${formatCurrencyResult(dataToConfirm.pix)}</span></div>
+                                        <div class="row"><span>Cashless:</span> <span>${formatCurrencyResult(dataToConfirm.cashless)}</span></div>
+                                        ${dataToConfirm.temEstorno ? `<div class="row" style="color:red"><span>Estorno:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
+                                        <div style="flex:1"></div>
+                                        <div class="row row-total" style="padding: 5px;"><span>VENDA BRUTA:</span> <span>${formatCurrencyResult(dataToConfirm.valorTotal)}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="box">
+                                <div class="box-title">Cálculo de Comissões</div>
+                                <div class="box-content">
+                                    ${dataToConfirm.comissao8 > 0 ? `<div class="row"><span>Comissão Venda (8%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao8)}</span></div>` : ''}
+                                    
+                                    <div class="row"><span>Cashless (4%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao4)}</span></div>
+                                    
+                                    ${dataToConfirm.comissao10 > 0 ? `<div class="row"><span>Comissão Venda (10%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao10)}</span></div>` : ''}
+                                    <div style="flex:1"></div>
+                                    <div class="row row-total" style="padding: 5px; background-color: #e0e0e0;"><span>TOTAL COMISSÃO:</span> <span style="font-size:13px;">${formatCurrencyResult(dataToConfirm.comissaoTotal)}</span></div>
+                                </div>
+                            </div>
+
+                            <div class="box">
+                                <div class="box-title">Acerto Financeiro</div>
+                                <div class="box-content" style="justify-content: space-between;">
+                                    <div class="result-container">
+                                        <div class="result-label">${dataToConfirm.diferencaLabel}</div>
+                                        <div class="result-value">${formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}</div>
+                                    </div>
+                                    ${a4PaymentBlock}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="footer-sigs">
+                            <div class="sig-block"><div class="sig-line">${dataToConfirm.waiterName}</div></div>
+                            <div class="sig-block"><div class="sig-line">Assinatura do Conferente</div></div>
+                        </div>
+                        <div class="system-footer">Sis.Versão: ${APP_VERSION || '1.0'} | Impresso em: ${printTime}</div>
+                    </div>
+                    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+                    <script>
+                        JsBarcode("#barcodeA4", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, height: 25, width: 1, margin: 0});
+                    </script>
+                </body>
+                </html>
+            `;
+            const printWindow = window.open('', '', 'height=500,width=800');
+            printWindow.document.write(content);
+            printWindow.document.close();
+            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
+        }
+    };
+
     const handleOpenConfirmation = () => {
         if (!selectedWaiter) { setAlertMessage('Por favor, selecione um garçom válido da lista.'); return; }
         if (!numeroMaquina.trim()) { setAlertMessage('Por favor, preencha o número da máquina.'); return; }
@@ -213,10 +587,9 @@ function WaiterClosing10Page() {
             temEstorno, 
             valorEstorno: getNumericValue(valorEstorno),
             
-            // --- DADOS PARA O SERVIDOR ---
-            comissao10, // Envia o 10%
-            comissao4,  // Envia o 4%
-            comissao8: 0, // Zera o 8%
+            comissao8: 0, // Não usado aqui, define 0
+            comissao10, 
+            comissao4, 
             comissaoTotal, 
             
             valorTotalAcerto, 
@@ -232,8 +605,8 @@ function WaiterClosing10Page() {
         setModalState('saving');
         try {
             const response = await saveWaiterClosing(dataToConfirm);
-            const savedData = response.data;
-            setDataToConfirm(savedData);
+            const savedData = response.data || response; 
+            setDataToConfirm(prev => ({ ...prev, ...savedData }));
             setModalState('success');
         } catch (error) {
             setAlertMessage('Ocorreu um erro ao salvar o fechamento.');
@@ -313,11 +686,11 @@ function WaiterClosing10Page() {
             </div>
             
             {/* Modais */}
-            {registerModalVisible && (<div className="modal-overlay"><div className="modal-content"><h2>Cadastrar Novo Garçom</h2><div className="input-group"><label>CPF</label><input type="text" value={formatCpf(searchInput)} readOnly /></div><div className="input-group"><label>Nome do Garçom</label><input type="text" value={newWaiterName} onChange={(e) => setNewWaiterName(e.target.value)} placeholder="Digite o nome completo" /></div><div className="modal-buttons"><button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button><button className="login-button" onClick={handleRegisterNewWaiter}>Salvar</button></div></div></div>)}
+            {registerModalVisible && (<div className="modal-overlay"><div className="modal-content" style={{ maxHeight: '90vh', overflowY: 'auto' }}><h2>Cadastrar Novo Garçom</h2><div className="input-group"><label>CPF</label><input type="text" value={formatCpf(searchInput)} readOnly /></div><div className="input-group"><label>Nome do Garçom</label><input type="text" value={newWaiterName} onChange={(e) => setNewWaiterName(e.target.value)} placeholder="Digite o nome completo" /></div><div className="modal-buttons"><button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button><button className="login-button" onClick={handleRegisterNewWaiter}>Salvar</button></div></div></div>)}
             
             {modalVisible && (
                 <div className="modal-overlay">
-                    <div className="modal-content">
+                    <div className="modal-content" style={{ maxHeight: '90vh', overflowY: 'auto', paddingBottom: '30px' }}>
                         {modalState === 'confirm' && ( <>
                             <h2>Deseja Confirmar o Fechamento?</h2>
                             {dataToConfirm && ( <>
@@ -340,15 +713,32 @@ function WaiterClosing10Page() {
                         
                         {modalState === 'saving' && ( <><div className="spinner"></div><p style={{marginTop: '20px', fontSize: '18px'}}>Salvando fechamento...</p></>)}
                         
-                        {modalState === 'success' && ( <>
-                            <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
-                            <h2>Fechamento Salvo com Sucesso!</h2>
-                            <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
-                            <div className="modal-buttons">
-                                <button className="modal-button primary" onClick={handleRegisterNew}><span className="button-icon">➕</span><span>Registrar Novo Fechamento</span></button>
-                                <button className="modal-button secondary" onClick={handleBackToMenu}><span className="button-icon">📋</span><span>Voltar ao Menu Principal</span></button>
+                        {/* ESTADO FINAL COM AS DUAS OPÇÕES DE IMPRESSÃO */}
+                        {modalState === 'success' && ( 
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                                <div className="success-checkmark"><div className="check-icon"><span className="icon-line line-tip"></span><span className="icon-line line-long"></span><div className="icon-circle"></div><div className="icon-fix"></div></div></div>
+                                <h2>Fechamento Salvo com Sucesso!</h2>
+                                <p>Protocolo Local: <strong>{dataToConfirm?.protocol}</strong></p>
+                                
+                                <div className="modal-buttons" style={{ flexDirection: 'column', gap: '10px', marginTop: '20px', width: '100%' }}>
+                                    <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                                        <button className="login-button" style={{ backgroundColor: '#FF9800', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('receipt')}>
+                                            <span style={{ fontSize: '16px' }}>🧾 Cupom Fiscal</span>
+                                        </button>
+                                        <button className="login-button" style={{ backgroundColor: '#2196F3', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('a4')}>
+                                            <span style={{ fontSize: '16px' }}>📄 Folha A4 (1/2)</span>
+                                        </button>
+                                    </div>
+
+                                    <button className="modal-button primary" style={{ width: '100%' }} onClick={handleRegisterNew}>
+                                        <span className="button-icon">➕</span> Registrar Novo
+                                    </button>
+                                    <button className="modal-button secondary" style={{ width: '100%' }} onClick={handleBackToMenu}>
+                                        <span className="button-icon">📋</span> Voltar ao Menu
+                                    </button>
+                                </div>
                             </div>
-                        </>)}
+                        )}
                     </div>
                 </div>
             )}
