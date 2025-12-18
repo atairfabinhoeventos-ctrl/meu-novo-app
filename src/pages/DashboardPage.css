@@ -2,78 +2,96 @@
 
 .dashboard-container {
   padding: 40px;
-  max-width: 1200px;
+  max-width: 1250px;
   margin: 0 auto;
   text-align: center;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .dashboard-title {
-  font-size: 2.5rem;
-  color: #333;
-  margin-bottom: 40px;
+  font-size: 2.8rem;
+  /* COR PADRÃO #0e1b2a */
+  color: #0e1b2a; 
+  margin-bottom: 50px;
+  font-weight: 800;
+  letter-spacing: -1px;
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  /* Ajuste automático de colunas para comportar os 6 cards */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 30px;
 }
 
 .dashboard-card {
   background-color: #ffffff;
-  padding: 30px;
-  border-radius: 15px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  padding: 35px;
+  border-radius: 18px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
   text-align: left;
-  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-  border-left: 5px solid transparent; /* Define a espessura da borda padrão */
-  
+  transition: all 0.3s ease;
+  border-left: 6px solid transparent;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
 }
 
 .dashboard-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  transform: translateY(-8px);
+  box-shadow: 0 15px 35px rgba(14, 27, 42, 0.15);
 }
 
 .card-icon {
-  font-size: 2.5rem;
-  margin-bottom: 15px;
+  font-size: 2.8rem;
+  margin-bottom: 20px;
 }
 
 .card-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 10px;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0e1b2a; /* Títulos dos cards também na cor padrão */
+  margin-bottom: 12px;
 }
 
 .card-description {
-  font-size: 1rem;
+  font-size: 1.05rem;
   color: #666;
-  line-height: 1.5;
+  line-height: 1.6;
   flex-grow: 1;
 }
 
-/* Cores específicas para cada card */
+/* --- CORES DAS BORDAS DOS CARDS --- */
+
 .finance-card {
-  border-left-color: #1E63B8; /* Azul */
-}
-
-.export-card {
-  border-left-color: #28a745; /* Verde */
-}
-
-/* RENOMEADO PARA EVITAR CONFLITO COM DataUpdatePage.css */
-.update-data-card {
-  border-left-color: #fd7e14; /* Laranja */
+  border-left-color: #0e1b2a; /* Agora usa a nova cor padrão */
 }
 
 .cloud-card {
-  border-left-color: #00ffbfe5; /* Azul claro */
+  border-left-color: #00d2ff; /* Ciano para Nuvem */
+}
+
+.export-card {
+  border-left-color: #28a745; /* Verde para Exportar */
+}
+
+.update-data-card {
+  border-left-color: #fd7e14; /* Laranja para Atualizar */
+}
+
+/* ESTILO DO NOVO CARD DE TREINAMENTO */
+.training-card {
+  border-left-color: #ffc107; /* Amarelo/Ouro para Treinamento */
 }
 
 .admin-card {
-  border-left-color: #6f42c1; /* Roxo */
+  border-left-color: #6f42c1; /* Roxo para Admin */
+}
+
+/* Responsividade para telas menores */
+@media (max-width: 768px) {
+  .dashboard-container { padding: 20px; }
+  .dashboard-title { font-size: 2rem; }
+  .dashboard-grid { grid-template-columns: 1fr; }
 }

@@ -10,6 +10,28 @@
 .admin-button.update-btn { background-color: #5bc0de; color: white; }
 .admin-button.reconcile-btn { background-color: #5cb85c; color: white; }
 .admin-button:disabled { background-color: #ccc; cursor: not-allowed; }
+.back-button-admin {
+  display: block;
+  margin: 40px auto 0; /* Centraliza e dá espaço do topo */
+  padding: 12px 30px;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #555;
+  background-color: transparent;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: fit-content; /* O botão ocupa apenas o espaço do texto */
+}
+
+.back-button-admin:hover {
+  border-color: #1E63B8; /* Azul ao passar o mouse */
+  color: #1E63B8;
+  background-color: #fff;
+  transform: translateY(-2px); /* Leve subida */
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
 .file-upload-label { display: block; padding: 15px; border: 2px dashed #ccc; border-radius: 8px; text-align: center; cursor: pointer; background-color: #f8f9fa; }
 #file-upload { display: none; }
 .results-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }

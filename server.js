@@ -1,5 +1,5 @@
-// server.js (VERSÃO FINAL: COMPLETA COM GESTÃO DE RECIBOS E EVENTOS)
-console.log("--- INICIANDO SERVIDOR: SYNC, HISTORY, EXPORT, EDIT, DELETE E RECIBOS ---");
+// server.js (VERSÃO DEFINITIVA: SYNC, HISTORY, EXPORT, EDIT/DELETE (WAITERS), EVENTS (ADD/STATUS), RECEIPT ROLES (PROTECTED))
+console.log("--- INICIANDO SERVIDOR: SISTEMA COMPLETO ---");
 
 const express = require('express');
 const { google } = require('googleapis');
@@ -24,6 +24,12 @@ app.use(cors());
 // ==========================================
 // 2. FUNÇÕES AUXILIARES
 // ==========================================
+
+// Normalização para comparação (remove acentos, espaços extras e minúsculas)
+const normalizeString = (str) => {
+    if (!str) return '';
+    return String(str).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
 
 const parseSisfoCurrency = (val) => {
     if (typeof val === 'number') return val;
@@ -97,7 +103,7 @@ async function getGoogleSheetsClient() {
   }
 }
 
-// IDs das Planilhas (Verifique seus IDs)
+// IDs das Planilhas
 const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados
 const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico
 
@@ -109,7 +115,6 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
-        // Busca agora também a aba 'DadosRecibos'
         const response = await googleSheets.spreadsheets.values.batchGet({
             spreadsheetId: spreadsheetId_sync,
             ranges: ['Garcons!A2:B', 'Eventos!A2:B', 'DadosRecibos!A2:B'], 
@@ -125,7 +130,7 @@ app.get('/api/sync/master-data', async (req, res) => {
           active: row[1] ? row[1].toUpperCase() === 'ATIVO' : true,
         })).filter(e => e.name);
 
-        // Funções de Recibo (Novo)
+        // Funções de Recibo
         const receiptRoles = (valueRanges[2]?.values || []).map(row => ({
             role: row[0],
             value: parseSisfoCurrency(row[1])
@@ -138,26 +143,30 @@ app.get('/api/sync/master-data', async (req, res) => {
     }
 });
 
-// --- ROTA: ADICIONAR FUNÇÃO DE RECIBO ---
+// --- ROTA: ADICIONAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
 app.post('/api/add-receipt-role', async (req, res) => {
-    const { role, value } = req.body;
+    const { role, value, password } = req.body;
+    
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
     if (!role) return res.status(400).json({ message: 'Nome da função obrigatório.' });
 
     try {
         const googleSheets = await getGoogleSheetsClient();
-        
-        // Verifica duplicidade
         const response = await googleSheets.spreadsheets.values.get({ 
             spreadsheetId: spreadsheetId_sync, 
             range: 'DadosRecibos!A:A' 
         });
-        const existingRoles = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
         
-        if (existingRoles.includes(role.trim().toUpperCase())) {
-            return res.status(409).json({ message: 'Função já existe.' });
+        // Verificação Robusta de Duplicidade
+        const normalizedNewRole = normalizeString(role);
+        const existingRoles = (response.data.values || []).map(r => r[0] ? normalizeString(r[0]) : '');
+        
+        if (existingRoles.includes(normalizedNewRole)) {
+            return res.status(409).json({ message: 'Função já existe (verifique acentos/maiúsculas).' });
         }
 
-        // Adiciona na aba DadosRecibos
         await googleSheets.spreadsheets.values.append({
             spreadsheetId: spreadsheetId_sync,
             range: 'DadosRecibos!A:B',
@@ -165,16 +174,63 @@ app.post('/api/add-receipt-role', async (req, res) => {
             resource: { values: [[role.trim(), value]] }
         });
 
-        res.status(200).json({ message: 'Função de recibo adicionada.' });
+        res.status(200).json({ message: 'Função adicionada.' });
     } catch (error) {
         console.error('Erro add-receipt-role:', error);
         res.status(500).json({ message: 'Erro ao adicionar função.' });
     }
 });
 
-// --- ROTA: EXCLUIR FUNÇÃO DE RECIBO ---
+// --- ROTA: EDITAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
+app.post('/api/edit-receipt-role', async (req, res) => {
+    const { originalRole, newRole, newValue, password } = req.body;
+
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
+    if (!originalRole || !newRole) return res.status(400).json({ message: 'Dados incompletos.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const response = await googleSheets.spreadsheets.values.get({ 
+            spreadsheetId: spreadsheetId_sync, 
+            range: 'DadosRecibos!A:A' 
+        });
+        const rows = response.data.values || [];
+
+        // Encontra índice (busca normalizada)
+        const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(originalRole));
+        if (rowIndex === -1) return res.status(404).json({ message: 'Função original não encontrada.' });
+
+        // Verifica duplicidade se nome mudou
+        if (normalizeString(originalRole) !== normalizeString(newRole)) {
+            const normalizedNew = normalizeString(newRole);
+            const exists = rows.some((row, idx) => idx !== rowIndex && row[0] && normalizeString(row[0]) === normalizedNew);
+            if (exists) return res.status(409).json({ message: 'Já existe outra função com esse nome.' });
+        }
+
+        const sheetRowNumber = rowIndex + 1;
+        await googleSheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId_sync,
+            range: `DadosRecibos!A${sheetRowNumber}:B${sheetRowNumber}`,
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: [[newRole.trim(), newValue]] }
+        });
+
+        res.status(200).json({ message: 'Função atualizada.' });
+    } catch (error) {
+        console.error('Erro edit-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao editar função.' });
+    }
+});
+
+// --- ROTA: EXCLUIR FUNÇÃO DE RECIBO (COM SENHA) ---
 app.post('/api/delete-receipt-role', async (req, res) => {
-    const { role } = req.body;
+    const { role, password } = req.body;
+
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
     if (!role) return res.status(400).json({ message: 'Função obrigatória.' });
 
     try {
@@ -185,7 +241,7 @@ app.post('/api/delete-receipt-role', async (req, res) => {
 
         const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'DadosRecibos!A:A' });
         const rows = response.data.values || [];
-        const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim().toUpperCase() === String(role).trim().toUpperCase());
+        const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(role));
 
         if (rowIndex === -1) return res.status(404).json({ message: 'Função não encontrada.' });
 
@@ -236,7 +292,7 @@ app.post('/api/update-base', async (req, res) => {
   }
 });
 
-// --- ROTA 3: EDIÇÃO DE FUNCIONÁRIO (CPF/NOME) ---
+// --- ROTA 3: EDIÇÃO DE FUNCIONÁRIO ---
 app.post('/api/edit-waiter', async (req, res) => {
     const { originalCpf, newCpf, newName } = req.body;
     if (!originalCpf || !newCpf || !newName) return res.status(400).json({ message: 'Dados incompletos.' });
@@ -300,7 +356,7 @@ app.post('/api/delete-waiter', async (req, res) => {
     }
 });
 
-// --- ROTA 5: ADICIONAR NOVO EVENTO ---
+// --- ROTA 5: ADICIONAR EVENTO ---
 app.post('/api/add-event', async (req, res) => {
     const { name, active } = req.body;
     if (!name) return res.status(400).json({ message: 'Nome obrigatório.' });
@@ -347,7 +403,7 @@ app.post('/api/update-event-status', async (req, res) => {
   }
 });
 
-// --- ROTA 7: SYNC PARA A NUVEM (GRAVAÇÃO) ---
+// --- ROTA 7: SYNC PARA A NUVEM (FECHAMENTOS) ---
 app.post('/api/cloud-sync', async (req, res) => {
   const { eventName, waiterData, cashierData } = req.body;
   if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });

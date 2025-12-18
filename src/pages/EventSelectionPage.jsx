@@ -1,65 +1,134 @@
-// src/pages/EventSelectionPage.jsx (VERSÃO COMPLETA E ATUALIZADA)
-
+// src/pages/EventSelectionPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import '../App.css';
+import './EventSelectionPage.css';
 
 function EventSelectionPage() {
   const navigate = useNavigate();
   const [activeEvents, setActiveEvents] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+
+  const loadEvents = () => {
+    setIsLoading(true);
+    // Simula um tempo de carregamento para feedback visual
+    setTimeout(() => {
+        const allEvents = JSON.parse(localStorage.getItem('master_events')) || [];
+        
+        const uniqueEvents = new Map();
+        allEvents.forEach(evt => {
+            if (evt.active && evt.name) {
+                uniqueEvents.set(evt.name, evt);
+            }
+        });
+        
+        const filteredEvents = Array.from(uniqueEvents.values());
+        filteredEvents.sort((a, b) => a.name.localeCompare(b.name));
+
+        setActiveEvents(filteredEvents);
+        setIsLoading(false);
+    }, 500);
+  };
 
   useEffect(() => {
-    // Carrega a lista completa de objetos de evento do localStorage
-    const allEvents = JSON.parse(localStorage.getItem('master_events')) || [];
+    loadEvents();
     
-    // Filtra para mostrar apenas os eventos que têm a propriedade 'active: true'
-    const filteredEvents = allEvents.filter(event => event.active);
-    
-    setActiveEvents(filteredEvents);
-    setIsLoading(false);
-
-    if (filteredEvents.length === 0) {
-        alert('Nenhum evento ativo encontrado. Por favor, cadastre ou ative eventos na tela de "Atualizar Dados".');
-    }
+    // Escuta atualizações de outras abas
+    const handleStorageChange = () => loadEvents();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const handleSelectEvent = (event) => {
-    // Salva apenas o nome do evento no localStorage para ser usado em outras telas
-    localStorage.setItem('activeEvent', event.name); 
-    // Dispara um evento para que o Header atualize a informação em tempo real
-    window.dispatchEvent(new Event('storage'));
-    navigate('/financial-selection');
+    setSelectedId(event.name);
+    setTimeout(() => {
+        localStorage.setItem('activeEvent', event.name); 
+        window.dispatchEvent(new Event('storage'));
+        navigate('/financial-selection');
+    }, 150);
   };
 
-  if (isLoading) {
-    return <div className="app-container"><h1>Carregando eventos...</h1></div>;
-  }
+  const handleGoToUpdate = () => {
+      // Tenta enviar o state. Se a página de destino suportar, ela abrirá na aba 'events'
+      navigate('/update-data', { state: { initialTab: 'events' } });
+  };
 
   return (
-    <div className="app-container">
-      <div className="login-form" style={{ maxWidth: '600px' }}>
-        {/* --- BOTÃO VOLTAR ADICIONADO AQUI --- */}
-        <button onClick={() => navigate(-1)} className="back-button">&#x2190; Voltar</button>
+    <div className="selection-wrapper">
+      <div className="selection-content">
         
-        <h1>Selecione um Evento Ativo</h1>
-        
-        {activeEvents.length > 0 ? (
-          activeEvents.map(event => (
-            <button 
-              key={event.name} 
-              className="login-button" 
-              style={{ marginBottom: '15px' }}
-              onClick={() => handleSelectEvent(event)}
-            >
-              {event.name}
+        {/* CABEÇALHO */}
+        <div className="selection-header">
+            <div className="header-top-row">
+                <button onClick={() => navigate(-1)} className="back-link">
+                    ⬅ Voltar
+                </button>
+                {/* BOTÃO ATUALIZAR EXPLÍCITO AQUI */}
+                <button 
+                    onClick={loadEvents} 
+                    className={`btn-refresh-explicit ${isLoading ? 'loading' : ''}`}
+                    disabled={isLoading}
+                >
+                    {isLoading ? 'Buscando...' : '🔄 Atualizar Lista'}
+                </button>
+            </div>
+            
+            <div className="header-title-block">
+                <h2>Selecionar Evento</h2>
+                <p>Escolha o evento ativo para prosseguir</p>
+            </div>
+        </div>
+
+        {/* ÁREA DE LISTA */}
+        <div className="events-list-container">
+            {isLoading ? (
+                <div className="state-container">
+                    <div className="spinner"></div>
+                    <p>Sincronizando dados...</p>
+                </div>
+            ) : activeEvents.length > 0 ? (
+                <div className="events-grid-scroll">
+                    {activeEvents.map((event, index) => (
+                        <div 
+                            key={event.name} 
+                            className={`event-card ${selectedId === event.name ? 'selected' : ''}`}
+                            onClick={() => handleSelectEvent(event)}
+                            style={{ animationDelay: `${index * 0.05}s` }}
+                        >
+                            <div className="event-icon-box">📅</div>
+                            <div className="event-info">
+                                <h3>{event.name}</h3>
+                                <span className="active-tag">Disponível</span>
+                            </div>
+                            <div className="event-arrow">➜</div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="state-container empty">
+                    <span className="emoji-large">📭</span>
+                    <h3>Nenhum evento apareceu?</h3>
+                    <p>Tente clicar em atualizar ou cadastre um novo.</p>
+                    
+                    <div className="empty-actions">
+                        <button onClick={loadEvents} className="btn-action-outline">
+                            🔄 Tentar Atualizar
+                        </button>
+                        <button onClick={handleGoToUpdate} className="btn-action-primary">
+                            ➕ Cadastrar Novo Evento
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+
+        {/* RODAPÉ */}
+        <div className="selection-footer">
+            <button onClick={handleGoToUpdate} className="btn-manage-full">
+                ⚙️ Gerenciar Eventos / Novo Cadastro
             </button>
-          ))
-        ) : (
-          <p style={{ textAlign: 'center', marginTop: '20px' }}>
-            Nenhum evento ativo disponível. Vá para "Atualizar Dados" para gerenciar.
-          </p>
-        )}
+        </div>
+
       </div>
     </div>
   );
