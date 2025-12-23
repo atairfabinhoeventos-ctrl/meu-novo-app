@@ -1,7 +1,7 @@
 {
   "name": "meu-novo-app",
   "productName": "SisFO",
-  "version": "2.0.2",
+  "version": "2.0.1",
   "description": "Sistema de Fechamento Operacional",
   "author": "ATAIR LAGARES",
   "main": "src/main.js",
@@ -50,7 +50,6 @@
     "productName": "SisFO",
     "files": [
       "dist/**/*",
-      "build/**/*",
       "src/main.js",
       "src/preload.js",
       "server.js",
@@ -63,20 +62,7 @@
     },
     "win": {
       "icon": "assets/icon.ico",
-      "target": [
-        "nsis",
-        "appx"
-      ]
-    },
-    "appx": {
-      "identityName": "ATAIRLAGARES.SisFO",
-      "publisher": "CN=2880B1A4-D1C0-415F-9F38-2E7E1164308F",
-      "publisherDisplayName": "ATAIR LAGARES",
-      "displayName": "SisFO",
-      "showNameOnTiles": true,
-      "languages": [
-        "pt-BR"
-      ]
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,

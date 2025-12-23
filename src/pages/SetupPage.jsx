@@ -1,6 +1,6 @@
-// src/pages/SetupPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { backgroundDownloadMasterData } from '../services/syncService';
 import '../App.css';
 import './SetupPage.css';
 
@@ -11,23 +11,28 @@ function SetupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const operatorName = localStorage.getItem('loggedInUserName') || 'Operador';
 
-  const loadEvents = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      const allEvents = JSON.parse(localStorage.getItem('master_events')) || [];
-      const activeEvents = allEvents.filter(event => event.active);
-      setEvents(activeEvents);
-      setIsLoading(false);
-    }, 500);
+  const loadEventsFromStorage = () => {
+    const allEvents = JSON.parse(localStorage.getItem('master_events')) || [];
+    const activeEvents = allEvents.filter(event => event.active);
+    setEvents(activeEvents);
   };
 
   useEffect(() => {
-    loadEvents();
+    loadEventsFromStorage();
   }, []);
 
-  const handleRefresh = (e) => {
+  const handleRefresh = async (e) => {
     e.preventDefault();
-    loadEvents();
+    setIsLoading(true);
+    try {
+      await backgroundDownloadMasterData();
+      loadEventsFromStorage();
+    } catch (error) {
+      console.error("Erro ao atualizar eventos:", error);
+      alert("Não foi possível buscar novos eventos. Verifique sua internet.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleEnterEvent = () => {
@@ -42,25 +47,29 @@ function SetupPage() {
   return (
     <div className="setup-container">
       <div className="setup-card">
-        {/* LADO ESQUERDO: BRANDING (#0e1b2a) */}
+        {/* LADO ESQUERDO */}
         <div className="card-left">
-          <img src="logo2.png" alt="Logo SisFO" className="brand-logo-img" />
-          <h1 className="brand-title">SisFO</h1>
-          <p className="brand-desc">Sistema de Fechamento Operacional</p>
+          <div className="brand-header">
+            {/* Logo 2x maior definida no CSS (.setup-logo) */}
+            <img src="/logo2.png" alt="SisFO Logo" className="setup-logo" />
+            <h1>SisFO</h1>
+            <p>Sistema de Fechamento Operacional</p>
+          </div>
+          <div className="welcome-box">
+            <span>Operador Identificado:</span>
+            <h2>{operatorName}</h2>
+          </div>
         </div>
 
-        {/* LADO DIREITO: SELEÇÃO */}
+        {/* LADO DIREITO */}
         <div className="card-right">
-          <div className="form-header">
-            <h2 className="welcome-title">Olá, {operatorName}</h2>
-            <p className="instruction-text">Selecione o evento para começar o trabalho.</p>
-          </div>
+          <h2>Configuração de Acesso</h2>
+          <p>Selecione o evento ativo na lista abaixo para carregar as tabelas de preços e configurações.</p>
 
-          <div className="input-group">
-            <label htmlFor="eventSelect" className="label-text">Evento Ativo:</label>
+          <div className="form-group">
+            <label>Evento Disponível</label>
             <select
-              id="eventSelect"
-              className="std-input"
+              className="std-select"
               value={selectedEvent}
               onChange={(e) => setSelectedEvent(e.target.value)}
             >
@@ -70,8 +79,18 @@ function SetupPage() {
               ))}
             </select>
             
-            <button className="btn-refresh-inline" onClick={handleRefresh} disabled={isLoading}>
-              {isLoading ? '...' : '🔄 Atualizar Lista'}
+            {/* BOTÃO MELHORADO: Outline azul com ícone */}
+            <button 
+              className="btn-refresh-inline" 
+              onClick={handleRefresh} 
+              disabled={isLoading}
+              title="Baixar lista atualizada da nuvem"
+            >
+              {/* O ícone gira se isLoading for true */}
+              <span className={isLoading ? 'spin-icon' : ''}>
+                {isLoading ? '⏳' : '☁️'}
+              </span>
+              {isLoading ? 'Buscando na Nuvem...' : 'Sincronizar Lista (Online)'}
             </button>
           </div>
 
@@ -82,18 +101,17 @@ function SetupPage() {
               disabled={!selectedEvent || isLoading}
             >
               <span>Acessar Painel</span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
               </svg>
             </button>
 
             <div className="divider">
-              <span>ADMINISTRAÇÃO</span>
+              <span>OU</span>
             </div>
 
             <button
               className="secondary-btn"
-              /* Envia o estado para abrir na aba Eventos */
               onClick={() => navigate('/update-data', { state: { activeTab: 'eventos' } })}
             >
               ⚙️ Gerenciar Eventos / Funcionários

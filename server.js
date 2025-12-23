@@ -895,6 +895,133 @@ app.post('/api/delete-closing', async (req, res) => {
 });
 
 // ==========================================
+// 4.X SISTEMA DE LICENCIAMENTO (GOOGLE SHEETS)
+// ==========================================
+app.post('/api/activate-license', async (req, res) => {
+    const { licenseKey, clientName, clientDoc, clientEmail, machineId } = req.body;
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    if (!licenseKey) return res.status(400).json({ valid: false, message: 'Chave não informada.' });
+
+    try {
+        const auth = new google.auth.GoogleAuth({
+            keyFile: path.join(resourcesPath, 'credentials.json'),
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+        const client = await auth.getClient();
+        const googleSheets = google.sheets({ version: 'v4', auth: client });
+        
+        // Pega o ID da variável ou usa hardcoded se preferir
+        const spreadsheetId = process.env.SPREADSHEET_ID; 
+
+        // 1. Ler a aba "Licencas"
+        const getRows = await googleSheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Licencas!A:H', 
+        });
+
+        const rows = getRows.data.values;
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ valid: false, message: 'Banco de licenças vazio.' });
+        }
+
+        let rowIndex = -1;
+        let licenseData = null;
+
+        // Procura a chave (Coluna A)
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][0] && rows[i][0].trim().toUpperCase() === licenseKey.trim().toUpperCase()) {
+                rowIndex = i + 1;
+                licenseData = rows[i];
+                break;
+            }
+        }
+
+        if (!licenseData) {
+            return res.status(404).json({ valid: false, message: 'Chave inválida.' });
+        }
+
+        const currentStatus = licenseData[1]; // Coluna B (Status)
+        const expirationString = licenseData[2]; // Coluna C (Data Validade dd/mm/yyyy)
+        const registeredMachineId = licenseData[6]; // Coluna G (MachineID)
+
+        // --- VALIDAÇÃO DE STATUS ---
+        if (currentStatus && currentStatus.toLowerCase() === 'inativo') {
+             return res.status(403).json({ valid: false, message: 'Licença desativada pelo administrador.' });
+        }
+
+        // --- VALIDAÇÃO DE DATA (EXPIRAÇÃO) ---
+        let isExpired = false;
+        if (expirationString) {
+            // Converte dd/mm/yyyy para objeto Date
+            const [day, month, year] = expirationString.split('/');
+            const expDate = new Date(`${year}-${month}-${day}`);
+            const today = new Date();
+            today.setHours(0,0,0,0); // Zera hora para comparar apenas dia
+
+            if (today > expDate) {
+                isExpired = true;
+            }
+        }
+
+        if (isExpired) {
+            // Se expirou, atualizamos o status na planilha para "Expirado" automaticamente
+            await googleSheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `Licencas!B${rowIndex}`,
+                valueInputOption: 'USER_ENTERED',
+                resource: { values: [['Expirado']] }
+            });
+            return res.status(403).json({ valid: false, message: `Licença expirada em ${expirationString}. Entre em contato para renovar.` });
+        }
+
+        // --- VALIDAÇÃO DE MÁQUINA ---
+        if (registeredMachineId && registeredMachineId.trim() !== '' && registeredMachineId !== machineId) {
+            return res.status(403).json({ valid: false, message: 'Chave já em uso em outra máquina.' });
+        }
+
+        // --- SUCESSO: ATUALIZA DADOS DO CLIENTE ---
+        const dataAtivacao = new Date().toLocaleString('pt-BR');
+        
+        // Atualiza colunas D, E, F, G, H, I (Nome, Doc, Email, MachineID, DataAtivacao, IP)
+        // Mantém Status (B) como Ativo se não estiver bloqueado
+        const newStatus = currentStatus === 'Bloqueado' ? 'Bloqueado' : 'Ativo';
+
+        await googleSheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `Licencas!B${rowIndex}:I${rowIndex}`,
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [[
+                    newStatus,      // B
+                    expirationString, // C (Mantém a data original)
+                    clientName || licenseData[3], // D (Usa o novo ou mantém o antigo)
+                    clientDoc || licenseData[4],  // E
+                    clientEmail || licenseData[5],// F
+                    machineId,      // G
+                    dataAtivacao,   // H
+                    clientIp        // I
+                ]]
+            }
+        });
+
+        return res.json({ 
+            valid: true, 
+            message: 'Licença válida.',
+            expiration: expirationString,
+            status: newStatus,
+            clientName: licenseData[3] || clientName,
+            clientDoc: licenseData[4] || clientDoc,
+            clientEmail: licenseData[5] || clientEmail
+        });
+
+    } catch (error) {
+        console.error('Erro na licença:', error);
+        res.status(500).json({ valid: false, message: 'Erro interno ao validar licença.' });
+    }
+});
+
+// ==========================================
 // 5. INICIALIZAÇÃO DO SERVIDOR
 // ==========================================
 

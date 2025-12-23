@@ -38,3 +38,96 @@
 .totem-info { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; }
 .divergence-list { list-style-type: none; padding: 0; }
 .divergence-list li { background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+
+/* --- NOVO: CARD DE INFORMAÇÕES DA LICENÇA --- */
+.license-info-card {
+  background: linear-gradient(135deg, #0e1b2a 0%, #163c6e 100%);
+  color: white;
+  padding: 30px;
+  border-radius: 15px;
+  margin-bottom: 40px; /* Espaço antes dos outros cards */
+  box-shadow: 0 10px 30px rgba(14, 27, 42, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Marca d'água decorativa */
+.license-info-card::after {
+  content: 'LICENÇA';
+  position: absolute;
+  right: -20px;
+  bottom: -30px;
+  font-size: 8rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.03);
+  pointer-events: none;
+}
+
+.license-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 15px;
+  margin-bottom: 20px;
+}
+
+.license-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+}
+
+.app-version-badge {
+  background-color: #ffc107;
+  color: #0e1b2a;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.license-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.license-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.license-field label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #a0aec0;
+  margin-bottom: 5px;
+}
+
+.license-field span {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.license-field .protected-data {
+  color: #81e6d9; /* Cor ciano para dados sensíveis */
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+
+.license-status {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  background-color: #28a745; /* Verde Ativo */
+  color: white;
+  width: fit-content;
+}
