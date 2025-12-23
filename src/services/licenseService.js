@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { API_URL } from '../config';
 
-// Gera um ID único persistente para este navegador/PC
+// Gera um ID único persistente para este computador
 const getMachineId = () => {
     let mid = localStorage.getItem('sys_machine_id');
     if (!mid) {
@@ -12,10 +12,12 @@ const getMachineId = () => {
     return mid;
 };
 
+// Função principal que chama o backend
 export const activateLicense = async (data) => {
-    // data = { licenseKey, clientName, clientDoc, clientEmail }
+    // data espera: { licenseKey, clientName, clientDoc, clientEmail }
     try {
         const machineId = getMachineId();
+        // Garante que enviamos o machineId junto com os dados
         const payload = { ...data, machineId };
         
         const response = await axios.post(`${API_URL}/api/activate-license`, payload);
@@ -26,6 +28,13 @@ export const activateLicense = async (data) => {
         }
         throw { message: 'Erro de conexão. Verifique a internet.' };
     }
+};
+
+// --- CORREÇÃO DO ERRO ---
+// Criamos a função 'validateLicense' que apenas repassa a chamada para 'activateLicense'.
+// Isso satisfaz o import que está no LicenseContext.jsx.
+export const validateLicense = async (data) => {
+    return activateLicense(data);
 };
 
 export const getStoredLicense = () => {
