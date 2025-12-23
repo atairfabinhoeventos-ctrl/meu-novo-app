@@ -1,13 +1,17 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import axios from 'axios';
 import Layout from './components/Layout.jsx';
+import { API_URL, APP_VERSION } from './config'; // Importando Configurações
 
 // --- CONTEXTO DE LICENÇA ---
 import { LicenseProvider, LicenseContext } from './contexts/LicenseContext';
 import ActivationPage from './pages/ActivationPage';
 
+// --- COMPONENTE DE UPDATE (NOVO) ---
+import UpdateModal from './components/UpdateModal';
+
 // --- IMPORTAÇÃO DAS PÁGINAS ---
-// Agora importamos a OperatorScreen em vez do LoginPage
 import OperatorScreen from './pages/OperatorScreen.jsx'; 
 import SetupPage from './pages/SetupPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
@@ -39,27 +43,82 @@ const EventSelectedRoute = () => {
 // --- GUARDA PRINCIPAL DA APLICAÇÃO ---
 const AppGuard = () => {
   const { isActivated, isLoading } = useContext(LicenseContext);
+  
+  // Estados para verificação de atualização
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [storeLink, setStoreLink] = useState('');
+  const [checkingUpdate, setCheckingUpdate] = useState(true);
 
-  if (isLoading) {
+  // 1. EFEITO: VERIFICAR NOVA VERSÃO AO INICIAR
+  useEffect(() => {
+    const checkVersion = async () => {
+        if (!isActivated) {
+            setCheckingUpdate(false);
+            return;
+        }
+
+        try {
+            const response = await axios.get(`${API_URL}/api/check-version`);
+            const { remoteVersion, storeLink } = response.data;
+            
+            if (isVersionOutdated(APP_VERSION, remoteVersion)) {
+                setStoreLink(storeLink);
+                setUpdateAvailable(true);
+            }
+        } catch (error) {
+            console.warn("Não foi possível verificar atualizações na nuvem.");
+        } finally {
+            setCheckingUpdate(false);
+        }
+    };
+
+    checkVersion();
+  }, [isActivated]); // Roda quando a licença é ativada/carregada
+
+  // Função auxiliar para comparar versões (ex: 1.0.0 vs 1.0.5)
+  const isVersionOutdated = (current, remote) => {
+      if (!remote || !current) return false;
+      const v1 = String(current).split('.').map(Number);
+      const v2 = String(remote).split('.').map(Number);
+      
+      for (let i = 0; i < Math.max(v1.length, v2.length); i++) {
+          const num1 = v1[i] || 0;
+          const num2 = v2[i] || 0;
+          if (num2 > num1) return true; // Remota é maior -> Atualizar
+          if (num1 > num2) return false; // Atual é maior -> OK
+      }
+      return false; // Iguais
+  };
+
+  // --- RENDERIZAÇÃO CONDICIONAL ---
+
+  // A. Carregando dados iniciais
+  if (isLoading || (isActivated && checkingUpdate)) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <h3>Carregando sistema...</h3>
+          <div className="spinner"></div>
+          <h3 style={{marginTop: '20px', color: '#555'}}>Iniciando sistema...</h3>
         </div>
       </div>
     );
   }
 
-  // 1. SE NÃO ESTIVER ATIVADO -> MOSTRA TELA DE ATIVAÇÃO
+  // B. Se tiver atualização pendente -> BLOQUEIA E MOSTRA POPUP
+  if (updateAvailable) {
+      return <UpdateModal storeLink={storeLink} />;
+  }
+
+  // C. Se não estiver ativado -> MOSTRA TELA DE ATIVAÇÃO
   if (!isActivated) {
     return <ActivationPage />;
   }
 
-  // 2. SE ATIVADO -> FLUXO NORMAL DO SISTEMA
+  // D. Tudo OK -> MOSTRA O SISTEMA
   return (
     <Router>
       <Routes>
-        {/* ROTA INICIAL: Identificação do Operador (Substitui o Login) */}
+        {/* ROTA INICIAL: Identificação do Operador */}
         <Route path="/" element={<OperatorScreen />} />
 
         {/* Seleção de Evento (Vem após o Operador se identificar) */}
@@ -105,6 +164,7 @@ const AppGuard = () => {
 
 function App() {
   // SyncProvider envolve LicenseProvider, que envolve o AppGuard
+  // (Nota: O SyncProvider geralmente está no index.js, se não estiver, adicione aqui por fora)
   return (
     <LicenseProvider>
       <AppGuard />

@@ -1023,32 +1023,37 @@
     });
 
 
-    // --- ROTA 12: VERIFICAR VERSÃO DO SISTEMA ---
+    // --- ROTA 12: VERIFICAR VERSÃO DO SISTEMA (CORRIGIDA) ---
 app.get('/api/check-version', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
-        const spreadsheetId = process.env.SPREADSHEET_ID; // Usa o ID geral definido no .env
+        
+        // CORREÇÃO: Usa o ID do .env (prioridade) ou o hardcoded
+        const spreadsheetId = process.env.SPREADSHEET_ID || spreadsheetId_sync; 
 
         // Lê a aba Config!A1:B2
         const response = await googleSheets.spreadsheets.values.get({
-            spreadsheetId: spreadsheetId_sync, // Usa a planilha de dados mestre
+            spreadsheetId: spreadsheetId, 
             range: 'Config!A1:B2', 
         });
 
         const rows = response.data.values || [];
-        let remoteVersion = '1.0.0';
+        let remoteVersion = '0.0.0';
         let storeLink = '';
 
-        // Procura os valores
+        // Procura os valores (VersaoAtual e LinkLoja)
         rows.forEach(row => {
-            if (row[0] === 'VersaoAtual') remoteVersion = row[1];
-            if (row[0] === 'LinkLoja') storeLink = row[1];
+            if (row[0] && String(row[0]).trim() === 'VersaoAtual') remoteVersion = String(row[1]).trim();
+            if (row[0] && String(row[0]).trim() === 'LinkLoja') storeLink = String(row[1]).trim();
         });
+        
+        console.log(`[CheckVersion] Planilha: ${remoteVersion} | App: ${req.query.current || 'N/A'}`);
 
         res.status(200).json({ remoteVersion, storeLink });
+
     } catch (error) {
-        console.error('Erro check-version:', error);
-        // Em caso de erro, retorna versão 0.0.0 para não bloquear o usuário
+        console.error('[CheckVersion] Erro ao ler aba Config:', error.message);
+        // Retorna 0.0.0 para não bloquear se houver erro de leitura
         res.status(200).json({ remoteVersion: '0.0.0', storeLink: '' }); 
     }
 });
