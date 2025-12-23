@@ -1022,6 +1022,37 @@
         }
     });
 
+
+    // --- ROTA 12: VERIFICAR VERSÃO DO SISTEMA ---
+app.get('/api/check-version', async (req, res) => {
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const spreadsheetId = process.env.SPREADSHEET_ID; // Usa o ID geral definido no .env
+
+        // Lê a aba Config!A1:B2
+        const response = await googleSheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId_sync, // Usa a planilha de dados mestre
+            range: 'Config!A1:B2', 
+        });
+
+        const rows = response.data.values || [];
+        let remoteVersion = '1.0.0';
+        let storeLink = '';
+
+        // Procura os valores
+        rows.forEach(row => {
+            if (row[0] === 'VersaoAtual') remoteVersion = row[1];
+            if (row[0] === 'LinkLoja') storeLink = row[1];
+        });
+
+        res.status(200).json({ remoteVersion, storeLink });
+    } catch (error) {
+        console.error('Erro check-version:', error);
+        // Em caso de erro, retorna versão 0.0.0 para não bloquear o usuário
+        res.status(200).json({ remoteVersion: '0.0.0', storeLink: '' }); 
+    }
+});
+
     // ==========================================
     // 5. INICIALIZAÇÃO DO SERVIDOR
     // ==========================================
