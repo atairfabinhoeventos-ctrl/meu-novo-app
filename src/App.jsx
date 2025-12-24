@@ -4,11 +4,12 @@ import axios from 'axios';
 import Layout from './components/Layout.jsx';
 import { API_URL, APP_VERSION } from './config'; // Importando Configurações
 
-// --- CONTEXTO DE LICENÇA ---
+// --- CONTEXTOS ---
 import { LicenseProvider, LicenseContext } from './contexts/LicenseContext';
+import { SyncProvider } from './contexts/SyncContext'; // <--- ADICIONADO: Import do Sync
 import ActivationPage from './pages/ActivationPage';
 
-// --- COMPONENTE DE UPDATE (NOVO) ---
+// --- COMPONENTE DE UPDATE ---
 import UpdateModal from './components/UpdateModal';
 
 // --- IMPORTAÇÃO DAS PÁGINAS ---
@@ -30,11 +31,15 @@ import AdminPage from './pages/AdminPage.jsx';
 import ReceiptsGeneratorPage from './pages/ReceiptsGeneratorPage.jsx';
 import TrainingPage from './pages/TrainingPage.jsx';
 
+// --- CORREÇÃO CRÍTICA: IDENTIFICAÇÃO DA VERSÃO ---
+// Isso garante que o servidor saiba que este é o App Novo e permita a validação da licença
+axios.defaults.headers.common['x-app-version'] = APP_VERSION;
+// --------------------------------------------------
+
 // --- COMPONENTE DE ROTA PROTEGIDA POR EVENTO ---
 const EventSelectedRoute = () => {
   const activeEvent = localStorage.getItem('activeEvent');
   if (!activeEvent) {
-    // Se não tiver evento selecionado, manda para o Setup
     return <Navigate to="/setup" replace />;
   }
   return <Outlet />;
@@ -44,7 +49,6 @@ const EventSelectedRoute = () => {
 const AppGuard = () => {
   const { isActivated, isLoading } = useContext(LicenseContext);
   
-  // Estados para verificação de atualização
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [storeLink, setStoreLink] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(true);
@@ -52,6 +56,7 @@ const AppGuard = () => {
   // 1. EFEITO: VERIFICAR NOVA VERSÃO AO INICIAR
   useEffect(() => {
     const checkVersion = async () => {
+        // Se não tiver ativado, não perde tempo checando update na nuvem ainda
         if (!isActivated) {
             setCheckingUpdate(false);
             return;
@@ -73,9 +78,8 @@ const AppGuard = () => {
     };
 
     checkVersion();
-  }, [isActivated]); // Roda quando a licença é ativada/carregada
+  }, [isActivated]);
 
-  // Função auxiliar para comparar versões (ex: 1.0.0 vs 1.0.5)
   const isVersionOutdated = (current, remote) => {
       if (!remote || !current) return false;
       const v1 = String(current).split('.').map(Number);
@@ -84,15 +88,13 @@ const AppGuard = () => {
       for (let i = 0; i < Math.max(v1.length, v2.length); i++) {
           const num1 = v1[i] || 0;
           const num2 = v2[i] || 0;
-          if (num2 > num1) return true; // Remota é maior -> Atualizar
-          if (num1 > num2) return false; // Atual é maior -> OK
+          if (num2 > num1) return true; 
+          if (num1 > num2) return false; 
       }
-      return false; // Iguais
+      return false; 
   };
 
-  // --- RENDERIZAÇÃO CONDICIONAL ---
-
-  // A. Carregando dados iniciais
+  // A. Carregando
   if (isLoading || (isActivated && checkingUpdate)) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -104,58 +106,45 @@ const AppGuard = () => {
     );
   }
 
-  // B. Se tiver atualização pendente -> BLOQUEIA E MOSTRA POPUP
+  // B. Bloqueio de Update
   if (updateAvailable) {
       return <UpdateModal storeLink={storeLink} />;
   }
 
-  // C. Se não estiver ativado -> MOSTRA TELA DE ATIVAÇÃO
+  // C. Tela de Ativação (Licença)
   if (!isActivated) {
     return <ActivationPage />;
   }
 
-  // D. Tudo OK -> MOSTRA O SISTEMA
+  // D. Sistema Logado
   return (
     <Router>
       <Routes>
-        {/* ROTA INICIAL: Identificação do Operador */}
         <Route path="/" element={<OperatorScreen />} />
-
-        {/* Seleção de Evento (Vem após o Operador se identificar) */}
         <Route path="/setup" element={<SetupPage />} />
-        
-        {/* Rota para Atualizar Dados/Admin (Acessível do Setup) */}
         <Route path="/update-data" element={<DataUpdatePage />} />
 
-        {/* --- ROTAS DENTRO DO LAYOUT (COM HEADER E FOOTER) --- */}
         <Route element={<Layout />}>
-          
-          {/* Rotas Administrativas */}
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/receipts-generator" element={<ReceiptsGeneratorPage />} />
 
-          {/* Rotas que exigem um Evento Ativo */}
           <Route element={<EventSelectedRoute />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/cloud-sync" element={<CloudSyncPage />} />
             <Route path="/financial-selection" element={<FinancialSelectionPage />} />
             
-            {/* Telas de Fechamento */}
             <Route path="/waiter-closing" element={<WaiterClosingPage />} />
             <Route path="/waiter-closing-10" element={<WaiterClosing10Page />} />
             <Route path="/mobile-cashier-closing" element={<MobileCashierClosingPage />} />
             <Route path="/fixed-cashier-closing" element={<FixedCashierClosingPage />} />
             <Route path="/zig-cashless-closing" element={<ZigCashlessClosingPage />} />
             
-            {/* Outras Telas Operacionais */}
             <Route path="/closing-history" element={<ClosingHistoryPage />} />
             <Route path="/export-data" element={<ExportDataPage />} />
             <Route path="/local-confirmation" element={<LocalConfirmationPage />} />
             <Route path="/training" element={<TrainingPage />} />
           </Route>
         </Route>
-
-        {/* Redirecionamento padrão */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
@@ -163,12 +152,13 @@ const AppGuard = () => {
 };
 
 function App() {
-  // SyncProvider envolve LicenseProvider, que envolve o AppGuard
-  // (Nota: O SyncProvider geralmente está no index.js, se não estiver, adicione aqui por fora)
+  // CORREÇÃO: SyncProvider envolve LicenseProvider
   return (
-    <LicenseProvider>
-      <AppGuard />
-    </LicenseProvider>
+    <SyncProvider>
+      <LicenseProvider>
+        <AppGuard />
+      </LicenseProvider>
+    </SyncProvider>
   );
 }
 
