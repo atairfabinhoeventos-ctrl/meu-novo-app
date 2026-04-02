@@ -1,11 +1,10 @@
-/* src/pages/MobileCashierClosingPage.css (VERSÃO ATUALIZADA) */
+/* src/pages/MobileCashierClosingPage.css (VERSÃO COMPLETA E CORRIGIDA) */
 
-/* NOVO E MAIS IMPORTANTE: Define o comportamento do container principal */
 .form-section {
   display: flex;
-  flex-direction: column; /* Esta é a linha chave: força o empilhamento vertical */
-  align-items: center;   /* Centraliza as linhas de campos no container */
-  gap: 20px;             /* Espaçamento entre as linhas de campos */
+  flex-direction: column;
+  align-items: center; 
+  gap: 20px;            
   width: 100%;
   padding-bottom: 20px;
   border-bottom: 1px solid #eee;
@@ -15,12 +14,11 @@
   border-bottom: none;
 }
 
-
 .form-row {
   display: flex;
   gap: 20px;
   align-items: flex-end;
-  width: 100%; /* Mantém a garantia de que cada linha ocupe a largura total */
+  width: 100%; 
 }
 
 .form-row .input-group {
@@ -41,6 +39,7 @@
   font-size: 1rem;
 }
 
+/* === SWITCH (BOTÃO LIGA/DESLIGA) === */
 .switch-container {
   display: flex;
   align-items: center;
@@ -63,16 +62,19 @@ input:checked + .slider:before { transform: translateX(22px); }
 .slider.round { border-radius: 28px; }
 .slider.round:before { border-radius: 50%; }
 
+/* === RESULTADOS === */
 .results-container {
   margin-top: 30px;
   padding-top: 20px;
   border-top: 2px solid #eee;
+  text-align: center;
 }
 
 .results-container p { font-size: 1.1rem; margin: 8px 0; }
 .total-text { font-size: 1.3rem !important; font-weight: 500; }
 .final-value { font-weight: bold; font-size: 1.4rem; margin-left: 10px; }
 
+/* === BUSCA INTELIGENTE === */
 .suggestions-list {
   position: absolute; top: 100%; left: 0; right: 0;
   background-color: white; border: 1px solid #ddd; border-top: none;
@@ -82,8 +84,6 @@ input:checked + .slider:before { transform: translateX(22px); }
 .suggestion-item { padding: 12px 15px; cursor: pointer; }
 .suggestion-item:hover { background-color: #f0f4f8; }
 
-
-/* ESTILOS ADICIONADOS PARA O NOVO LAYOUT */
 .switch-and-input-group {
   display: flex;
   align-items: flex-end;
@@ -100,24 +100,57 @@ input:checked + .slider:before { transform: translateX(22px); }
   margin-bottom: 0;
   flex-shrink: 0; 
 }
-.modal-buttons {
-    display: flex; justify-content: flex-end; gap: 15px;
-    margin-top: 25px;
-}
 
-/* *** ESTILOS ADICIONADOS (copiados de WaiterClosingPage.css) *** */
-/* Necessários para o modal de sucesso funcionar corretamente */
+/* === MODAIS === */
 .modal-overlay {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     background-color: rgba(0, 0, 0, 0.6); display: flex;
     justify-content: center; align-items: center; z-index: 1000;
 }
+
 .modal-content {
     background-color: white; padding: 30px; border-radius: 10px;
     width: 90%; max-width: 500px;
 }
+
+.modal-buttons {
+    display: flex; justify-content: flex-end; gap: 15px;
+    margin-top: 25px;
+}
+
 .cancel-button {
     background-color: #6c757d; color: white; padding: 10px 20px;
     border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
 }
 .cancel-button:hover { background-color: #5a6268; }
+
+/* === BOTÕES DO MODAL DE SUCESSO (ADICIONADOS) === */
+.modal-button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+}
+
+.modal-button.primary {
+    background-color: #28a745;
+    color: white;
+}
+.modal-button.primary:hover {
+    background-color: #218838;
+}
+
+.modal-button.secondary {
+    background-color: #6c757d;
+    color: white;
+}
+.modal-button.secondary:hover {
+    background-color: #5a6268;
+}

@@ -38,6 +38,11 @@ const getReceiptHtml = (data) => {
         .sig-block { text-align: center; width: 45%; border-top: 1px solid #000; padding-top: 5px; font-weight: bold; }
         .system-footer { font-size: 9px; color: #555; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 5px; }
     `;
+    // Detecção de Totem dentro do Fixed Cashier
+    const isTotem = data.cashierName?.toUpperCase().includes('TOTEM') || 
+                   (data.caixas && data.caixas[0]?.cashierName?.toUpperCase().includes('TOTEM'));
+    
+    if (isTotem && type === 'fixed_cashier') title = "Fechamento de Totens";
 
     let title = 'Comprovante';
     let contentBody = '';
@@ -403,28 +408,44 @@ function ClosingHistoryPage() {
           const isExpanded = expandedGroups.has(closing.protocol);
           
           let title = '';
-          let name = closing.waiterName || closing.cashierName;
+          // Prioriza o nome salvo, independente do campo
+          let name = closing.waiterName || closing.cashierName || closing.name || 'N/A';
           
-          if (closing.type === 'waiter') title = closing.subType === '10_percent' ? 'Garçom 10%' : 'Garçom 8%';
-          else if (closing.type === 'waiter_10') title = 'Garçom 10%';
-          else if (closing.type === 'waiter_zig') title = 'Garçom ZIG';
-          else if (closing.type === 'cashier') title = 'Caixa Móvel';
-          else if (closing.type === 'fixed_cashier') { title = 'Caixa Fixo (Grupo)'; name = 'Múltiplos Operadores'; }
-
-          let totalValue = closing.valorTotal || closing.valorTotalVenda || closing.valorTotalProdutos || 0;
-          let diffLabel = '', diffValue = 0, diffColor = 'black';
-
-          if (title.includes('Garçom')) {
-             diffValue = closing.diferencaPagarReceber;
-             diffLabel = closing.diferencaLabel || (diffValue >= 0 ? 'Pagar ao Garçom' : 'Receber do Garçom');
-             diffColor = diffLabel.includes('Pagar') ? 'blue' : 'red';
-          } else {
-             diffValue = closing.diferenca || closing.diferencaCaixa || 0;
-             if (diffValue > 0) { diffLabel = 'Sobra'; diffColor = 'green'; }
-             else if (diffValue < 0) { diffLabel = 'Falta'; diffColor = 'red'; }
-             else { diffLabel = 'Zerado'; diffColor = 'blue'; }
-             diffValue = Math.abs(diffValue);
+          // Lógica robusta de títulos
+          if (closing.type === 'waiter') {
+              title = (closing.subType === '10_percent' || closing.comissao10 > 0) ? 'Garçom 10%' : 'Garçom 8%';
+          } else if (closing.type === 'waiter_10') {
+              title = 'Garçom 10%';
+          } else if (closing.type === 'waiter_zig') {
+              title = 'ZIG Cashless 8%';
+          } else if (closing.type === 'cashier') {
+              title = 'Caixa Móvel';
+          } else if (closing.type === 'fixed_cashier') {
+              // Verifica se é um Totem pelo nome
+              const isTotem = name.toUpperCase().includes('TOTEM') || (closing.caixas && closing.caixas[0]?.cashierName.toUpperCase().includes('TOTEM'));
+              title = isTotem ? 'Totem' : 'Caixa Fixo (Grupo)';
+              if (!isTotem) name = 'Múltiplos Operadores';
+              else if (closing.caixas && closing.caixas.length > 1) name = `${closing.caixas.length} Terminais`;
+              else if (closing.caixas) name = closing.caixas[0].cashierName;
           }
+
+          // Normalização de valores salvos (Evita recalcular o que já foi gravado)
+          let totalValue = closing.valorTotal || closing.valorTotalVenda || closing.valorTotalProdutos || 0;
+          let diffLabel = 'Diferença', diffValue = 0, diffColor = 'black';
+
+          if (closing.type.includes('waiter')) {
+              // Lógica de Garçom (Pagar/Receber)
+              diffValue = closing.diferencaPagarReceber || 0;
+              diffLabel = closing.diferencaLabel || (diffValue >= 0 ? 'A Pagar' : 'A Receber');
+              diffColor = diffLabel.includes('Pagar') ? '#1E63B8' : '#d32f2f';
+          } else {
+              // Lógica de Caixa (Sobra/Falta)
+              diffValue = closing.diferenca !== undefined ? closing.diferenca : (closing.diferencaCaixa || 0);
+              if (diffValue > 0) { diffLabel = 'Sobra'; diffColor = '#2e7d32'; }
+              else if (diffValue < 0) { diffLabel = 'Falta'; diffColor = '#d32f2f'; }
+              else { diffLabel = 'Conferido'; diffColor = '#1E63B8'; }
+          }
+          diffValue = Math.abs(diffValue);
 
           if (isGroup && closing.caixas) {
               totalValue = closing.caixas.reduce((acc, curr) => acc + (curr.valorTotalVenda || 0), 0);

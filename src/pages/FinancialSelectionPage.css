@@ -1,4 +1,4 @@
-/* src/pages/FinancialSelectionPage.css (VERSÃO ATUALIZADA COM ESTILO DE IMAGEM) */
+/* src/pages/FinancialSelectionPage.css (VERSÃO COMPLETA E ATUALIZADA) */
 
 .menu-container {
   display: flex;
@@ -30,6 +30,7 @@
     color: #1E63B8;
 }
 
+/* O grid dinâmico garante que todos os cards fiquem do mesmo tamanho */
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -56,23 +57,20 @@
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
 }
 
-/* --- REGRA MODIFICADA --- */
 .card-icon {
   font-size: 40px;
   margin-bottom: 15px;
-  /* Adicionado para garantir altura e alinhamento (para emoji e imagem) */
   height: 40px; 
   display: flex;
   align-items: center;
 }
 
-/* --- REGRA ADICIONADA (Mantendo a sequência) --- */
-/* Garante que a imagem do logo se comporte como um ícone */
+/* Garante que a imagem do logo da ZIG se comporte como um ícone normal */
 .card-icon img {
-  height: 100%; /* Faz a altura da imagem preencher os 40px do container */
-  width: auto; /* Deixa a largura automática */
-  max-width: 100px; /* Limita a largura máxima caso a imagem seja larga */
-  object-fit: contain; /* Garante que a imagem caiba sem distorcer */
+  height: 100%; 
+  width: auto; 
+  max-width: 100px; 
+  object-fit: contain; 
   border-radius: 4px;
 }
 

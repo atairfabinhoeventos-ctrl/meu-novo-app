@@ -95,10 +95,17 @@ function WaiterClosing10Page() {
         if (closingToEdit) {
             const toDigits = (value) => value ? String(Math.round(Number(value) * 100)) : '';
             setProtocol(closingToEdit.protocol);
-            setTimestamp(closingToEdit.timestamp);
-            const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
-            setSelectedWaiter(waiter);
-            setSearchInput(waiter.name);
+            setTimestamp(closingToEdit.timestamp);
+            // ADICIONADO: Recupera os dados do PIX caso seja uma edição
+            const waiter = { 
+                cpf: closingToEdit.cpf, 
+                name: closingToEdit.waiterName,
+                pix: closingToEdit.chavePix || '',
+                tipo_pix: closingToEdit.tipoPix || '',
+                telefone: closingToEdit.telefone || ''
+            };
+            setSelectedWaiter(waiter);
+            setSearchInput(waiter.name);
             setNumeroCamiseta(closingToEdit.numeroCamiseta || '');
             setNumeroMaquina(closingToEdit.numeroMaquina || '');
             setTemEstorno(closingToEdit.temEstorno);
@@ -112,23 +119,29 @@ function WaiterClosing10Page() {
         return () => clearTimeout(timer);
     }, [location.state]);
 
-    // Busca de Garçom
+    // Busca Inteligente (Ignora acentos e CPFs vazios)
     useEffect(() => {
-        const query = searchInput.trim().toLowerCase();
-        if (query.length > 0 && !selectedWaiter) {
-            const results = waiters.filter(waiter => {
-                const waiterName = (waiter.name || '').toLowerCase();
-                const waiterCpf = (waiter.cpf || '').replace(/\D/g, '');
-                const isNumericQuery = /^\d+$/.test(query.replace(/[.-]/g, ''));
-                if (isNumericQuery) { return waiterCpf.startsWith(query.replace(/\D/g, '')); } 
-                else { return waiterName.includes(query); }
+        const rawQuery = searchInput.trim();
+        if (rawQuery.length > 0 && !selectedWaiter) {
+            const normalizedQuery = rawQuery.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const queryDigitsOnly = rawQuery.replace(/\D/g, '');
+
+            const results = waiters.filter(w => {
+                const personName = (w.name || w.nome || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const personCpf = (w.cpf || '').replace(/\D/g, '');
+
+                const matchName = personName.includes(normalizedQuery);
+                const matchCpf = queryDigitsOnly.length > 0 && personCpf.includes(queryDigitsOnly);
+
+                return matchName || matchCpf;
             });
+            
             setFilteredWaiters(results);
-            const cleanQueryCpf = query.replace(/\D/g, '');
-            const isPotentialCpf = /^\d{11}$/.test(cleanQueryCpf);
-            if (isPotentialCpf && results.length === 0) { setShowRegisterButton(true); } 
-            else { setShowRegisterButton(false); }
-        } else { setFilteredWaiters([]); setShowRegisterButton(false); }
+            setShowRegisterButton(queryDigitsOnly.length === 11 && results.length === 0);
+        } else {
+            setFilteredWaiters([]);
+            setShowRegisterButton(false);
+        }
     }, [searchInput, waiters, selectedWaiter]);
     
     // --- CÁLCULO FINANCEIRO (10% + 4%) ---
@@ -169,24 +182,27 @@ function WaiterClosing10Page() {
         }
     }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedValorEstorno, temEstorno]);
 
-    const handleSelectWaiter = (waiter) => { setSelectedWaiter(waiter); setSearchInput(waiter.name); setFilteredWaiters([]); };
+    const handleSelectWaiter = (waiter) => { 
+        const normalizedItem = { ...waiter, name: waiter.name || waiter.nome };
+        setSelectedWaiter(normalizedItem); 
+        setSearchInput(normalizedItem.name); 
+        setFilteredWaiters([]); 
+    };
 
+    // FUNÇÃO AVULSA (Não salva no MongoDB/LocalStorage, apenas para o acerto atual)
     const handleRegisterNewWaiter = () => {
         const cleanCpf = searchInput.replace(/\D/g, '');
         if (!newWaiterName.trim()) { setAlertMessage('Por favor, insira o nome do novo garçom.'); return; }
-        const newWaiter = { cpf: formatCpf(cleanCpf), name: newWaiterName.trim() };
-        let currentWaiters = JSON.parse(localStorage.getItem('master_waiters')) || [];
-        currentWaiters.push(newWaiter);
-        localStorage.setItem('master_waiters', JSON.stringify(currentWaiters));
-        setWaiters(currentWaiters);
+        const newWaiter = { cpf: formatCpf(cleanCpf), name: newWaiterName.trim(), nome: newWaiterName.trim() };
+        
         handleSelectWaiter(newWaiter);
-        attemptBackgroundSyncNewPersonnel(newWaiter);
         setRegisterModalVisible(false);
         setNewWaiterName('');
-        setAlertMessage(`Garçom "${newWaiter.name}" cadastrado localmente com sucesso!`);
+        setAlertMessage(`Garçom "${newWaiter.name}" adicionado como AVULSO apenas para este fechamento!`);
     };
     
     // --- FUNÇÃO DE IMPRESSÃO ---
+    // --- FUNÇÃO DE IMPRESSÃO SEGURA ---
     const handlePrint = (type) => {
         if (!dataToConfirm) return;
         const logoSrc = '/logo.png'; 
@@ -194,9 +210,6 @@ function WaiterClosing10Page() {
 
         let content = '';
 
-        // ==========================================
-        // LAYOUT 1: CUPOM TÉRMICO (80mm) - Mantido
-        // ==========================================
         if (type === 'receipt') {
             const isReceivingFromWaiter = dataToConfirm.diferencaLabel === 'Receber do Garçom';
             
@@ -299,16 +312,13 @@ function WaiterClosing10Page() {
                         <tr><td>Débito</td><td>${formatCurrencyResult(dataToConfirm.debito)}</td></tr>
                         <tr><td>PIX</td><td>${formatCurrencyResult(dataToConfirm.pix)}</td></tr>
                         <tr><td>Cashless</td><td>${formatCurrencyResult(dataToConfirm.cashless)}</td></tr>
-                        ${dataToConfirm.temEstorno ? `<tr style="color:#000; font-weight:bold;"><td>(-) Estorno</td><td>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</td></tr>` : ''}
+                        ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<tr style="color:#d32f2f; font-weight:bold;"><td>(-) Estorno Lançado</td><td>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</td></tr>` : ''}
                         <tr style="background:#f0f0f0; font-weight:bold; font-size:12px;"><td>VENDA BRUTA</td><td>${formatCurrencyResult(dataToConfirm.valorTotal)}</td></tr>
                     </table>
                     <div class="section-title">COMISSÕES</div>
                     <table class="table-style">
-                        ${dataToConfirm.comissao8 > 0 ? `<tr><td>Comissão (8%)</td><td>${formatCurrencyResult(dataToConfirm.comissao8)}</td></tr>` : ''}
-                        
+                        <tr><td>Comissão Venda (10%)</td><td>${formatCurrencyResult(dataToConfirm.comissao10)}</td></tr>
                         <tr><td>Cashless (4%)</td><td>${formatCurrencyResult(dataToConfirm.comissao4)}</td></tr>
-                        
-                        ${dataToConfirm.comissao10 > 0 ? `<tr><td>Comissão (10%)</td><td>${formatCurrencyResult(dataToConfirm.comissao10)}</td></tr>` : ''}
                         <tr style="font-weight:bold; border-top:1px solid #000; font-size:12px;"><td>TOTAL COMISSÃO</td><td>${formatCurrencyResult(dataToConfirm.comissaoTotal)}</td></tr>
                     </table>
                     <div class="big-result">
@@ -330,6 +340,7 @@ function WaiterClosing10Page() {
                     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
                     <script>
                         JsBarcode("#barcode", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, fontSize: 14, height: 35, margin: 5});
+                        window.onload = function() { window.print(); }
                     </script>
                 </body>
                 </html>
@@ -337,34 +348,23 @@ function WaiterClosing10Page() {
             const printWindow = window.open('', '', 'height=700,width=400');
             printWindow.document.write(content);
             printWindow.document.close();
-            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
 
-        } 
-        // ==========================================
-        // LAYOUT 2: A4 EM PÉ (MEIA FOLHA) - 3 COLUNAS, 1ª EMPILHADA E REDUZIDA
-        // ==========================================
-        else if (type === 'a4') {
+        } else if (type === 'a4') {
             const isReceivingA4 = dataToConfirm.diferencaLabel === 'Receber do Garçom';
+            const pixCadastrado = dataToConfirm.chavePix ? `<strong>PIX:</strong> ${dataToConfirm.tipoPix} - ${dataToConfirm.chavePix}` : '<strong>PIX:</strong> Não cadastrado';
             
-            const createA4ManualRow = (label) => `
-                <div style="display: flex; align-items: flex-end; margin-bottom: 12px; font-size: 11px;">
-                    <span style="font-weight:bold; margin-right: 5px;">[ &nbsp; ]</span>
-                    <span style="margin-right: 5px;">${label}</span>
-                    <div style="flex:1; border-bottom: 1px solid #000;"></div>
-                </div>
-            `;
-
             let a4PaymentBlock = '';
             
             if (isReceivingA4) {
-                 // CENÁRIO RECEBER
+                 // CENÁRIO RECEBER (Operador recebe do garçom)
                  a4PaymentBlock = `
                     <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
-                        <div style="font-size: 10px; font-weight:bold; margin-bottom:8px;">FORMA DE RECEBIMENTO:</div>
-                        ${createA4ManualRow('Vale')}
-                        ${createA4ManualRow('Dinheiro')}
-                        ${createA4ManualRow('PIX')}
-                        
+                        <div style="font-size:10px; font-weight:bold; text-align:center; background:#eee; padding:3px; border:1px solid #ccc; margin-bottom: 8px;">FORMA DE RECEBIMENTO</div>
+                        <div style="display:flex; justify-content:space-around; margin-bottom: 12px; font-size: 11px;">
+                            <span>[ &nbsp; ] VALE</span>
+                            <span>[ &nbsp; ] DINHEIRO</span>
+                            <span>[ &nbsp; ] PIX</span>
+                        </div>
                         <div style="margin-top: 5px;">
                             <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
                             <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
@@ -373,22 +373,20 @@ function WaiterClosing10Page() {
                     </div>
                  `;
             } else {
-                 // CENÁRIO PAGAR
+                 // CENÁRIO PAGAR (Operador paga o garçom -> Puxa PIX automático)
                  a4PaymentBlock = `
                     <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
-                        <div style="border: 1px solid #000; margin-bottom: 10px;">
-                            <div style="background-color: #000; color: #fff; padding: 5px; text-align:center; font-weight:bold; font-size:11px;">
-                                PAGAMENTO REALIZADO?
-                            </div>
-                            <div style="padding:15px 5px; text-align:center; font-weight:bold; font-size:12px;">
-                                ( &nbsp;&nbsp; ) SIM &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ( &nbsp;&nbsp; ) NÃO
-                            </div>
+                        <div style="font-size:10px; font-weight:bold; text-align:center; background:#eee; padding:3px; border:1px solid #ccc;">MEIO DE PAGAMENTO</div>
+                        <div style="display:flex; justify-content:space-around; padding: 8px 0; font-size: 11px;">
+                            <span>[ &nbsp; ] DINHEIRO</span>
+                            <span>[ &nbsp; ] PIX</span>
                         </div>
-                        <div style="margin-top: 5px;">
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
+                        <div style="font-size:10px; color:#555; margin-top:5px;">PIX Cadastrado:</div>
+                        <div style="font-size:12px; font-weight:bold; border-bottom:1px solid #ccc; padding-bottom:3px; word-break: break-all;">
+                            ${pixCadastrado}
                         </div>
+                        <div style="font-size:10px; color:#555; margin-top:8px;">Outra Chave/OBS:</div>
+                        <div style="border-bottom: 1px solid #000; height:18px;"></div>
                     </div>
                  `;
             }
@@ -399,85 +397,75 @@ function WaiterClosing10Page() {
                     <title>A4 - ${dataToConfirm.protocol}</title>
                     <style>
                         @page { size: A4 portrait; margin: 0; }
+                        @media print {
+                            * {
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                            }
+                        }
                         body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 11px; width: 210mm; height: 140mm; margin: 0; padding: 35px 25px 10px 25px; box-sizing: border-box; background: #fff; }
-                        .container { width: 100%; height: 100%; border: 2px solid #000; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; }
                         
-                        .header { 
-                            position: relative;
-                            display: flex; 
-                            justify-content: center; /* Centraliza Título */
-                            align-items: center; 
-                            border-bottom: 2px solid #000; 
-                            padding-bottom: 5px; 
-                            margin-bottom: 5px; 
-                            min-height: 65px; /* Altura reduzida */
-                        }
+                        .container { width: 100%; height: 100%; border: 2px solid #000; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; z-index: 1; overflow: hidden; }
                         
-                        /* LOGO FLUTUANTE - TOP NEGATIVO PARA SUBIR E ALINHAR */
-                        .logo-wrapper {
+                        /* === MARCA D'ÁGUA === */
+                        .watermark {
                             position: absolute;
-                            left: 0;
-                            top: -25px; 
-                            z-index: 10;
-                        }
-                        .logo-img { 
-                            max-height: 115px; /* Tamanho GRANDE */
-                            max-width: 250px; 
-                            width: auto; 
-                            object-fit: contain; 
-                        } 
-                        
-                        .header-right { 
-                            position: absolute;
-                            right: 0;
-                            top: 0;
-                            text-align: right; 
-                            font-size: 10px; 
-                            display:flex; 
-                            flex-direction:column; 
-                            align-items: flex-end; 
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%);
+                            font-size: 160px;
+                            font-weight: 900;
+                            color: #e6e6e6; 
+                            z-index: 0; 
+                            pointer-events: none;
+                            letter-spacing: 10px;
+                            user-select: none;
                         }
 
-                        .header-center { text-align: center; padding: 0 10px; z-index: 1; }
+                        .header, .info-strip, .grid, .footer-sigs, .system-footer { position: relative; z-index: 10; }
+
+                        .header { display: flex; justify-content: center; align-items: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 5px; min-height: 65px; }
+                        .logo-wrapper { position: absolute; left: 0; top: -25px; }
+                        .logo-img { max-height: 115px; max-width: 250px; width: auto; object-fit: contain; } 
+                        .header-right { position: absolute; right: 0; top: 0; text-align: right; font-size: 10px; display:flex; flex-direction:column; align-items: flex-end; }
+                        .header-center { text-align: center; padding: 0 10px; }
                         .title { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
                         
-                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; }
-                        .info-strip { background-color: #f5f5f5; padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
+                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; background:#fff;}
+                        .info-strip { background-color: rgba(245, 245, 245, 0.9); padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
                         
-                        /* GRID AJUSTADO: 3 COLUNAS, 1ª REDUZIDA */
-                        .grid { display: grid; grid-template-columns: 1.0fr 1.0fr 1.0fr; gap: 8px; flex: 1; }
-                        
-                        /* PILHA VERTICAL */
+                        .grid { display: grid; grid-template-columns: 1.3fr 0.9fr 0.8fr; gap: 8px; flex: 1; }
                         .col-stack { display: flex; flex-direction: column; gap: 8px; }
                         
-                        .box { border: 1px solid #999; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; }
-                        .box-title { background-color: #e0e0e0; color: #000; font-weight: bold; padding: 4px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #999; }
+                        .box { border: 1px solid #999; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.85);}
+                        .box-title { background-color: rgba(224, 224, 224, 0.9); color: #000; font-weight: bold; padding: 4px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #999; }
                         .box-content { padding: 6px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
                         .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding: 3px 0; } 
                         .row:last-child { border-bottom: none; }
                         .row span:last-child { font-weight: bold; font-size: 13px; } 
-                        .row-total { background-color: #f0f0f0; font-weight: bold; padding: 5px 0; border-top: 1px solid #000; margin-top: auto; font-size: 12px; }
-                        .result-container { text-align: center; display: flex; flex-direction: column; justify-content: center; height: auto; margin-bottom: 10px; }
+                        .row-total { background-color: rgba(240, 240, 240, 0.9); font-weight: bold; padding: 5px 0; border-top: 1px solid #000; margin-top: auto; font-size: 12px; }
+                        .result-container { text-align: center; display: flex; flex-direction: column; justify-content: center; height: auto; margin-bottom: 10px; background:#fff;}
                         .result-label { font-size: 12px; font-weight: bold; color: #555; text-transform: uppercase; }
                         .result-value { font-size: 20px; font-weight: 900; margin-top: 5px; }
                         
-                        /* RODAPÉ E ASSINATURAS */
                         .footer-sigs { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; padding-top: 60px; margin-bottom: 10px; }
                         .sig-block { text-align: center; width: 40%; }
                         .sig-line { border-top: 1px solid #000; padding-top: 3px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-                        .system-footer { font-size: 9px; color: #555; text-align: center; width: 100%; border-top: 1px solid #eee; padding-top: 2px; padding-bottom: 5px; }
+                        .system-footer { font-size: 9px; color: #555; text-align: center; width: 100%; border-top: 1px solid #eee; padding-top: 2px; padding-bottom: 5px; background: rgba(255, 255, 255, 0.7);}
                     </style>
                 </head>
                 <body>
                     <div class="container">
+                        <div class="watermark">10%</div>
                         <div class="header">
                             <div class="logo-wrapper">
                                 <img src="${logoSrc}" class="logo-img" alt="Logo" onerror="this.style.display='none'"/>
                             </div>
-
                             <div class="header-center">
                                 <div class="title">Recibo de Fechamento</div>
-                                <div style="font-size: 12px; margin-top:2px;">Garçom (Regime 10%)</div>
+                                <div style="font-size: 14px; font-weight: 900; margin-top:4px; background: #000; color: #fff; padding: 3px 12px; border-radius: 4px; display: inline-block;">
+                                    GARÇOM 10%
+                                </div>
                             </div>
                             <div class="header-right">
                                 <div class="protocol-box">PROT: ${dataToConfirm.protocol}</div>
@@ -498,7 +486,6 @@ function WaiterClosing10Page() {
                                     <div class="box-content">
                                         <div class="row"><span>Freelancer:</span> <strong style="font-size:12px;">${dataToConfirm.waiterName}</strong></div>
                                         <div class="row"><span>CPF:</span> <span>${dataToConfirm.cpf}</span></div>
-                                        
                                         <div class="row"><span>Máquina:</span> <span>${dataToConfirm.numeroMaquina}</span></div>
                                         <div class="row"><span>Camisa:</span> <span>${dataToConfirm.numeroCamiseta}</span></div>
                                     </div>
@@ -511,7 +498,7 @@ function WaiterClosing10Page() {
                                         <div class="row"><span>Débito:</span> <span>${formatCurrencyResult(dataToConfirm.debito)}</span></div>
                                         <div class="row"><span>PIX:</span> <span>${formatCurrencyResult(dataToConfirm.pix)}</span></div>
                                         <div class="row"><span>Cashless:</span> <span>${formatCurrencyResult(dataToConfirm.cashless)}</span></div>
-                                        ${dataToConfirm.temEstorno ? `<div class="row" style="color:red"><span>Estorno:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
+                                        ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<div class="row" style="color:#d32f2f; font-weight:bold;"><span>(-) Estorno Lançado:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
                                         <div style="flex:1"></div>
                                         <div class="row row-total" style="padding: 5px;"><span>VENDA BRUTA:</span> <span>${formatCurrencyResult(dataToConfirm.valorTotal)}</span></div>
                                     </div>
@@ -521,13 +508,10 @@ function WaiterClosing10Page() {
                             <div class="box">
                                 <div class="box-title">Cálculo de Comissões</div>
                                 <div class="box-content">
-                                    ${dataToConfirm.comissao8 > 0 ? `<div class="row"><span>Comissão Venda (8%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao8)}</span></div>` : ''}
-                                    
+                                    <div class="row"><span>Comissão Venda (10%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao10)}</span></div>
                                     <div class="row"><span>Cashless (4%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao4)}</span></div>
-                                    
-                                    ${dataToConfirm.comissao10 > 0 ? `<div class="row"><span>Comissão Venda (10%):</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.comissao10)}</span></div>` : ''}
                                     <div style="flex:1"></div>
-                                    <div class="row row-total" style="padding: 5px; background-color: #e0e0e0;"><span>TOTAL COMISSÃO:</span> <span style="font-size:13px;">${formatCurrencyResult(dataToConfirm.comissaoTotal)}</span></div>
+                                    <div class="row row-total" style="padding: 5px; background-color: rgba(240, 240, 240, 0.9);"><span>TOTAL COMISSÃO:</span> <span style="font-size:13px;">${formatCurrencyResult(dataToConfirm.comissaoTotal)}</span></div>
                                 </div>
                             </div>
 
@@ -552,14 +536,14 @@ function WaiterClosing10Page() {
                     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
                     <script>
                         JsBarcode("#barcodeA4", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, height: 25, width: 1, margin: 0});
+                        window.onload = function() { window.print(); }
                     </script>
                 </body>
                 </html>
             `;
-            const printWindow = window.open('', '', 'height=500,width=800');
+            const printWindow = window.open('', '', 'height=600,width=800');
             printWindow.document.write(content);
             printWindow.document.close();
-            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
         }
     };
 
@@ -571,13 +555,17 @@ function WaiterClosing10Page() {
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
         
         const closingData = {
-            type: 'waiter', 
-            subType: '10_percent', 
-            timestamp: timestamp || new Date().toISOString(), 
-            protocol, eventName, operatorName, 
-            cpf: selectedWaiter.cpf,
-            waiterName: selectedWaiter.name,
-            numeroCamiseta, 
+            type: 'waiter', 
+            subType: '8_percent', 
+            timestamp: timestamp || new Date().toISOString(), 
+            protocol, eventName, operatorName, 
+            cpf: selectedWaiter.cpf,
+            waiterName: selectedWaiter.name,
+            // ADICIONADO: Vincula os dados bancários e de contato diretamente ao salvamento
+            chavePix: selectedWaiter.pix || '',
+            tipoPix: selectedWaiter.tipo_pix || '',
+            telefone: selectedWaiter.telefone || '',
+            numeroCamiseta, 
             numeroMaquina, 
             valorTotal: getNumericValue(valorTotal), 
             credito: getNumericValue(credito),
@@ -642,19 +630,88 @@ function WaiterClosing10Page() {
                 <h1>{protocol ? 'Editar Fechamento' : 'Fechamento Garçom 10%'}</h1>
                 
                 {/* Inputs do Formulário */}
-                <div className="form-section" style={{ display: 'block' }}>
+                <div className="form-section" style={{display: 'block'}}>
+                    {/* LINHA 1: Busca ou Crachá Preenchido */}
                     <div className="form-row">
-                        <div className="input-group">
-                            <label>Buscar Garçom (Nome ou CPF)</label>
-                            <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} placeholder="Digite o nome ou CPF do garçom" value={searchInput} onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }} disabled={!!protocol} />
-                            {filteredWaiters.length > 0 && ( <div className="suggestions-list">{filteredWaiters.map(item => (<div key={item.cpf} className="suggestion-item" onClick={() => handleSelectWaiter(item)}>{item.name} - {item.cpf}</div>))}</div>)}
-                        </div>
-                        <div className="input-group"><label>Garçom Selecionado</label><input type="text" value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} readOnly placeholder="Selecione um garçom da lista" /></div>
+                        {!selectedWaiter ? (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Buscar Garçom (Nome/CPF)</label>
+                                <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} value={searchInput} onChange={(e) => {setSearchInput(e.target.value); setSelectedWaiter(null);}} disabled={!!protocol} placeholder="Digite o nome ou CPF..." />
+                                {filteredWaiters.length > 0 && (
+                                    <div className="suggestions-list">
+                                        {filteredWaiters.map((w, index) => (
+                                            <div key={`sug-${index}`} className="suggestion-item" onClick={() => handleSelectWaiter(w)}>
+                                                {w.name || w.nome} - {w.cpf}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {showRegisterButton && <button className="login-button" style={{marginTop: 10, backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>Cadastrar Novo Garçom?</button>}
+                            </div>
+                        ) : (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Garçom Selecionado</label>
+                                {/* CRACHÁ AZUL TRAVADO 100% LARGURA */}
+                                <div style={{
+                                    backgroundColor: '#e8f4fd', border: '1px solid #b6d4fe', 
+                                    borderRadius: '8px', padding: '12px 15px', color: '#084298',
+                                    display: 'flex', flexDirection: 'column', gap: '8px',
+                                    boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.05)'
+                                }}>
+                                    {/* CABEÇALHO DO CRACHÁ (Nome + Botão Sutil) */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #b6d4fe', paddingBottom: '6px' }}>
+                                        <span style={{ fontWeight: '900', fontSize: '1.15rem', textTransform: 'uppercase' }}>
+                                            {selectedWaiter.name || selectedWaiter.nome}
+                                        </span>
+                                        
+                                        {!protocol && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => { setSelectedWaiter(null); setSearchInput(''); setTimeout(() => formRefs.cpf.current?.focus(), 100); }}
+                                                style={{
+                                                    background: 'transparent', color: '#dc3545', border: '1px solid #dc3545',
+                                                    borderRadius: '6px', padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold',
+                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#dc3545'; e.currentTarget.style.color = '#fff'; }}
+                                                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#dc3545'; }}
+                                            >
+                                                🔄 Trocar
+                                            </button>
+                                        )}
+                                    </div>
+                                    
+                                    {/* DADOS DO CRACHÁ */}
+                                    <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                                        <div style={{ fontSize: '1.05rem' }}>
+                                            <strong>CPF:</strong> {selectedWaiter.cpf}
+                                        </div>
+                                        {selectedWaiter.pix ? (
+                                            <div style={{ fontSize: '1.05rem' }}>
+                                                <strong>PIX:</strong> {selectedWaiter.pix} ({selectedWaiter.tipo_pix})
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.95rem', color: '#b02a37', fontStyle: 'italic' }}>
+                                                ⚠️ Sem PIX Cadastrado
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo garçom?</button>)}
-                    <div className="form-row">
-                        <div className="input-group"><label>Número da Camiseta</label><input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')} value={numeroCamiseta} onChange={(e) => setNumeroCamiseta(e.target.value)} /></div>
-                        <div className="input-group"><label>Número da Máquina</label><input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} /></div>
+
+                    {/* LINHA 2: Campos Isolados */}
+                    <div className="form-row" style={{ marginTop: '10px' }}>
+                        <div className="input-group">
+                            <label>Número da Camiseta</label>
+                            <input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')} value={numeroCamiseta} onChange={(e) => setNumeroCamiseta(e.target.value)} placeholder="Ex: 45" />
+                        </div>
+                        <div className="input-group">
+                            <label>Número da Máquina</label>
+                            <input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} placeholder="Ex: A1" />
+                        </div>
                     </div>
                 </div>
                 
@@ -694,11 +751,13 @@ function WaiterClosing10Page() {
                         {modalState === 'confirm' && ( <>
                             <h2>Deseja Confirmar o Fechamento?</h2>
                             {dataToConfirm && ( <>
-                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
-                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
-                                <p><strong>Nº Camisa:</strong> {dataToConfirm.numeroCamiseta}</p>
-                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
-                                <hr />
+                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
+                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
+                                {/* ADICIONADO: Exibição no Modal de Confirmação */}
+                                {dataToConfirm.chavePix && <p><strong>Chave PIX:</strong> {dataToConfirm.chavePix} ({dataToConfirm.tipoPix})</p>}
+                                <p><strong>Nº Camisa:</strong> {dataToConfirm.numeroCamiseta}</p>
+                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
+                                <hr />
                                 <p>Valor Total da Venda: <strong>{formatCurrencyResult(dataToConfirm.valorTotal)}</strong></p>
                                 <p>Comissão Total: <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
                                 <p>Valor Total de Acerto: <strong>{formatCurrencyResult(dataToConfirm.valorTotalAcerto)}</strong></p>

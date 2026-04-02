@@ -1,4 +1,4 @@
-// src/pages/FinancialSelectionPage.jsx (VERSÃO FINAL COM IMPORTAÇÃO DE IMAGEM)
+// src/pages/FinancialSelectionPage.jsx (VERSÃO FINAL COM TOTENS ADICIONADOS)
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -61,6 +61,14 @@ function FinancialSelectionPage() {
           icon="🏧"
           title="Fechamento Caixa Fixo"
           description="Fechamento consolidado para caixas fixos em grupo."
+        />
+
+        {/* --- NOVO CARD: FECHAMENTO DE TOTENS --- */}
+        <Card
+          to="/totem-closing"
+          icon="🤖"
+          title="Fechamento de Totens"
+          description="Fechamento automatizado para terminais de autoatendimento e cashless."
         />
         
         <Card

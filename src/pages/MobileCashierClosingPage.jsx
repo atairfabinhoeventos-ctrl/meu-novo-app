@@ -1,16 +1,15 @@
 // src/pages/MobileCashierClosingPage.jsx
-// (VERSÃO FINAL: LOGO AJUSTADA + RECIBO COMPACTO E PROFISSIONAL)
+// (VERSÃO FINAL: IMPRESSÃO A4 CORRIGIDA + FUNCIONÁRIO AVULSO EXCLUSIVO)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveMobileCashierClosing } from '../services/apiService';
-import { attemptBackgroundSyncNewPersonnel } from '../services/syncService'; 
 import { formatCurrencyInput, formatCurrencyResult, formatCpf } from '../utils/formatters';
 import AlertModal from '../components/AlertModal.jsx';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { APP_VERSION } from '../config'; 
 import '../App.css';
-import './WaiterClosingPage.css'; // Usa o mesmo CSS do Garçom
+import './MobileCashierClosingPage.css'; 
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -98,9 +97,17 @@ function MobileCashierClosingPage() {
             const toDigits = (value) => value ? String(Math.round(Number(value) * 100)) : '';
             setProtocol(closingToEdit.protocol);
             setTimestamp(closingToEdit.timestamp);
-            const cashier = { cpf: closingToEdit.cpf, name: closingToEdit.cashierName };
+            
+            const cashier = { 
+                cpf: closingToEdit.cpf, 
+                name: closingToEdit.cashierName,
+                pix: closingToEdit.chavePix || '',
+                tipo_pix: closingToEdit.tipoPix || '',
+                telefone: closingToEdit.telefone || ''
+            };
             setSelectedCashier(cashier);
             setSearchInput(cashier.name);
+            
             setNumeroMaquina(closingToEdit.numeroMaquina || '');
             setTemEstorno(closingToEdit.temEstorno);
             setValorTotal(toDigits(closingToEdit.valorTotalVenda));
@@ -115,18 +122,23 @@ function MobileCashierClosingPage() {
         return () => clearTimeout(timer);
     }, [location.state]);
 
-    // Busca de Caixa
+    // Busca Inteligente (Ignora acentos e CPFs vazios)
     useEffect(() => {
-        const query = searchInput.trim().toLowerCase();
-        if (query.length > 0 && !selectedCashier) {
+        const rawQuery = searchInput.trim();
+        if (rawQuery.length > 0 && !selectedCashier) {
+            const normalizedQuery = rawQuery.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const queryDigitsOnly = rawQuery.replace(/\D/g, '');
+
             const results = cashiers.filter(c => {
-                const name = (c.name || '').toLowerCase();
-                const cpf = (c.cpf || '').replace(/\D/g, '');
-                return /^\d+$/.test(query.replace(/[.-]/g, '')) ? cpf.startsWith(query.replace(/\D/g, '')) : name.includes(query);
+                const personName = (c.name || c.nome || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const personCpf = (c.cpf || '').replace(/\D/g, '');
+                const matchName = personName.includes(normalizedQuery);
+                const matchCpf = queryDigitsOnly.length > 0 && personCpf.includes(queryDigitsOnly);
+                return matchName || matchCpf;
             });
+            
             setFilteredCashiers(results);
-            const isPotentialCpf = /^\d{11}$/.test(query.replace(/\D/g, ''));
-            setShowRegisterButton(isPotentialCpf && results.length === 0);
+            setShowRegisterButton(queryDigitsOnly.length === 11 && results.length === 0);
         } else {
             setFilteredCashiers([]);
             setShowRegisterButton(false);
@@ -145,8 +157,6 @@ function MobileCashierClosingPage() {
         const vFisico = getNumericValue(debouncedDinheiroFisico);
 
         const totalDigital = vCred + vDeb + vPix + vCash;
-        
-        // Dinheiro a Apresentar = (Venda Total - Digitais) + Fundo de Troco - Estorno
         const acertoCalculado = (vTotal - totalDigital) + vTroco - (temEstorno ? vEstorno : 0);
         
         setValorTotalAcerto(acertoCalculado);
@@ -155,22 +165,23 @@ function MobileCashierClosingPage() {
 
     }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedCashless, debouncedValorEstorno, debouncedValorTroco, debouncedDinheiroFisico, temEstorno]);
 
-    const handleSelectCashier = (item) => { setSelectedCashier(item); setSearchInput(item.name); setFilteredCashiers([]); };
+    const handleSelectCashier = (item) => { 
+        const normalizedItem = { ...item, name: item.name || item.nome };
+        setSelectedCashier(normalizedItem); 
+        setSearchInput(normalizedItem.name); 
+        setFilteredCashiers([]); 
+    };
 
+    // FUNÇÃO AVULSA: Cria o funcionário apenas na memória da tela, sem salvar no banco global
     const handleRegisterNewCashier = () => {
         if (!newCashierName.trim()) { setAlertMessage('Nome obrigatório.'); return; }
         const cleanCpf = searchInput.replace(/\D/g, '');
-        const newC = { cpf: formatCpf(cleanCpf), name: newCashierName.trim() };
+        const newC = { cpf: formatCpf(cleanCpf), name: newCashierName.trim(), nome: newCashierName.trim() };
         
-        const updated = [...cashiers, newC];
-        localStorage.setItem('master_waiters', JSON.stringify(updated));
-        setCashiers(updated);
         handleSelectCashier(newC);
-        attemptBackgroundSyncNewPersonnel(newC);
-        
         setRegisterModalVisible(false);
         setNewCashierName('');
-        setAlertMessage(`Funcionário "${newC.name}" cadastrado!`);
+        setAlertMessage(`Funcionário "${newC.name}" adicionado apenas para este fechamento!`);
     };
 
     // --- FUNÇÃO DE IMPRESSÃO ---
@@ -178,17 +189,11 @@ function MobileCashierClosingPage() {
         if (!dataToConfirm) return;
         const logoSrc = '/logo.png'; 
         const printTime = new Date().toLocaleString('pt-BR'); 
+        const diffColor = dataToConfirm.diferenca >= 0 ? '#000' : 'red'; 
 
         let content = '';
 
-        // Cor da diferença
-        const diffColor = dataToConfirm.diferenca >= 0 ? '#000' : 'red'; 
-
-        // ==========================================
-        // LAYOUT 1: CUPOM TÉRMICO (80mm)
-        // ==========================================
         if (type === 'receipt') {
-            
             content = `
                 <html>
                 <head>
@@ -209,7 +214,6 @@ function MobileCashierClosingPage() {
                         .table-style { width: 100%; border-collapse: collapse; margin-top: 2px; }
                         .table-style td { padding: 4px 0; border-bottom: 1px dashed #ccc; font-size: 13px; } 
                         .table-style td:last-child { text-align: right; font-weight: bold; }
-                        .big-result { border: 2px solid #000; padding: 8px; margin-top: 8px; text-align: center; border-radius: 4px; }
                         .footer { margin-top: 15px; text-align: center; font-size: 9px; color: #555; }
                         .barcode-container { text-align: center; margin-top: 5px; margin-bottom: 5px; }
                         .sig-text { font-size: 10px; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
@@ -290,11 +294,7 @@ function MobileCashierClosingPage() {
             printWindow.document.close();
             setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
 
-        } 
-        // ==========================================
-        // LAYOUT 2: A4 EM PÉ (FOLHA INTEIRA: FECHAMENTO + RECIBO PROFISSIONAL)
-        // ==========================================
-        else if (type === 'a4') {
+        } else if (type === 'a4') {
             
             content = `
                 <html>
@@ -302,118 +302,74 @@ function MobileCashierClosingPage() {
                     <title>A4 - ${dataToConfirm.protocol}</title>
                     <style>
                         @page { size: A4 portrait; margin: 0; }
-                        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 11px; width: 210mm; height: 297mm; margin: 0; padding: 25px 25px 10px 25px; box-sizing: border-box; background: #fff; }
+                        @media print {
+                            * {
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                            }
+                        }
                         
-                        /* ================= ÁREA DE FECHAMENTO (METADE SUPERIOR) ================= */
-                        .container-fechamento { width: 100%; height: 135mm; border: 2px solid #000; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; margin-bottom: 20px; }
+                        body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 11px; width: 210mm; height: 140mm; margin: 0; padding: 35px 25px 10px 25px; box-sizing: border-box; background: #fff; }
                         
-                        .header { position: relative; display: flex; justify-content: center; align-items: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 5px; min-height: 65px; }
+                        .container { width: 100%; height: 100%; border: 2px solid #000; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; position: relative; z-index: 1; overflow: hidden; }
                         
-                        /* AJUSTE SOLICITADO: TOP -25px */
-                        .logo-wrapper { position: absolute; left: 0; top: -25px; z-index: 10; }
+                        /* === MARCA D'ÁGUA CXM === */
+                        .watermark {
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%);
+                            font-size: 160px;
+                            font-weight: 900;
+                            color: #e6e6e6; 
+                            z-index: 0; 
+                            pointer-events: none;
+                            letter-spacing: 10px;
+                            user-select: none;
+                        }
+
+                        /* Elementos sobre a marca d'água */
+                        .header, .info-strip, .grid, .footer-sigs, .system-footer {
+                            position: relative;
+                            z-index: 10;
+                        }
+
+                        .header { display: flex; justify-content: center; align-items: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 5px; min-height: 65px; }
+                        
+                        .logo-wrapper { position: absolute; left: 0; top: -25px; }
                         .logo-img { max-height: 115px; max-width: 250px; width: auto; object-fit: contain; } 
                         
                         .header-right { position: absolute; right: 0; top: 0; text-align: right; font-size: 10px; display:flex; flex-direction:column; align-items: flex-end; }
-                        .header-center { text-align: center; padding: 0 10px; z-index: 1; }
+                        .header-center { text-align: center; padding: 0 10px; }
                         .title { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
                         
-                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; }
-                        .info-strip { background-color: #f5f5f5; padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
+                        .protocol-box { border: 1px solid #000; padding: 2px 6px; font-weight: bold; margin-bottom: 2px; display: inline-block; font-size: 12px; background: #fff; }
+                        .info-strip { background-color: rgba(245, 245, 245, 0.9); padding: 4px; border: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
                         
                         .grid { display: grid; grid-template-columns: 1.15fr 0.95fr 0.9fr; gap: 8px; flex: 1; }
                         
-                        .box { border: 1px solid #999; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; }
-                        .box-title { background-color: #e0e0e0; color: #000; font-weight: bold; padding: 4px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #999; }
+                        .box { border: 1px solid #999; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.85); }
+                        .box-title { background-color: rgba(224, 224, 224, 0.9); color: #000; font-weight: bold; padding: 4px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #999; }
                         .box-content { padding: 6px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
                         .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding: 3px 0; } 
                         .row:last-child { border-bottom: none; }
                         .row span:last-child { font-weight: bold; font-size: 13px; } 
-                        .row-total { background-color: #f0f0f0; font-weight: bold; padding: 5px 0; border-top: 1px solid #000; margin-top: auto; font-size: 12px; }
+                        .row-total { background-color: rgba(240, 240, 240, 0.9); font-weight: bold; padding: 5px 0; border-top: 1px solid #000; margin-top: auto; font-size: 12px; }
                         
-                        .result-container { text-align: center; display: flex; flex-direction: column; justify-content: center; height: auto; margin-bottom: 10px; }
+                        .result-container { text-align: center; display: flex; flex-direction: column; justify-content: center; height: auto; margin-bottom: 10px; background: #fff; }
                         .result-label { font-size: 12px; font-weight: bold; color: #555; text-transform: uppercase; }
                         .result-value { font-size: 20px; font-weight: 900; margin-top: 5px; }
                         
-                        .footer-sigs { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; padding-top: 20px; margin-bottom: 5px; }
+                        .footer-sigs { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; padding-top: 60px; margin-bottom: 5px; }
                         .sig-block { text-align: center; width: 40%; }
                         .sig-line { border-top: 1px solid #000; padding-top: 3px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
                         .system-footer { font-size: 9px; color: #555; text-align: center; width: 100%; border-top: 1px solid #eee; padding-top: 2px; padding-bottom: 2px; }
-
-                        /* ================= ÁREA DE RECIBO PROFISSIONAL (AJUSTADO) ================= */
-                        .linha-corte { border-top: 2px dashed #000; margin: 15px 0 25px 0; width: 100%; position: relative; }
-                        .linha-corte::after { content: '✂ Recibo de Pagamento'; position: absolute; top: -10px; right: 0; background: #fff; padding-left: 10px; font-size: 10px; color: #666; font-style: italic; }
-
-                        .container-recibo { 
-                            border: 2px solid #000; 
-                            padding: 20px; /* Padding Reduzido */
-                            font-family: 'Helvetica', 'Arial', sans-serif; 
-                            height: 100mm; /* Altura Reduzida de 115 para 100mm */
-                            display: flex; 
-                            flex-direction: column; 
-                            justify-content: space-between;
-                            box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
-                        }
-                        
-                        .recibo-header { 
-                            display: flex; 
-                            justify-content: space-between; 
-                            align-items: center; 
-                            border-bottom: 2px solid #333;
-                            padding-bottom: 10px;
-                            margin-bottom: 15px;
-                        }
-                        
-                        .recibo-titulo { 
-                            font-size: 24px; /* Fonte reduzida */
-                            font-weight: 900; 
-                            text-transform: uppercase; 
-                            letter-spacing: 1px;
-                            color: #333;
-                        }
-                        
-                        .recibo-valor-box { 
-                            border: 2px solid #000; 
-                            padding: 6px 15px; 
-                            font-size: 18px; 
-                            font-weight: 900; 
-                            background-color: #f0f0f0; 
-                            border-radius: 4px;
-                            min-width: 140px;
-                            text-align: center;
-                        }
-                        
-                        .recibo-texto { 
-                            font-size: 14px; /* Fonte reduzida */
-                            line-height: 1.6; 
-                            text-align: justify; 
-                            margin-bottom: 15px; 
-                            padding: 0 5px;
-                        }
-                        
-                        .recibo-detalhes {
-                            background-color: #f9f9f9;
-                            padding: 10px;
-                            border: 1px solid #ddd;
-                            border-radius: 6px;
-                            margin-bottom: 15px;
-                        }
-
-                        .recibo-dados { font-size: 13px; margin-bottom: 5px; }
-                        
-                        .recibo-data { 
-                            text-align: right; 
-                            font-size: 13px; 
-                            margin-top: 10px; 
-                            margin-bottom: 30px; 
-                            font-style: italic;
-                        }
-                        
-                        .recibo-assinatura { text-align: center; margin-top: auto; }
-                        .recibo-assinatura-linha { border-top: 1px solid #000; width: 60%; margin: 0 auto 5px auto; }
                     </style>
                 </head>
                 <body>
-                    <div class="container-fechamento">
+                    <div class="container">
+                        <div class="watermark">CXM</div>
+
                         <div class="header">
                             <div class="logo-wrapper">
                                 <img src="${logoSrc}" class="logo-img" alt="Logo" onerror="this.style.display='none'"/>
@@ -421,7 +377,9 @@ function MobileCashierClosingPage() {
 
                             <div class="header-center">
                                 <div class="title">Recibo de Fechamento</div>
-                                <div style="font-size: 12px; margin-top:2px;">Caixa Móvel</div>
+                                <div style="font-size: 14px; font-weight: 900; margin-top:4px; background: #000; color: #fff; padding: 3px 12px; border-radius: 4px; display: inline-block;">
+                                    CAIXA MÓVEL
+                                </div>
                             </div>
                             <div class="header-right">
                                 <div class="protocol-box">PROT: ${dataToConfirm.protocol}</div>
@@ -448,7 +406,8 @@ function MobileCashierClosingPage() {
                                     <div class="row"><span>Débito:</span> <span>${formatCurrencyResult(dataToConfirm.debito)}</span></div>
                                     <div class="row"><span>PIX:</span> <span>${formatCurrencyResult(dataToConfirm.pix)}</span></div>
                                     <div class="row"><span>Cashless:</span> <span>${formatCurrencyResult(dataToConfirm.cashless)}</span></div>
-                                    ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<div class="row" style="color:red"><span>Estorno:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
+                                    ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<div class="row" style="color:#d32f2f; font-weight:bold;"><span>(-) Estorno:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
+                                    <div style="flex:1"></div>
                                     <div class="row row-total" style="padding: 5px;"><span>VENDA BRUTA:</span> <span>${formatCurrencyResult(dataToConfirm.valorTotalVenda)}</span></div>
                                 </div>
                             </div>
@@ -458,7 +417,7 @@ function MobileCashierClosingPage() {
                                 <div class="box-content">
                                     <div class="row"><span>Fundo Inicial:</span> <span style="font-size:14px;">${formatCurrencyResult(dataToConfirm.valorTroco)}</span></div>
                                     <div style="flex:1"></div>
-                                    <div class="row row-total" style="padding: 5px; background-color: #e0e0e0;"><span>TOTAL TROCO:</span> <span style="font-size:13px;">${formatCurrencyResult(dataToConfirm.valorTroco)}</span></div>
+                                    <div class="row row-total" style="padding: 5px; background-color: rgba(240, 240, 240, 0.9);"><span>TOTAL TROCO:</span> <span style="font-size:13px;">${formatCurrencyResult(dataToConfirm.valorTroco)}</span></div>
                                 </div>
                             </div>
 
@@ -483,51 +442,18 @@ function MobileCashierClosingPage() {
                         <div class="system-footer">Sis.Versão: ${APP_VERSION || '1.0'} | Impresso em: ${printTime}</div>
                     </div>
 
-                    <div class="linha-corte"></div>
-
-                    <div class="container-recibo">
-                        <div class="recibo-header">
-                            <div class="recibo-titulo">RECIBO DE PAGAMENTO</div>
-                            <div class="recibo-valor-box">R$ 215,00</div>
-                        </div>
-
-                        <p class="recibo-texto">
-                            Recebi de <strong>FABINHO EVENTOS</strong>, a importância supra de 
-                            <strong>duzentos e quinze reais</strong>, referente ao pagamento de 
-                            <strong>01 diária de Caixa Móvel</strong> pelos serviços prestados nesta data.
-                        </p>
-
-                        <div class="recibo-detalhes">
-                            <div class="recibo-dados">
-                                <strong>Favorecido:</strong> ${dataToConfirm.cashierName}
-                            </div>
-                            <div class="recibo-dados">
-                                <strong>CPF:</strong> ${dataToConfirm.cpf}
-                            </div>
-                        </div>
-
-                        <p class="recibo-data">
-                            ___________________________________, ${new Date(dataToConfirm.timestamp).toLocaleDateString('pt-BR')}.
-                        </p>
-
-                        <div class="recibo-assinatura">
-                            <div class="recibo-assinatura-linha"></div>
-                            <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">${dataToConfirm.cashierName}</div>
-                            <span style="font-size: 10px; color: #555; text-transform: uppercase;">ASSINATURA DO RECEBEDOR</span>
-                        </div>
-                    </div>
-
                     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
                     <script>
                         JsBarcode("#barcodeA4", "${dataToConfirm.protocol}", {format: "CODE128", displayValue: false, height: 25, width: 1, margin: 0});
+                        // Aciona a impressão automaticamente quando carregar
+                        window.onload = function() { window.print(); }
                     </script>
                 </body>
                 </html>
             `;
-            const printWindow = window.open('', '', 'height=800,width=600');
+            const printWindow = window.open('', '', 'height=500,width=800');
             printWindow.document.write(content);
             printWindow.document.close();
-            setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 800);
         }
     };
 
@@ -540,6 +466,9 @@ function MobileCashierClosingPage() {
             operatorName: localStorage.getItem('loggedInUserName') || 'N/A',
             cpf: selectedCashier.cpf,
             cashierName: selectedCashier.name,
+            chavePix: selectedCashier.pix || '',
+            tipoPix: selectedCashier.tipo_pix || '',
+            telefone: selectedCashier.telefone || '',
             numeroMaquina,
             valorTotalVenda: getNumericValue(valorTotal),
             credito: getNumericValue(credito),
@@ -613,24 +542,90 @@ function MobileCashierClosingPage() {
                 <h1>{protocol ? 'Editar Caixa Móvel' : 'Fechamento Caixa Móvel'}</h1>
 
                 <div className="form-section" style={{display: 'block'}}>
+                    {/* LINHA 1: Busca ou Crachá Preenchido */}
                     <div className="form-row">
-                        <div className="input-group">
-                            <label>Buscar Funcionário (Nome/CPF)</label>
-                            <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} value={searchInput} onChange={(e) => {setSearchInput(e.target.value); setSelectedCashier(null);}} disabled={!!protocol} />
-                            {filteredCashiers.length > 0 && <div className="suggestions-list">{filteredCashiers.map(c => <div key={c.cpf} className="suggestion-item" onClick={() => handleSelectCashier(c)}>{c.name}</div>)}</div>}
-                        </div>
-                        <div className="input-group"><label>Selecionado</label><input value={selectedCashier ? selectedCashier.name : ''} readOnly /></div>
+                        {!selectedCashier ? (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Buscar Funcionário (Nome/CPF)</label>
+                                <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} value={searchInput} onChange={(e) => {setSearchInput(e.target.value); setSelectedCashier(null);}} disabled={!!protocol} placeholder="Digite o nome ou CPF..." />
+                                {filteredCashiers.length > 0 && (
+                                    <div className="suggestions-list">
+                                        {filteredCashiers.map((c, index) => (
+                                            <div key={`sug-${index}`} className="suggestion-item" onClick={() => handleSelectCashier(c)}>
+                                                {c.name || c.nome} - {c.cpf}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {showRegisterButton && <button className="login-button" style={{marginTop: 10, backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>Adicionar Funcionário Avulso?</button>}
+                            </div>
+                        ) : (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Funcionário Selecionado</label>
+                                {/* CRACHÁ AZUL TRAVADO 100% LARGURA */}
+                                <div style={{
+                                    backgroundColor: '#e8f4fd', border: '1px solid #b6d4fe', 
+                                    borderRadius: '8px', padding: '12px 15px', color: '#084298',
+                                    display: 'flex', flexDirection: 'column', gap: '8px',
+                                    boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.05)'
+                                }}>
+                                    {/* CABEÇALHO DO CRACHÁ */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #b6d4fe', paddingBottom: '6px' }}>
+                                        <span style={{ fontWeight: '900', fontSize: '1.15rem', textTransform: 'uppercase' }}>
+                                            {selectedCashier.name || selectedCashier.nome}
+                                        </span>
+                                        
+                                        {!protocol && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => { setSelectedCashier(null); setSearchInput(''); setTimeout(() => formRefs.cpf.current?.focus(), 100); }}
+                                                style={{
+                                                    background: 'transparent', color: '#dc3545', border: '1px solid #dc3545',
+                                                    borderRadius: '6px', padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold',
+                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#dc3545'; e.currentTarget.style.color = '#fff'; }}
+                                                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#dc3545'; }}
+                                            >
+                                                🔄 Trocar
+                                            </button>
+                                        )}
+                                    </div>
+                                    
+                                    {/* DADOS DO CRACHÁ */}
+                                    <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                                        <div style={{ fontSize: '1.05rem' }}>
+                                            <strong>CPF:</strong> {selectedCashier.cpf}
+                                        </div>
+                                        {selectedCashier.pix ? (
+                                            <div style={{ fontSize: '1.05rem' }}>
+                                                <strong>PIX:</strong> {selectedCashier.pix} ({selectedCashier.tipo_pix})
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.95rem', color: '#b02a37', fontStyle: 'italic' }}>
+                                                ⚠️ Sem PIX Cadastrado
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    {showRegisterButton && <button className="login-button" style={{marginTop: 10, backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>Cadastrar Novo?</button>}
-                    <div className="form-row">
-                        <div className="input-group"><label>Número da Máquina</label><input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} /></div>
+
+                    {/* LINHA 2: Número da Máquina Isolado */}
+                    <div className="form-row" style={{ marginTop: '10px' }}>
+                        <div className="input-group">
+                            <label>Número da Máquina</label>
+                            <input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'valorTotal')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} placeholder="Ex: 12345" />
+                        </div>
                     </div>
                 </div>
 
                 <div className="form-section" style={{display: 'block'}}>
                     <div className="form-row">
                         <div className="input-group"><label>Valor Total Venda</label><input ref={formRefs.valorTotal} onKeyDown={(e) => handleKeyDown(e, 'valorTroco')} value={formatCurrencyInput(valorTotal)} onChange={(e) => handleCurrencyChange(setValorTotal, e.target.value)} placeholder="0,00" inputMode="numeric"/></div>
-                        <div className="input-group"><label>Fundo de Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, temEstorno ? 'valorEstorno' : 'credito')} value={formatCurrencyInput(valorTroco)} onChange={(e) => handleCurrencyChange(setValorTroco, e.target.value)} placeholder="0,00" inputMode="numeric"/></div>
+                        <div className="input-group"><label>Troco</label><input ref={formRefs.valorTroco} onKeyDown={(e) => handleKeyDown(e, temEstorno ? 'valorEstorno' : 'credito')} value={formatCurrencyInput(valorTroco)} onChange={(e) => handleCurrencyChange(setValorTroco, e.target.value)} placeholder="0,00" inputMode="numeric"/></div>
                     </div>
                     <div className="switch-container"><label>Houve Estorno?</label><label className="switch"><input type="checkbox" checked={temEstorno} onChange={() => setTemEstorno(!temEstorno)} /><span className="slider round"></span></label></div>
                     {temEstorno && (<div className="input-group" style={{marginTop: 10}}><label>Valor do Estorno</label><input ref={formRefs.valorEstorno} onKeyDown={(e) => handleKeyDown(e, 'credito')} value={formatCurrencyInput(valorEstorno)} onChange={(e) => handleCurrencyChange(setValorEstorno, e.target.value)} placeholder="0,00" inputMode="numeric"/></div>)}
@@ -659,7 +654,31 @@ function MobileCashierClosingPage() {
                 </div>
             </div>
 
-            {registerModalVisible && <div className="modal-overlay"><div className="modal-content"><h2>Novo Funcionário</h2><input value={newCashierName} onChange={e => setNewCashierName(e.target.value)} placeholder="Nome" /><div className="modal-buttons"><button className="cancel-button" onClick={() => setRegisterModalVisible(false)}>Cancelar</button><button className="login-button" onClick={handleRegisterNewCashier}>Salvar</button></div></div></div>}
+            {/* MODAL FUNCIONÁRIO AVULSO */}
+            {registerModalVisible && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <h2>Adicionar Funcionário Avulso</h2>
+                        <div className="input-group">
+                            <label>CPF</label>
+                            <input type="text" value={formatCpf(searchInput)} readOnly style={{backgroundColor: '#f5f5f5'}} />
+                        </div>
+                        <div className="input-group">
+                            <label>Nome do Funcionário</label>
+                            <input type="text" value={newCashierName} onChange={(e) => setNewCashierName(e.target.value)} placeholder="Digite o nome completo" />
+                        </div>
+                        
+                        <div className="modal-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+                            <button type="button" className="login-button" style={{ backgroundColor: '#17a2b8' }} onClick={handleRegisterNewCashier}>
+                                🏃 Usar Apenas Neste Acerto
+                            </button>
+                            <button type="button" className="cancel-button" style={{ width: '100%' }} onClick={() => setRegisterModalVisible(false)}>
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {modalVisible && (
                 <div className="modal-overlay">
@@ -683,6 +702,7 @@ function MobileCashierClosingPage() {
                             <h2>Confirmar Fechamento de Caixa</h2>
                             {dataToConfirm && <>
                                 <p><strong>Caixa:</strong> {dataToConfirm.cashierName}</p>
+                                {dataToConfirm.chavePix && <p><strong>Chave PIX:</strong> {dataToConfirm.chavePix} ({dataToConfirm.tipoPix})</p>}
                                 <p><strong>Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
                                 <hr/>
                                 <p>Dinheiro na Gaveta (Inf.): <strong>{formatCurrencyResult(dataToConfirm.dinheiroFisico)}</strong></p>
@@ -706,18 +726,18 @@ function MobileCashierClosingPage() {
                                 
                                 <div className="modal-buttons" style={{ flexDirection: 'column', gap: '10px', marginTop: '20px', width: '100%' }}>
                                     <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
-                                        <button className="login-button" style={{ backgroundColor: '#FF9800', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('receipt')}>
+                                        <button type="button" className="login-button" style={{ backgroundColor: '#FF9800', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('receipt')}>
                                             <span style={{ fontSize: '16px' }}>🧾 Cupom Fiscal</span>
                                         </button>
-                                        <button className="login-button" style={{ backgroundColor: '#2196F3', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('a4')}>
+                                        <button type="button" className="login-button" style={{ backgroundColor: '#2196F3', flex: 1, padding: '15px 0' }} onClick={() => handlePrint('a4')}>
                                             <span style={{ fontSize: '16px' }}>📄 Folha A4 (1/2)</span>
                                         </button>
                                     </div>
 
-                                    <button className="modal-button primary" style={{ width: '100%' }} onClick={handleRegisterNew}>
+                                    <button type="button" className="modal-button primary" style={{ width: '100%' }} onClick={handleRegisterNew}>
                                         <span className="button-icon">➕</span> Novo Fechamento
                                     </button>
-                                    <button className="modal-button secondary" style={{ width: '100%' }} onClick={handleBackToMenu}>
+                                    <button type="button" className="modal-button secondary" style={{ width: '100%' }} onClick={handleBackToMenu}>
                                         <span className="button-icon">📋</span> Menu Principal
                                     </button>
                                 </div>

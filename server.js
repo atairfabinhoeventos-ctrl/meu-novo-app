@@ -1,99 +1,105 @@
-    // server.js (VERSÃO DEFINITIVA: SYNC, HISTORY, EXPORT, EDIT/DELETE (WAITERS), EVENTS (ADD/STATUS), RECEIPT ROLES (PROTECTED))
-    console.log("--- INICIANDO SERVIDOR: SISTEMA COMPLETO ---");
+// server.js (VERSÃO INTEGRADA COM MONGODB DO SISGEF E GOOGLE SHEETS)
+console.log("--- INICIANDO SERVIDOR: SISTEMA COMPLETO ---");
 
-    const express = require('express');
-    const { google } = require('googleapis');
-    const cors = require('cors');
-    const path = require('path');
-    const app = express();
-    const syncingEvents = new Set();
+const express = require('express');
+const { google } = require('googleapis');
+const cors = require('cors');
+const path = require('path');
+const app = express();
+const syncingEvents = new Set();
 
-    // ==========================================
-    // 1. CONFIGURAÇÃO E AMBIENTE
-    // ==========================================
-    const isRunningInElectron = !!process.versions['electron'];
-    const isProduction = process.env.NODE_ENV === 'production';
-    const isProdElectron = isRunningInElectron && isProduction;
-    const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
+// ==========================================
+// 1. CONFIGURAÇÃO E AMBIENTE
+// ==========================================
+const isRunningInElectron = !!process.versions['electron'];
+const isProduction = process.env.NODE_ENV === 'production';
+const isProdElectron = isRunningInElectron && isProduction;
+const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
 
-    require('dotenv').config({ path: path.join(resourcesPath, '.env') });
+require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 
-    app.use(express.json({ limit: '50mb' }));
-    app.use(cors());
+// 🚀 NOVA INTEGRAÇÃO: MONGODB DO SISGEF
+const dbManager = require('./dbManager'); 
+// A string de conexão deve estar no seu painel do Render (Environment Variables)
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://<usuario>:<senha>@cluster...';
+dbManager.connect(MONGODB_URI);
 
-    // ==========================================
-    // 2. FUNÇÕES AUXILIARES
-    // ==========================================
+app.use(express.json({ limit: '50mb' }));
+app.use(cors());
 
-    // Normalização para comparação (remove acentos, espaços extras e minúsculas)
-    const normalizeString = (str) => {
-        if (!str) return '';
-        return String(str).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    };
+// ==========================================
+// 2. FUNÇÕES AUXILIARES
+// ==========================================
 
-    const parseSisfoCurrency = (val) => {
-        if (typeof val === 'number') return val;
-        if (val === null || val === undefined) return 0;
-        
-        let originalString = String(val).trim();
-        if (originalString === '') return 0;
+// Normalização para comparação (remove acentos, espaços extras e minúsculas)
+const normalizeString = (str) => {
+    if (!str) return '';
+    return String(str).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
 
-        let cleanCheck = originalString.replace(/R\$|\s/gi, '');
-        const isNegative = cleanCheck.includes('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
+const parseSisfoCurrency = (val) => {
+    if (typeof val === 'number') return val;
+    if (val === null || val === undefined) return 0;
+    
+    let originalString = String(val).trim();
+    if (originalString === '') return 0;
 
-        let cleanString = originalString.replace(/[()]/g, '').replace(/[^0-9.,]/g, '');
+    let cleanCheck = originalString.replace(/R\$|\s/gi, '');
+    const isNegative = cleanCheck.includes('-') || (cleanCheck.startsWith('(') && cleanCheck.endsWith(')'));
 
-        const lastPoint = cleanString.lastIndexOf('.');
-        const lastComma = cleanString.lastIndexOf(',');
+    let cleanString = originalString.replace(/[()]/g, '').replace(/[^0-9.,]/g, '');
 
-        if (lastComma > lastPoint) {
-            cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
-        } else if (lastPoint > lastComma) {
-            cleanString = cleanString.replace(/,/g, '');
-        }
+    const lastPoint = cleanString.lastIndexOf('.');
+    const lastComma = cleanString.lastIndexOf(',');
 
-        let numberValue = parseFloat(cleanString);
-        if (isNaN(numberValue)) return 0;
+    if (lastComma > lastPoint) {
+        cleanString = cleanString.replace(/\./g, '').replace(/,/g, '.');
+    } else if (lastPoint > lastComma) {
+        cleanString = cleanString.replace(/,/g, '');
+    }
 
-        return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
-    };
+    let numberValue = parseFloat(cleanString);
+    if (isNaN(numberValue)) return 0;
 
-    const excelDateToJSDate = (serial) => {
+    return isNegative ? -Math.abs(numberValue) : Math.abs(numberValue);
+};
+
+const excelDateToJSDate = (serial) => {
     const utc_days  = Math.floor(serial - 25569);
     const utc_value = utc_days * 86400;
     return new Date(utc_value * 1000);
-    };
+};
 
-    const getValFromRow = (row, headerMap, possibleKeys) => {
-        for (const key of possibleKeys) {
-            const idx = headerMap[key.toUpperCase().trim()];
-            if (idx !== undefined && row[idx] !== undefined && row[idx] !== '') {
-                return parseSisfoCurrency(row[idx]);
-            }
+const getValFromRow = (row, headerMap, possibleKeys) => {
+    for (const key of possibleKeys) {
+        const idx = headerMap[key.toUpperCase().trim()];
+        if (idx !== undefined && row[idx] !== undefined && row[idx] !== '') {
+            return parseSisfoCurrency(row[idx]);
         }
-        return 0;
-    };
+    }
+    return 0;
+};
 
-    const getTextFromRow = (row, headerMap, possibleKeys) => {
-        for (const key of possibleKeys) {
-            const idx = headerMap[key.toUpperCase().trim()];
-            if (idx !== undefined && row[idx] !== undefined) {
-                return String(row[idx]).trim();
-            }
+const getTextFromRow = (row, headerMap, possibleKeys) => {
+    for (const key of possibleKeys) {
+        const idx = headerMap[key.toUpperCase().trim()];
+        if (idx !== undefined && row[idx] !== undefined) {
+            return String(row[idx]).trim();
         }
-        return '';
-    };
+    }
+    return '';
+};
 
-    // ==========================================
-    // 3. CLIENTE GOOGLE SHEETS
-    // ==========================================
+// ==========================================
+// 3. CLIENTE GOOGLE SHEETS
+// ==========================================
 
-    async function getGoogleSheetsClient() {
+async function getGoogleSheetsClient() {
     try {
         const auth = new google.auth.GoogleAuth({
-        credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
-        keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
-        scopes: 'https://www.googleapis.com/auth/spreadsheets',
+            credentials: process.env.GOOGLE_CREDENTIALS ? JSON.parse(process.env.GOOGLE_CREDENTIALS) : undefined,
+            keyFilename: process.env.GOOGLE_CREDENTIALS ? undefined : path.join(resourcesPath, 'credentials.json'),
+            scopes: 'https://www.googleapis.com/auth/spreadsheets',
         });
         const client = await auth.getClient();
         return google.sheets({ version: 'v4', auth: client });
@@ -101,310 +107,205 @@
         console.error('Erro Auth Google:', error);
         throw new Error('Falha na autenticação da API do Google Sheets.');
     }
-    }
+}
 
-    // IDs das Planilhas
-    const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados
-    const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico
+// IDs das Planilhas
+const spreadsheetId_sync = '1JL5lGqD1ryaIVwtXxY7BiUpOqrufSL_cQKuOQag6AuE'; // Base de Dados
+const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ'; // Histórico
 
-    // ==========================================
-    // 4. ROTAS DA APLICAÇÃO
-    // ==========================================
+// ==========================================
+// 4. ROTAS DA APLICAÇÃO
+// ==========================================
 
-    // --- ROTA 1: OBTER DADOS MESTRE (GARÇONS, EVENTOS E RECIBOS) ---
-    app.get('/api/sync/master-data', async (req, res) => {
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const response = await googleSheets.spreadsheets.values.batchGet({
-                spreadsheetId: spreadsheetId_sync,
-                ranges: ['Garcons!A2:B', 'Eventos!A2:B', 'DadosRecibos!A2:B'], 
-            });
-            const valueRanges = response.data.valueRanges || [];
-            
-            // Garçons
-            const waiters = (valueRanges[0]?.values || []).map(row => ({ cpf: row[0], name: row[1] }));
-            
-            // Eventos
-            const events = (valueRanges[1]?.values || []).map(row => ({
-            name: row[0],
-            active: row[1] ? row[1].toUpperCase() === 'ATIVO' : true,
-            })).filter(e => e.name);
+// --- ROTA 1: OBTER DADOS MESTRE (MONGODB + SHEETS) ---
+app.get('/api/sync/master-data', async (req, res) => {
+    try {
+        // 1. BUSCA GARÇONS E EVENTOS NO MONGODB
+        const dbUsuarios = await dbManager.Usuario.find({});
+        const dbEventos = await dbManager.Evento.find({});
 
-            // Funções de Recibo
-            const receiptRoles = (valueRanges[2]?.values || []).map(row => ({
-                role: row[0],
-                value: parseSisfoCurrency(row[1])
-            })).filter(r => r.role);
+        // Mapeia os Garçons do formato Mongo para o formato que o SisFO precisa
+        const waiters = dbUsuarios
+            .filter(u => u.dados && u.dados.nome) // Garante que tem nome
+            .map(u => ({
+                name: u.dados.nome,
+                cpf: u.dados.cpf || '',
+                pix: u.dados.pix || '',
+                tipo_pix: u.dados.tipo_pix || '',
+                telefone: u.telefone || ''
+            }));
 
-            res.status(200).json({ waiters, events, receiptRoles });
-        } catch (error) {
-            console.error('Erro master-data:', error);
-            res.status(500).json({ message: 'Erro interno ao buscar dados mestre.' });
+        // Mapeia os Eventos do formato Mongo
+        const events = dbEventos
+            .filter(e => e.nome)
+            .map(e => ({
+                name: e.nome,
+                active: e.status === 'ABERTO' || e.status === 'ATIVO'
+            }));
+
+        // --- LOGS DE DEPURAÇÃO ADICIONADOS AQUI ---
+        console.log(`\n--- [DEBUG MONGODB] ---`);
+        console.log(`Qtd Usuários Brutos encontrados: ${dbUsuarios.length}`);
+        console.log(`Qtd Eventos Brutos encontrados: ${dbEventos.length}`);
+        console.log(`Garçons processados: ${waiters.length}`);
+        console.log(`Eventos processados: ${events.length}`);
+        if (events.length > 0) {
+            console.log(`Exemplo de Evento:`, events[0]);
+        } else {
+            console.log(`AVISO: A lista final de eventos ficou vazia. Verifique o status deles no banco!`);
         }
-    });
+        console.log(`-----------------------\n`);
 
-    // --- ROTA: ADICIONAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
-    app.post('/api/add-receipt-role', async (req, res) => {
-        const { role, value, password } = req.body;
+        // 2. BUSCA APENAS OS RECIBOS NO GOOGLE SHEETS (Mantém compatibilidade de contratos)
+        const googleSheets = await getGoogleSheetsClient();
+        const response = await googleSheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'DadosRecibos!A2:B', 
+        });
         
-        if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-            return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
-        }
-        if (!role) return res.status(400).json({ message: 'Nome da função obrigatório.' });
+        const receiptRoles = (response.data.values || []).map(row => ({
+            role: row[0],
+            value: parseSisfoCurrency(row[1])
+        })).filter(r => r.role);
 
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const response = await googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_sync, 
-                range: 'DadosRecibos!A:A' 
-            });
-            
-            // Verificação Robusta de Duplicidade
-            const normalizedNewRole = normalizeString(role);
-            const existingRoles = (response.data.values || []).map(r => r[0] ? normalizeString(r[0]) : '');
-            
-            if (existingRoles.includes(normalizedNewRole)) {
-                return res.status(409).json({ message: 'Função já existe (verifique acentos/maiúsculas).' });
-            }
-
-            await googleSheets.spreadsheets.values.append({
-                spreadsheetId: spreadsheetId_sync,
-                range: 'DadosRecibos!A:B',
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: [[role.trim(), value]] }
-            });
-
-            res.status(200).json({ message: 'Função adicionada.' });
-        } catch (error) {
-            console.error('Erro add-receipt-role:', error);
-            res.status(500).json({ message: 'Erro ao adicionar função.' });
-        }
-    });
-
-    // --- ROTA: EDITAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
-    app.post('/api/edit-receipt-role', async (req, res) => {
-        const { originalRole, newRole, newValue, password } = req.body;
-
-        if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-            return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
-        }
-        if (!originalRole || !newRole) return res.status(400).json({ message: 'Dados incompletos.' });
-
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const response = await googleSheets.spreadsheets.values.get({ 
-                spreadsheetId: spreadsheetId_sync, 
-                range: 'DadosRecibos!A:A' 
-            });
-            const rows = response.data.values || [];
-
-            // Encontra índice (busca normalizada)
-            const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(originalRole));
-            if (rowIndex === -1) return res.status(404).json({ message: 'Função original não encontrada.' });
-
-            // Verifica duplicidade se nome mudou
-            if (normalizeString(originalRole) !== normalizeString(newRole)) {
-                const normalizedNew = normalizeString(newRole);
-                const exists = rows.some((row, idx) => idx !== rowIndex && row[0] && normalizeString(row[0]) === normalizedNew);
-                if (exists) return res.status(409).json({ message: 'Já existe outra função com esse nome.' });
-            }
-
-            const sheetRowNumber = rowIndex + 1;
-            await googleSheets.spreadsheets.values.update({
-                spreadsheetId: spreadsheetId_sync,
-                range: `DadosRecibos!A${sheetRowNumber}:B${sheetRowNumber}`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: [[newRole.trim(), newValue]] }
-            });
-
-            res.status(200).json({ message: 'Função atualizada.' });
-        } catch (error) {
-            console.error('Erro edit-receipt-role:', error);
-            res.status(500).json({ message: 'Erro ao editar função.' });
-        }
-    });
-
-    // --- ROTA: EXCLUIR FUNÇÃO DE RECIBO (COM SENHA) ---
-    app.post('/api/delete-receipt-role', async (req, res) => {
-        const { role, password } = req.body;
-
-        if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-            return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
-        }
-        if (!role) return res.status(400).json({ message: 'Função obrigatória.' });
-
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_sync });
-            const sheet = spreadsheet.data.sheets.find(s => s.properties.title === 'DadosRecibos');
-            if (!sheet) return res.status(404).json({ message: 'Aba DadosRecibos não encontrada.' });
-
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'DadosRecibos!A:A' });
-            const rows = response.data.values || [];
-            const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(role));
-
-            if (rowIndex === -1) return res.status(404).json({ message: 'Função não encontrada.' });
-
-            await googleSheets.spreadsheets.batchUpdate({
-                spreadsheetId: spreadsheetId_sync,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
-                        }
-                    }]
-                }
-            });
-            res.status(200).json({ message: 'Função excluída.' });
-        } catch (error) {
-            console.error('Erro delete-receipt-role:', error);
-            res.status(500).json({ message: 'Erro ao excluir função.' });
-        }
-    });
-
-    // --- ROTA 2: ATUALIZAÇÃO EM MASSA (IMPORTAÇÃO VIA EXCEL) ---
-    app.post('/api/update-base', async (req, res) => {
-    const { waiters, events } = req.body;
-    try {
-        const googleSheets = await getGoogleSheetsClient();
-        if (waiters && waiters.length > 0) {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A2:A' });
-        const existingCpfs = new Set((response.data.values || []).map(row => row[0].trim()));
-        const newWaiters = waiters.filter(waiter => waiter.cpf && !existingCpfs.has(waiter.cpf.trim()));
-        if (newWaiters.length > 0) {
-            const values = newWaiters.map(w => [w.cpf, w.name]);
-            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
-        }
-        }
-        if (events && events.length > 0) {
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:A' });
-        const existingEventNames = new Set((response.data.values || []).map(row => row[0].trim()));
-        const newEvents = events.filter(event => event.name && !existingEventNames.has(event.name.trim()));
-        if (newEvents.length > 0) {
-            const values = newEvents.map(e => [e.name, e.active ? 'ATIVO' : 'INATIVO']);
-            await googleSheets.spreadsheets.values.append({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:B', valueInputOption: 'USER_ENTERED', resource: { values } });
-        }
-        }
-        res.status(200).json({ message: 'Base atualizada com sucesso.' });
+        // 3. ENVIA TUDO PARA O FRONTEND
+        res.status(200).json({ waiters, events, receiptRoles });
+        
     } catch (error) {
-        console.error('Erro update-base:', error);
-        res.status(500).json({ message: 'Erro ao atualizar base de dados.' });
+        console.error('Erro master-data:', error);
+        res.status(500).json({ message: 'Erro interno ao buscar dados mestre do MongoDB/Sheets.' });
     }
-    });
+});
 
-    // --- ROTA 3: EDIÇÃO DE FUNCIONÁRIO ---
-    app.post('/api/edit-waiter', async (req, res) => {
-        const { originalCpf, newCpf, newName } = req.body;
-        if (!originalCpf || !newCpf || !newName) return res.status(400).json({ message: 'Dados incompletos.' });
+// --- ROTA: ADICIONAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
+app.post('/api/add-receipt-role', async (req, res) => {
+    const { role, value, password } = req.body;
+    
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
+    if (!role) return res.status(400).json({ message: 'Nome da função obrigatório.' });
 
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:A' });
-            const rows = response.data.values || [];
-            const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim() === String(originalCpf).trim());
-
-            if (rowIndex === -1) return res.status(404).json({ message: 'Funcionário não encontrado.' });
-
-            const sheetRowNumber = rowIndex + 1;
-            await googleSheets.spreadsheets.values.update({
-                spreadsheetId: spreadsheetId_sync,
-                range: `Garcons!A${sheetRowNumber}:B${sheetRowNumber}`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: [[newCpf, newName]] }
-            });
-            res.status(200).json({ message: 'Atualizado com sucesso.' });
-        } catch (error) {
-            console.error('Erro edit-waiter:', error);
-            res.status(500).json({ message: 'Erro ao editar.' });
-        }
-    });
-
-    // --- ROTA 4: EXCLUSÃO DE FUNCIONÁRIO ---
-    app.post('/api/delete-waiter', async (req, res) => {
-        const { cpf } = req.body;
-        if (!cpf) return res.status(400).json({ message: 'CPF é obrigatório.' });
-
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_sync });
-            const sheet = spreadsheet.data.sheets.find(s => s.properties.title === 'Garcons');
-            if (!sheet) return res.status(500).json({ message: 'Aba Garcons não encontrada.' });
-            const sheetId = sheet.properties.sheetId;
-
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Garcons!A:A' });
-            const rows = response.data.values || [];
-            const rowIndex = rows.findIndex(row => row[0] && String(row[0]).trim() === String(cpf).trim());
-
-            if (rowIndex === -1) return res.status(404).json({ message: 'Funcionário não encontrado na nuvem.' });
-
-            await googleSheets.spreadsheets.batchUpdate({
-                spreadsheetId: spreadsheetId_sync,
-                resource: {
-                    requests: [{
-                        deleteDimension: {
-                            range: { sheetId: sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
-                        }
-                    }]
-                }
-            });
-
-            res.status(200).json({ message: 'Funcionário excluído.' });
-
-        } catch (error) {
-            console.error('Erro delete-waiter:', error);
-            res.status(500).json({ message: 'Erro ao excluir funcionário.' });
-        }
-    });
-
-    // --- ROTA 5: ADICIONAR EVENTO ---
-    app.post('/api/add-event', async (req, res) => {
-        const { name, active } = req.body;
-        if (!name) return res.status(400).json({ message: 'Nome obrigatório.' });
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A:A' });
-            const existing = (response.data.values || []).map(r => r[0] ? r[0].trim().toUpperCase() : '');
-            
-            if (existing.includes(name.trim().toUpperCase())) {
-                return res.status(409).json({ message: 'Evento já existe.' });
-            }
-
-            await googleSheets.spreadsheets.values.append({
-                spreadsheetId: spreadsheetId_sync,
-                range: 'Eventos!A:B',
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: [[name.trim(), active ? 'ATIVO' : 'INATIVO']] }
-            });
-            res.status(200).json({ message: 'Evento criado.' });
-        } catch (error) { res.status(500).json({ message: 'Erro ao criar evento.' }); }
-    });
-
-    // --- ROTA 6: ATUALIZAR STATUS DO EVENTO ---
-    app.post('/api/update-event-status', async (req, res) => {
-    const { name, active } = req.body;
     try {
         const googleSheets = await getGoogleSheetsClient();
-        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'Eventos!A2:B' });
+        const response = await googleSheets.spreadsheets.values.get({ 
+            spreadsheetId: spreadsheetId_sync, 
+            range: 'DadosRecibos!A:A' 
+        });
+        
+        const normalizedNewRole = normalizeString(role);
+        const existingRoles = (response.data.values || []).map(r => r[0] ? normalizeString(r[0]) : '');
+        
+        if (existingRoles.includes(normalizedNewRole)) {
+            return res.status(409).json({ message: 'Função já existe (verifique acentos/maiúsculas).' });
+        }
+
+        await googleSheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId_sync,
+            range: 'DadosRecibos!A:B',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: [[role.trim(), value]] }
+        });
+
+        res.status(200).json({ message: 'Função adicionada.' });
+    } catch (error) {
+        console.error('Erro add-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao adicionar função.' });
+    }
+});
+
+// --- ROTA: EDITAR FUNÇÃO DE RECIBO (COM SENHA E TRAVA) ---
+app.post('/api/edit-receipt-role', async (req, res) => {
+    const { originalRole, newRole, newValue, password } = req.body;
+
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
+    if (!originalRole || !newRole) return res.status(400).json({ message: 'Dados incompletos.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const response = await googleSheets.spreadsheets.values.get({ 
+            spreadsheetId: spreadsheetId_sync, 
+            range: 'DadosRecibos!A:A' 
+        });
         const rows = response.data.values || [];
-        const eventIndex = rows.findIndex(row => row[0] && row[0].trim() === name.trim());
-        
-        if (eventIndex !== -1) {
-            await googleSheets.spreadsheets.values.update({
-                spreadsheetId: spreadsheetId_sync,
-                range: `Eventos!B${eventIndex + 2}`,
-                valueInputOption: 'USER_ENTERED',
-                resource: { values: [[active ? 'ATIVO' : 'INATIVO']] },
-            });
-        }
-        res.status(200).json({ message: 'Status atualizado.' });
-    } catch (error) {
-        console.error('Erro update-event-status:', error);
-        res.status(500).json({ message: 'Erro ao atualizar status.' });
-    }
-    });
 
-    // --- ROTA 7: SYNC PARA A NUVEM (FECHAMENTOS) ---
-    app.post('/api/cloud-sync', async (req, res) => {
+        const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(originalRole));
+        if (rowIndex === -1) return res.status(404).json({ message: 'Função original não encontrada.' });
+
+        if (normalizeString(originalRole) !== normalizeString(newRole)) {
+            const normalizedNew = normalizeString(newRole);
+            const exists = rows.some((row, idx) => idx !== rowIndex && row[0] && normalizeString(row[0]) === normalizedNew);
+            if (exists) return res.status(409).json({ message: 'Já existe outra função com esse nome.' });
+        }
+
+        const sheetRowNumber = rowIndex + 1;
+        await googleSheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId_sync,
+            range: `DadosRecibos!A${sheetRowNumber}:B${sheetRowNumber}`,
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: [[newRole.trim(), newValue]] }
+        });
+
+        res.status(200).json({ message: 'Função atualizada.' });
+    } catch (error) {
+        console.error('Erro edit-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao editar função.' });
+    }
+});
+
+// --- ROTA: EXCLUIR FUNÇÃO DE RECIBO (COM SENHA) ---
+app.post('/api/delete-receipt-role', async (req, res) => {
+    const { role, password } = req.body;
+
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta ou não informada.' });
+    }
+    if (!role) return res.status(400).json({ message: 'Função obrigatória.' });
+
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_sync });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === 'DadosRecibos');
+        if (!sheet) return res.status(404).json({ message: 'Aba DadosRecibos não encontrada.' });
+
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_sync, range: 'DadosRecibos!A:A' });
+        const rows = response.data.values || [];
+        const rowIndex = rows.findIndex(row => row[0] && normalizeString(row[0]) === normalizeString(role));
+
+        if (rowIndex === -1) return res.status(404).json({ message: 'Função não encontrada.' });
+
+        await googleSheets.spreadsheets.batchUpdate({
+            spreadsheetId: spreadsheetId_sync,
+            resource: {
+                requests: [{
+                    deleteDimension: {
+                        range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 }
+                    }
+                }]
+            }
+        });
+        res.status(200).json({ message: 'Função excluída.' });
+    } catch (error) {
+        console.error('Erro delete-receipt-role:', error);
+        res.status(500).json({ message: 'Erro ao excluir função.' });
+    }
+});
+
+/* ==========================================================================
+ROTAS OBSOLETAS (COMENTADAS)
+O cadastro de eventos e funcionários agora é responsabilidade do SISGEF.
+==========================================================================
+app.post('/api/update-base', async (req, res) => { ... });
+app.post('/api/edit-waiter', async (req, res) => { ... });
+app.post('/api/delete-waiter', async (req, res) => { ... });
+app.post('/api/add-event', async (req, res) => { ... });
+app.post('/api/update-event-status', async (req, res) => { ... });
+*/
+
+// --- ROTA 7: SYNC PARA A NUVEM (FECHAMENTOS) ---
+app.post('/api/cloud-sync', async (req, res) => {
     const { eventName, waiterData, cashierData } = req.body;
     if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
 
@@ -552,7 +453,6 @@
         const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador", "Versão"];
         const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador", "Versão"];
 
-    // CORREÇÃO: Aceita tanto 'waiter_zig' (interno) quanto 'Garçom ZIG' (vindo do sync)
         const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig' && c.type !== 'Garçom ZIG') : [];
         const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig' || c.type === 'Garçom ZIG') : [];
 
@@ -572,122 +472,122 @@
     } finally {
         syncingEvents.delete(eventName);
     }
-    });
+});
 
-    // --- ROTA 8: HISTÓRICO ONLINE ---
-    app.post('/api/online-history', async (req, res) => {
-        const { eventName, password } = req.body;
-        if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
-            return res.status(401).json({ message: 'Acesso não autorizado.' });
-        }
+// --- ROTA 8: HISTÓRICO ONLINE ---
+app.post('/api/online-history', async (req, res) => {
+    const { eventName, password } = req.body;
+    if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Acesso não autorizado.' });
+    }
+    
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
         
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const sheetNames = [`Garçons - ${eventName}`, `GarçomZIG - ${eventName}`, `Caixas - ${eventName}`];
-            
-            const results = await Promise.allSettled(sheetNames.map(sn => 
-                googleSheets.spreadsheets.values.get({ 
-                    spreadsheetId: spreadsheetId_cloud_sync, 
-                    range: `'${sn}'`, 
-                    valueRenderOption: 'UNFORMATTED_VALUE' 
-                })
-            ));
+        const results = await Promise.allSettled(sheetNames.map(sn => 
+            googleSheets.spreadsheets.values.get({ 
+                spreadsheetId: spreadsheetId_cloud_sync, 
+                range: `'${sn}'`, 
+                valueRenderOption: 'UNFORMATTED_VALUE' 
+            })
+        ));
 
-            let allClosings = [];
+        let allClosings = [];
 
-            const processGenericSheet = (result, typeCategory) => {
-                if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
-                    const [header, ...rows] = result.value.data.values;
-                    const headerMap = {};
-                    header.forEach((col, idx) => {
-                        if (col) headerMap[String(col).trim().toUpperCase()] = idx;
-                    });
+        const processGenericSheet = (result, typeCategory) => {
+            if (result.status === 'fulfilled' && result.value.data.values?.length > 1) {
+                const [header, ...rows] = result.value.data.values;
+                const headerMap = {};
+                header.forEach((col, idx) => {
+                    if (col) headerMap[String(col).trim().toUpperCase()] = idx;
+                });
 
-                    return rows.map(row => {
-                        const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
-                        const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
-                        const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
-                        const vPix   = getValFromRow(row, headerMap, ['PIX']);
-                        const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
-                        const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
-                        const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
-                        
-                        const vCom8  = getValFromRow(row, headerMap, ['COMISSÃO (8%)', 'COMISSAO (8%)']);
-                        const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']);
-                        const vCom4  = getValFromRow(row, headerMap, ['COMISSÃO (4%)', 'COMISSAO (4%)']);
-                        const vComTotal = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
+                return rows.map(row => {
+                    const vTotal = getValFromRow(row, headerMap, ['VENDA TOTAL', 'TOTAL', 'RECARGA CASHLESS', 'RECARGA']);
+                    const vCred  = getValFromRow(row, headerMap, ['CRÉDITO', 'CREDITO', 'CREDIT']);
+                    const vDeb   = getValFromRow(row, headerMap, ['DÉBITO', 'DEBITO', 'DEBIT']);
+                    const vPix   = getValFromRow(row, headerMap, ['PIX']);
+                    const vCash  = getValFromRow(row, headerMap, ['CASHLESS']);
+                    const vProd  = getValFromRow(row, headerMap, ['VALOR TOTAL PRODUTOS', 'PRODUTOS', 'TOTAL PRODUTOS']);
+                    const vEst   = getValFromRow(row, headerMap, ['DEVOLUÇÃO/ESTORNO', 'ESTORNO', 'DEVOLUCAO']);
+                    
+                    const vCom8  = getValFromRow(row, headerMap, ['COMISSÃO (8%)', 'COMISSAO (8%)']);
+                    const vCom10 = getValFromRow(row, headerMap, ['COMISSÃO (10%)', 'COMISSAO (10%)']);
+                    const vCom4  = getValFromRow(row, headerMap, ['COMISSÃO (4%)', 'COMISSAO (4%)']);
+                    const vComTotal = getValFromRow(row, headerMap, ['COMISSÃO TOTAL', 'COMISSAO', 'COMISSAO TOTAL']);
 
-                        const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
-                        const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
-                        const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
-                        const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
+                    const vTroco = getValFromRow(row, headerMap, ['TROCO', 'VALOR TROCO']);
+                    const vFisico = getValFromRow(row, headerMap, ['DINHEIRO FÍSICO', 'DINHEIRO FISICO']);
+                    const vDif   = getValFromRow(row, headerMap, ['DIFERENÇA', 'DIFERENCA']);
+                    const vAcerto = getValFromRow(row, headerMap, ['VALOR ACERTO', 'ACERTO']);
 
-                        const cpf = getTextFromRow(row, headerMap, ['CPF']);
-                        const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
-                        const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
-                        const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
-                        const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
-                        const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
-                        const versao = getTextFromRow(row, headerMap, ['VERSÃO', 'VERSAO', 'VERSION']);
+                    const cpf = getTextFromRow(row, headerMap, ['CPF']);
+                    const nome = getTextFromRow(row, headerMap, ['NOME GARÇOM', 'NOME DO CAIXA', 'GARÇOM', 'CAIXA']);
+                    const protocol = getTextFromRow(row, headerMap, ['PROTOCOLO']); 
+                    const maquina = getTextFromRow(row, headerMap, ['Nº MÁQUINA', 'Nº MAQUINA', 'MAQUINA']);
+                    const operador = getTextFromRow(row, headerMap, ['OPERADOR']);
+                    const data = row[headerMap['DATA']] || row[headerMap['DATE']]; 
+                    const versao = getTextFromRow(row, headerMap, ['VERSÃO', 'VERSAO', 'VERSION']);
 
-                        if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
-                            const isPagar = vAcerto < -0.001; 
-                            return {
-                                type: typeCategory, cpf, waiterName: nome, protocol, 
-                                valorTotal: vTotal, valorEstorno: vEst, 
-                                comissao8: vCom8, comissao10: vCom10, comissao4: vCom4, comissaoTotal: vComTotal,
-                                diferencaPagarReceber: Math.abs(vAcerto),
-                                diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
-                                credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
-                                valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data,
-                                appVersion: versao
-                            };
-                        } else {
-                            const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
-                            const base = {
-                                protocol, eventName, operatorName: operador, timestamp: data, cpf,
-                                cashierName: nome, numeroMaquina: maquina,
-                                valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
-                                cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
-                                dinheiroFisico: vFisico, valorAcerto: vAcerto,
-                                diferenca: vDif, temEstorno: vEst > 0,
-                                appVersion: versao
-                            };
-                            return { ...base, type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', groupProtocol: base.protocol };
-                        }
-                    });
-                }
-                return [];
-            };
-
-            allClosings.push(...processGenericSheet(results[0], 'waiter'));
-            allClosings.push(...processGenericSheet(results[1], 'waiter_zig'));
-            allClosings.push(...processGenericSheet(results[2], 'cashier'));
-
-            allClosings.forEach(c => {
-                if(typeof c.timestamp === 'number') {
-                    c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
-                } else if(typeof c.timestamp === 'string') {
-                    const m = c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                    if(m) {
-                        c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString();
-                    } else if(!isNaN(Date.parse(c.timestamp))) {
-                        c.timestamp = new Date(c.timestamp).toISOString();
+                    if (typeCategory === 'waiter' || typeCategory === 'waiter_zig') {
+                        const isPagar = vAcerto < -0.001; 
+                        return {
+                            type: typeCategory, cpf, waiterName: nome, protocol, 
+                            valorTotal: vTotal, valorEstorno: vEst, 
+                            comissao8: vCom8, comissao10: vCom10, comissao4: vCom4, comissaoTotal: vComTotal,
+                            diferencaPagarReceber: Math.abs(vAcerto),
+                            diferencaLabel: isPagar ? 'Pagar ao Garçom' : 'Receber do Garçom',
+                            credito: vCred, debito: vDeb, pix: vPix, cashless: vCash,
+                            valorTotalProdutos: vProd, numeroMaquina: maquina, operatorName: operador, timestamp: data,
+                            appVersion: versao
+                        };
+                    } else {
+                        const tipoCaixa = getTextFromRow(row, headerMap, ['TIPO']);
+                        const base = {
+                            protocol, eventName, operatorName: operador, timestamp: data, cpf,
+                            cashierName: nome, numeroMaquina: maquina,
+                            valorTotalVenda: vTotal, credito: vCred, debito: vDeb, pix: vPix, 
+                            cashless: vCash, valorTroco: vTroco, valorEstorno: vEst, 
+                            dinheiroFisico: vFisico, valorAcerto: vAcerto,
+                            diferenca: vDif, temEstorno: vEst > 0,
+                            appVersion: versao
+                        };
+                        return { ...base, type: (tipoCaixa.toUpperCase()==='FIXO') ? 'individual_fixed_cashier' : 'cashier', groupProtocol: base.protocol };
                     }
+                });
+            }
+            return [];
+        };
+
+        allClosings.push(...processGenericSheet(results[0], 'waiter'));
+        allClosings.push(...processGenericSheet(results[1], 'waiter_zig'));
+        allClosings.push(...processGenericSheet(results[2], 'cashier'));
+
+        allClosings.forEach(c => {
+            if(typeof c.timestamp === 'number') {
+                c.timestamp = excelDateToJSDate(c.timestamp).toISOString();
+            } else if(typeof c.timestamp === 'string') {
+                const m = c.timestamp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if(m) {
+                    c.timestamp = new Date(`${m[3]}-${m[2]}-${m[1]}`).toISOString();
+                } else if(!isNaN(Date.parse(c.timestamp))) {
+                    c.timestamp = new Date(c.timestamp).toISOString();
                 }
-            });
+            }
+        });
 
-            if (allClosings.length === 0) return res.status(404).json({ message: 'Nenhum dado encontrado.' });
-            res.status(200).json(allClosings);
+        if (allClosings.length === 0) return res.status(404).json({ message: 'Nenhum dado encontrado.' });
+        res.status(200).json(allClosings);
 
-        } catch(error) { 
-            console.error('Erro history:', error); 
-            res.status(500).json({message:'Erro interno ao buscar histórico.'}); 
-        }
-    });
+    } catch(error) { 
+        console.error('Erro history:', error); 
+        res.status(500).json({message:'Erro interno ao buscar histórico.'}); 
+    }
+});
 
-    // --- ROTA 9: EXPORTAÇÃO ---
-    app.post('/api/export-online-data', async (req, res) => {
+// --- ROTA 9: EXPORTAÇÃO ---
+app.post('/api/export-online-data', async (req, res) => {
     const { password, eventName } = req.body;
     if (!eventName || !password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
         return res.status(401).json({ message: 'Acesso não autorizado.' });
@@ -728,10 +628,10 @@
         console.error('Erro export:', error);
         res.status(500).json({ message: 'Erro interno na exportação.' });
     }
-    });
+});
 
-    // --- ROTA 10: CONCILIAÇÃO YUZER ---
-    app.post('/api/reconcile-yuzer', async (req, res) => {
+// --- ROTA 10: CONCILIAÇÃO YUZER ---
+app.post('/api/reconcile-yuzer', async (req, res) => {
     const { eventName, yuzerData } = req.body;
     if (!eventName || !yuzerData) return res.status(400).json({ message: 'Dados incompletos.' });
     try {
@@ -833,205 +733,201 @@
         console.error('Erro na conciliação Yuzer:', error); 
         res.status(500).json({message:'Erro interno do servidor ao processar a conciliação.'}); 
     }
-    });
+});
 
-    // --- ROTA 11: DELETE CLOSING (ONLINE) ---
-    app.post('/api/delete-closing', async (req, res) => {
-        const { eventName, protocolToDelete, password } = req.body;
-        if (!eventName || !protocolToDelete) {
-            return res.status(400).json({ message: 'Dados incompletos.' });
-        }
-        if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) {
-            return res.status(401).json({ message: 'Senha incorreta para exclusão online.' });
-        }
+// --- ROTA 11: DELETE CLOSING (ONLINE) ---
+app.post('/api/delete-closing', async (req, res) => {
+    const { eventName, protocolToDelete, password } = req.body;
+    if (!eventName || !protocolToDelete) {
+        return res.status(400).json({ message: 'Dados incompletos.' });
+    }
+    if (password && password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ message: 'Senha incorreta para exclusão online.' });
+    }
+    
+    try {
+        const googleSheets = await getGoogleSheetsClient();
+        const spreadsheetId = spreadsheetId_cloud_sync;
+
+        const isZigProtocol = protocolToDelete.startsWith('GZ-');
+        const isWaiterProtocol = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
+
+        let sheetName;
+        let protocolColumnIndex; 
+
+        if (isZigProtocol) { sheetName = `GarçomZIG - ${eventName}`; protocolColumnIndex = 1; } 
+        else if (isWaiterProtocol) { sheetName = `Garçons - ${eventName}`; protocolColumnIndex = 1; } 
+        else { sheetName = `Caixas - ${eventName}`; protocolColumnIndex = 0; }
         
-        try {
-            const googleSheets = await getGoogleSheetsClient();
-            const spreadsheetId = spreadsheetId_cloud_sync;
+        const safeSheetName = `'${sheetName}'`;
 
-            const isZigProtocol = protocolToDelete.startsWith('GZ-');
-            const isWaiterProtocol = protocolToDelete.startsWith('G8-') || protocolToDelete.startsWith('G10-');
+        const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId });
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+        
+        if (!sheet) return res.status(404).json({ message: `Registro não encontrado.` });
+        
+        const sheetId = sheet.properties.sheetId;
+        const rangeToRead = `${safeSheetName}!${String.fromCharCode(65 + protocolColumnIndex)}:${String.fromCharCode(65 + protocolColumnIndex)}`;
+        
+        const response = await googleSheets.spreadsheets.values.get({ spreadsheetId, range: rangeToRead });
+        const protocolsInSheet = response.data.values || [];
 
-            let sheetName;
-            let protocolColumnIndex; 
-
-            if (isZigProtocol) { sheetName = `GarçomZIG - ${eventName}`; protocolColumnIndex = 1; } 
-            else if (isWaiterProtocol) { sheetName = `Garçons - ${eventName}`; protocolColumnIndex = 1; } 
-            else { sheetName = `Caixas - ${eventName}`; protocolColumnIndex = 0; }
-            
-            const safeSheetName = `'${sheetName}'`;
-
-            const spreadsheet = await googleSheets.spreadsheets.get({ spreadsheetId });
-            const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
-            
-            if (!sheet) return res.status(404).json({ message: `Registro não encontrado.` });
-            
-            const sheetId = sheet.properties.sheetId;
-            const rangeToRead = `${safeSheetName}!${String.fromCharCode(65 + protocolColumnIndex)}:${String.fromCharCode(65 + protocolColumnIndex)}`;
-            
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId, range: rangeToRead });
-            const protocolsInSheet = response.data.values || [];
-
-            const rowIndicesToDelete = [];
-            protocolsInSheet.forEach((row, index) => {
-                if (row && row[0]) {
-                    const currentProtocol = String(row[0]).trim();
-                    if (currentProtocol === protocolToDelete || currentProtocol.startsWith(protocolToDelete + '-')) {
-                        rowIndicesToDelete.push(index);
-                    }
+        const rowIndicesToDelete = [];
+        protocolsInSheet.forEach((row, index) => {
+            if (row && row[0]) {
+                const currentProtocol = String(row[0]).trim();
+                if (currentProtocol === protocolToDelete || currentProtocol.startsWith(protocolToDelete + '-')) {
+                    rowIndicesToDelete.push(index);
                 }
-            });
+            }
+        });
 
-            if (rowIndicesToDelete.length === 0) return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
+        if (rowIndicesToDelete.length === 0) return res.status(404).json({ message: 'Registro não encontrado na planilha online.' });
 
-            rowIndicesToDelete.sort((a, b) => b - a); 
-            let requests = rowIndicesToDelete.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
-            await googleSheets.spreadsheets.batchUpdate({ spreadsheetId, resource: { requests } });
-            res.status(200).json({ message: `${requests.length} registro(s) excluído(s) com sucesso da planilha online.` });
+        rowIndicesToDelete.sort((a, b) => b - a); 
+        let requests = rowIndicesToDelete.map(idx => ({ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
+        await googleSheets.spreadsheets.batchUpdate({ spreadsheetId, resource: { requests } });
+        res.status(200).json({ message: `${requests.length} registro(s) excluído(s) com sucesso da planilha online.` });
 
-        } catch (error) {
-            console.error(`[BACKEND][delete-closing][${eventName}] Erro:`, error.message);
-            res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
+    } catch (error) {
+        console.error(`[BACKEND][delete-closing][${eventName}] Erro:`, error.message);
+        res.status(500).json({ message: 'Erro interno do servidor ao tentar excluir o registro online.' });
+    }
+});
+
+// ==========================================
+// 4.X SISTEMA DE LICENCIAMENTO (GOOGLE SHEETS)
+// ==========================================
+app.post('/api/activate-license', async (req, res) => {
+    const { licenseKey, clientName, clientDoc, clientEmail, machineId } = req.body;
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    if (!licenseKey) return res.status(400).json({ valid: false, message: 'Chave não informada.' });
+
+    try {
+        const auth = new google.auth.GoogleAuth({
+            keyFile: path.join(resourcesPath, 'credentials.json'),
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+        const client = await auth.getClient();
+        const googleSheets = google.sheets({ version: 'v4', auth: client });
+        
+        // Pega o ID da variável ou usa hardcoded se preferir
+        const spreadsheetId = process.env.SPREADSHEET_ID; 
+
+        // 1. Ler a aba "Licencas"
+        const getRows = await googleSheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Licencas!A:H', 
+        });
+
+        const rows = getRows.data.values;
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ valid: false, message: 'Banco de licenças vazio.' });
         }
-    });
 
-    // ==========================================
-    // 4.X SISTEMA DE LICENCIAMENTO (GOOGLE SHEETS)
-    // ==========================================
-    app.post('/api/activate-license', async (req, res) => {
-        const { licenseKey, clientName, clientDoc, clientEmail, machineId } = req.body;
-        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        let rowIndex = -1;
+        let licenseData = null;
 
-        if (!licenseKey) return res.status(400).json({ valid: false, message: 'Chave não informada.' });
-
-        try {
-            const auth = new google.auth.GoogleAuth({
-                keyFile: path.join(resourcesPath, 'credentials.json'),
-                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-            });
-            const client = await auth.getClient();
-            const googleSheets = google.sheets({ version: 'v4', auth: client });
-            
-            // Pega o ID da variável ou usa hardcoded se preferir
-            const spreadsheetId = process.env.SPREADSHEET_ID; 
-
-            // 1. Ler a aba "Licencas"
-            const getRows = await googleSheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: 'Licencas!A:H', 
-            });
-
-            const rows = getRows.data.values;
-            if (!rows || rows.length === 0) {
-                return res.status(404).json({ valid: false, message: 'Banco de licenças vazio.' });
+        // Procura a chave (Coluna A)
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][0] && rows[i][0].trim().toUpperCase() === licenseKey.trim().toUpperCase()) {
+                rowIndex = i + 1;
+                licenseData = rows[i];
+                break;
             }
+        }
 
-            let rowIndex = -1;
-            let licenseData = null;
+        if (!licenseData) {
+            return res.status(404).json({ valid: false, message: 'Chave inválida.' });
+        }
 
-            // Procura a chave (Coluna A)
-            for (let i = 1; i < rows.length; i++) {
-                if (rows[i][0] && rows[i][0].trim().toUpperCase() === licenseKey.trim().toUpperCase()) {
-                    rowIndex = i + 1;
-                    licenseData = rows[i];
-                    break;
-                }
+        const currentStatus = licenseData[1]; // Coluna B (Status)
+        const expirationString = licenseData[2]; // Coluna C (Data Validade dd/mm/yyyy)
+        const registeredMachineId = licenseData[6]; // Coluna G (MachineID)
+
+        // --- VALIDAÇÃO DE STATUS ---
+        if (currentStatus && currentStatus.toLowerCase() === 'inativo') {
+            return res.status(403).json({ valid: false, message: 'Licença desativada pelo administrador.' });
+        }
+
+        // --- VALIDAÇÃO DE DATA (EXPIRAÇÃO) ---
+        let isExpired = false;
+        if (expirationString) {
+            // Converte dd/mm/yyyy para objeto Date
+            const [day, month, year] = expirationString.split('/');
+            const expDate = new Date(`${year}-${month}-${day}`);
+            const today = new Date();
+            today.setHours(0,0,0,0); // Zera hora para comparar apenas dia
+
+            if (today > expDate) {
+                isExpired = true;
             }
+        }
 
-            if (!licenseData) {
-                return res.status(404).json({ valid: false, message: 'Chave inválida.' });
-            }
-
-            const currentStatus = licenseData[1]; // Coluna B (Status)
-            const expirationString = licenseData[2]; // Coluna C (Data Validade dd/mm/yyyy)
-            const registeredMachineId = licenseData[6]; // Coluna G (MachineID)
-
-            // --- VALIDAÇÃO DE STATUS ---
-            if (currentStatus && currentStatus.toLowerCase() === 'inativo') {
-                return res.status(403).json({ valid: false, message: 'Licença desativada pelo administrador.' });
-            }
-
-            // --- VALIDAÇÃO DE DATA (EXPIRAÇÃO) ---
-            let isExpired = false;
-            if (expirationString) {
-                // Converte dd/mm/yyyy para objeto Date
-                const [day, month, year] = expirationString.split('/');
-                const expDate = new Date(`${year}-${month}-${day}`);
-                const today = new Date();
-                today.setHours(0,0,0,0); // Zera hora para comparar apenas dia
-
-                if (today > expDate) {
-                    isExpired = true;
-                }
-            }
-
-            if (isExpired) {
-                // Se expirou, atualizamos o status na planilha para "Expirado" automaticamente
-                await googleSheets.spreadsheets.values.update({
-                    spreadsheetId,
-                    range: `Licencas!B${rowIndex}`,
-                    valueInputOption: 'USER_ENTERED',
-                    resource: { values: [['Expirado']] }
-                });
-                return res.status(403).json({ valid: false, message: `Licença expirada em ${expirationString}. Entre em contato para renovar.` });
-            }
-
-            // --- VALIDAÇÃO DE MÁQUINA ---
-            if (registeredMachineId && registeredMachineId.trim() !== '' && registeredMachineId !== machineId) {
-                return res.status(403).json({ valid: false, message: 'Chave já em uso em outra máquina.' });
-            }
-
-            // --- SUCESSO: ATUALIZA DADOS DO CLIENTE ---
-            const dataAtivacao = new Date().toLocaleString('pt-BR');
-            
-            // Atualiza colunas D, E, F, G, H, I (Nome, Doc, Email, MachineID, DataAtivacao, IP)
-            // Mantém Status (B) como Ativo se não estiver bloqueado
-            const newStatus = currentStatus === 'Bloqueado' ? 'Bloqueado' : 'Ativo';
-
+        if (isExpired) {
+            // Se expirou, atualizamos o status na planilha para "Expirado" automaticamente
             await googleSheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `Licencas!B${rowIndex}:I${rowIndex}`,
+                range: `Licencas!B${rowIndex}`,
                 valueInputOption: 'USER_ENTERED',
-                resource: {
-                    values: [[
-                        newStatus,      // B
-                        expirationString, // C (Mantém a data original)
-                        clientName || licenseData[3], // D (Usa o novo ou mantém o antigo)
-                        clientDoc || licenseData[4],  // E
-                        clientEmail || licenseData[5],// F
-                        machineId,      // G
-                        dataAtivacao,   // H
-                        clientIp        // I
-                    ]]
-                }
+                resource: { values: [['Expirado']] }
             });
-
-            return res.json({ 
-                valid: true, 
-                message: 'Licença válida.',
-                expiration: expirationString,
-                status: newStatus,
-                clientName: licenseData[3] || clientName,
-                clientDoc: licenseData[4] || clientDoc,
-                clientEmail: licenseData[5] || clientEmail
-            });
-
-        } catch (error) {
-            console.error('Erro na licença:', error);
-            res.status(500).json({ valid: false, message: 'Erro interno ao validar licença.' });
+            return res.status(403).json({ valid: false, message: `Licença expirada em ${expirationString}. Entre em contato para renovar.` });
         }
-    });
 
+        // --- VALIDAÇÃO DE MÁQUINA ---
+        if (registeredMachineId && registeredMachineId.trim() !== '' && registeredMachineId !== machineId) {
+            return res.status(403).json({ valid: false, message: 'Chave já em uso em outra máquina.' });
+        }
 
-    // --- ROTA 12: VERIFICAR VERSÃO DO SISTEMA (CORRIGIDA) ---
+        // --- SUCESSO: ATUALIZA DADOS DO CLIENTE ---
+        const dataAtivacao = new Date().toLocaleString('pt-BR');
+        
+        // Atualiza colunas D, E, F, G, H, I (Nome, Doc, Email, MachineID, DataAtivacao, IP)
+        // Mantém Status (B) como Ativo se não estiver bloqueado
+        const newStatus = currentStatus === 'Bloqueado' ? 'Bloqueado' : 'Ativo';
+
+        await googleSheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `Licencas!B${rowIndex}:I${rowIndex}`,
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [[
+                    newStatus,      // B
+                    expirationString, // C (Mantém a data original)
+                    clientName || licenseData[3], // D (Usa o novo ou mantém o antigo)
+                    clientDoc || licenseData[4],  // E
+                    clientEmail || licenseData[5],// F
+                    machineId,      // G
+                    dataAtivacao,   // H
+                    clientIp        // I
+                ]]
+            }
+        });
+
+        return res.json({ 
+            valid: true, 
+            message: 'Licença válida.',
+            expiration: expirationString,
+            status: newStatus,
+            clientName: licenseData[3] || clientName,
+            clientDoc: licenseData[4] || clientDoc,
+            clientEmail: licenseData[5] || clientEmail
+        });
+
+    } catch (error) {
+        console.error('Erro na licença:', error);
+        res.status(500).json({ valid: false, message: 'Erro interno ao validar licença.' });
+    }
+});
+
+// --- ROTA 12: VERIFICAR VERSÃO DO SISTEMA ---
 app.get('/api/check-version', async (req, res) => {
     try {
         const googleSheets = await getGoogleSheetsClient();
-        
-        // CORREÇÃO: Usa o ID do .env (prioridade) ou o hardcoded
         const spreadsheetId = process.env.SPREADSHEET_ID || spreadsheetId_sync; 
 
-        // Lê a aba Config!A1:B2
         const response = await googleSheets.spreadsheets.values.get({
             spreadsheetId: spreadsheetId, 
             range: 'Config!A1:B2', 
@@ -1041,7 +937,6 @@ app.get('/api/check-version', async (req, res) => {
         let remoteVersion = '0.0.0';
         let storeLink = '';
 
-        // Procura os valores (VersaoAtual e LinkLoja)
         rows.forEach(row => {
             if (row[0] && String(row[0]).trim() === 'VersaoAtual') remoteVersion = String(row[1]).trim();
             if (row[0] && String(row[0]).trim() === 'LinkLoja') storeLink = String(row[1]).trim();
@@ -1053,21 +948,20 @@ app.get('/api/check-version', async (req, res) => {
 
     } catch (error) {
         console.error('[CheckVersion] Erro ao ler aba Config:', error.message);
-        // Retorna 0.0.0 para não bloquear se houver erro de leitura
         res.status(200).json({ remoteVersion: '0.0.0', storeLink: '' }); 
     }
 });
 
-    // ==========================================
-    // 5. INICIALIZAÇÃO DO SERVIDOR
-    // ==========================================
+// ==========================================
+// 5. INICIALIZAÇÃO DO SERVIDOR
+// ==========================================
 
-    module.exports = app;
-    if (!isRunningInElectron) {
-    const PORT = process.env.PORT || 10000;
+module.exports = app;
+if (!isRunningInElectron) {
+    const PORT = process.env.PORT || 3001;
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor backend (Render) rodando na porta ${PORT}`);
     });
-    } else {
+} else {
     console.log('Servidor Express pronto para ser iniciado pelo Electron.');
-    }
+}

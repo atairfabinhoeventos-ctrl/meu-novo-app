@@ -1,13 +1,16 @@
+// src/App.jsx (VERSÃO FINAL: AUTO-SYNC ATIVADO NA NUVEM)
+
 import React, { useContext, useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import axios from 'axios';
 import Layout from './components/Layout.jsx';
-import { API_URL, APP_VERSION } from './config'; // Importando Configurações
+import { API_URL, APP_VERSION } from './config'; 
 
 // --- CONTEXTOS ---
 import { LicenseProvider, LicenseContext } from './contexts/LicenseContext';
-import { SyncProvider } from './contexts/SyncContext'; // <--- ADICIONADO: Import do Sync
+import { SyncProvider } from './contexts/SyncContext'; 
 import ActivationPage from './pages/ActivationPage';
+import { startBackgroundSync } from './services/syncService'; // IMPORTA O MOTOR DE SYNC
 
 // --- COMPONENTE DE UPDATE ---
 import UpdateModal from './components/UpdateModal';
@@ -22,6 +25,7 @@ import WaiterClosing10Page from './pages/WaiterClosing10Page.jsx';
 import MobileCashierClosingPage from './pages/MobileCashierClosingPage.jsx';
 import FixedCashierClosingPage from './pages/FixedCashierClosingPage.jsx';
 import ZigCashlessClosingPage from './pages/ZigCashlessClosingPage.jsx';
+import TotemClosingPage from './pages/TotemClosingPage.jsx';
 import ClosingHistoryPage from './pages/ClosingHistoryPage.jsx';
 import ExportDataPage from './pages/ExportDataPage.jsx';
 import LocalConfirmationPage from './pages/LocalConfirmationPage.jsx';
@@ -31,12 +35,10 @@ import AdminPage from './pages/AdminPage.jsx';
 import ReceiptsGeneratorPage from './pages/ReceiptsGeneratorPage.jsx';
 import TrainingPage from './pages/TrainingPage.jsx';
 
-// --- CORREÇÃO CRÍTICA: IDENTIFICAÇÃO DA VERSÃO ---
-// Isso garante que o servidor saiba que este é o App Novo e permita a validação da licença
+// IDENTIFICAÇÃO DA VERSÃO
 axios.defaults.headers.common['x-app-version'] = APP_VERSION;
-// --------------------------------------------------
 
-// --- COMPONENTE DE ROTA PROTEGIDA POR EVENTO ---
+// COMPONENTE DE ROTA PROTEGIDA POR EVENTO
 const EventSelectedRoute = () => {
   const activeEvent = localStorage.getItem('activeEvent');
   if (!activeEvent) {
@@ -45,7 +47,7 @@ const EventSelectedRoute = () => {
   return <Outlet />;
 };
 
-// --- GUARDA PRINCIPAL DA APLICAÇÃO ---
+// GUARDA PRINCIPAL DA APLICAÇÃO E MOTOR CENTRAL
 const AppGuard = () => {
   const { isActivated, isLoading } = useContext(LicenseContext);
   
@@ -53,15 +55,26 @@ const AppGuard = () => {
   const [storeLink, setStoreLink] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(true);
 
-  // 1. EFEITO: VERIFICAR NOVA VERSÃO AO INICIAR
+  // 1. MOTOR DE ENVIO AUTOMÁTICO (Roda sempre que o App é aberto e ativado)
+  useEffect(() => {
+    let syncIntervalId;
+    if (isActivated) {
+        // Liga o motor de auto-sync em background
+        syncIntervalId = startBackgroundSync();
+    }
+    // Desliga se o componente desmontar
+    return () => {
+        if (syncIntervalId) clearInterval(syncIntervalId);
+    };
+  }, [isActivated]);
+
+  // 2. EFEITO: VERIFICAR NOVA VERSÃO AO INICIAR
   useEffect(() => {
     const checkVersion = async () => {
-        // Se não tiver ativado, não perde tempo checando update na nuvem ainda
         if (!isActivated) {
             setCheckingUpdate(false);
             return;
         }
-
         try {
             const response = await axios.get(`${API_URL}/api/check-version`);
             const { remoteVersion, storeLink } = response.data;
@@ -76,7 +89,6 @@ const AppGuard = () => {
             setCheckingUpdate(false);
         }
     };
-
     checkVersion();
   }, [isActivated]);
 
@@ -94,7 +106,6 @@ const AppGuard = () => {
       return false; 
   };
 
-  // A. Carregando
   if (isLoading || (isActivated && checkingUpdate)) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -106,17 +117,10 @@ const AppGuard = () => {
     );
   }
 
-  // B. Bloqueio de Update
-  if (updateAvailable) {
-      return <UpdateModal storeLink={storeLink} />;
-  }
+  if (updateAvailable) { return <UpdateModal storeLink={storeLink} />; }
 
-  // C. Tela de Ativação (Licença)
-  if (!isActivated) {
-    return <ActivationPage />;
-  }
+  if (!isActivated) { return <ActivationPage />; }
 
-  // D. Sistema Logado
   return (
     <Router>
       <Routes>
@@ -138,6 +142,7 @@ const AppGuard = () => {
             <Route path="/mobile-cashier-closing" element={<MobileCashierClosingPage />} />
             <Route path="/fixed-cashier-closing" element={<FixedCashierClosingPage />} />
             <Route path="/zig-cashless-closing" element={<ZigCashlessClosingPage />} />
+            <Route path="/totem-closing" element={<TotemClosingPage />} /> 
             
             <Route path="/closing-history" element={<ClosingHistoryPage />} />
             <Route path="/export-data" element={<ExportDataPage />} />
@@ -152,7 +157,6 @@ const AppGuard = () => {
 };
 
 function App() {
-  // CORREÇÃO: SyncProvider envolve LicenseProvider
   return (
     <SyncProvider>
       <LicenseProvider>

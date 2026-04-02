@@ -97,10 +97,17 @@ function ZigCashlessClosingPage() {
         if (closingToEdit) {
             const toDigits = (value) => value ? String(Math.round(Number(value) * 100)) : '';
             setProtocol(closingToEdit.protocol);
-            setTimestamp(closingToEdit.timestamp);
-            const waiter = { cpf: closingToEdit.cpf, name: closingToEdit.waiterName };
-            setSelectedWaiter(waiter);
-            setSearchInput(waiter.name);
+            setTimestamp(closingToEdit.timestamp);
+            // ADICIONADO: Recupera os dados do PIX caso seja uma edição
+            const waiter = { 
+                cpf: closingToEdit.cpf, 
+                name: closingToEdit.waiterName,
+                pix: closingToEdit.chavePix || '',
+                tipo_pix: closingToEdit.tipoPix || '',
+                telefone: closingToEdit.telefone || ''
+            };
+            setSelectedWaiter(waiter);
+            setSearchInput(waiter.name);
             setNumeroCamiseta(closingToEdit.numeroCamiseta || '');
             setNumeroMaquina(closingToEdit.numeroMaquina || '');
             setTemEstorno(closingToEdit.temEstorno);
@@ -114,23 +121,30 @@ function ZigCashlessClosingPage() {
         return () => clearTimeout(timer);
     }, [location.state]);
 
-    // Busca de Garçom
-    useEffect(() => {
-        const query = searchInput.trim().toLowerCase();
-        if (query.length > 0 && !selectedWaiter) {
-            const results = waiters.filter(waiter => {
-                const name = (waiter.name || '').toLowerCase();
-                const cpf = (waiter.cpf || '').replace(/\D/g, '');
-                return /^\d+$/.test(query.replace(/[.-]/g, '')) ? cpf.startsWith(query.replace(/\D/g, '')) : name.includes(query);
-            });
-            setFilteredWaiters(results);
-            const isPotentialCpf = /^\d{11}$/.test(query.replace(/\D/g, ''));
-            setShowRegisterButton(isPotentialCpf && results.length === 0);
-        } else {
-            setFilteredWaiters([]); 
-            setShowRegisterButton(false);
-        }
-    }, [searchInput, waiters, selectedWaiter]);
+    // Busca Inteligente (Ignora acentos e CPFs vazios)
+    useEffect(() => {
+        const rawQuery = searchInput.trim();
+        if (rawQuery.length > 0 && !selectedWaiter) {
+            const normalizedQuery = rawQuery.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const queryDigitsOnly = rawQuery.replace(/\D/g, '');
+
+            const results = waiters.filter(w => {
+                const personName = (w.name || w.nome || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const personCpf = (w.cpf || '').replace(/\D/g, '');
+
+                const matchName = personName.includes(normalizedQuery);
+                const matchCpf = queryDigitsOnly.length > 0 && personCpf.includes(queryDigitsOnly);
+
+                return matchName || matchCpf;
+            });
+            
+            setFilteredWaiters(results);
+            setShowRegisterButton(queryDigitsOnly.length === 11 && results.length === 0);
+        } else {
+            setFilteredWaiters([]);
+            setShowRegisterButton(false);
+        }
+    }, [searchInput, waiters, selectedWaiter]);
     
     // --- CÁLCULO ZIG (8% sobre Venda, Acerto sobre Recarga) ---
     useEffect(() => {
@@ -169,7 +183,12 @@ function ZigCashlessClosingPage() {
         }
     }, [debouncedValorTotal, debouncedCredito, debouncedDebito, debouncedPix, debouncedValorTotalProdutos, debouncedValorEstorno, temEstorno]);
 
-    const handleSelectWaiter = (waiter) => { setSelectedWaiter(waiter); setSearchInput(waiter.name); setFilteredWaiters([]); };
+    const handleSelectWaiter = (waiter) => { 
+        const normalizedItem = { ...waiter, name: waiter.name || waiter.nome };
+        setSelectedWaiter(normalizedItem); 
+        setSearchInput(normalizedItem.name); 
+        setFilteredWaiters([]); 
+    };
 
     const handleRegisterNewWaiter = () => {
         const cleanCpf = searchInput.replace(/\D/g, '');
@@ -302,22 +321,35 @@ function ZigCashlessClosingPage() {
                         <tr style="border-top:1px solid #ccc; font-weight:bold;"><td>Recarga Cashless</td><td>${formatCurrencyResult(dataToConfirm.valorTotal)}</td></tr>
                         <tr><td>- Crédito</td><td>${formatCurrencyResult(dataToConfirm.credito)}</td></tr>
                         <tr><td>- Débito</td><td>${formatCurrencyResult(dataToConfirm.debito)}</td></tr>
-                        <tr><td>- PIX</td><td>${formatCurrencyResult(dataToConfirm.pix)}</td></tr>
-                        ${dataToConfirm.temEstorno ? `<tr style="color:#000;"><td>(-) Estorno</td><td>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</td></tr>` : ''}
-                    </table>
+                        <tr><td>- PIX</td><td>${formatCurrencyResult(dataToConfirm.pix)}</td></tr>
+                        ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<tr style="color:#d32f2f; font-weight:bold;"><td>(-) Estorno Lançado</td><td>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</td></tr>` : ''}
+                    </table>
 
-                    <div class="section-title">COMISSÕES</div>
-                    <table class="table-style">
-                        <tr><td>Comissão (8%)</td><td>${formatCurrencyResult(dataToConfirm.comissao8)}</td></tr>
-                        <tr style="font-weight:bold; border-top:1px solid #000; font-size:12px;"><td>TOTAL COMISSÃO</td><td>${formatCurrencyResult(dataToConfirm.comissaoTotal)}</td></tr>
-                    </table>
+                    <div class="section-title">COMISSÕES</div>
+                    <table class="table-style">
+                        <tr><td>Comissão (8%)</td><td>${formatCurrencyResult(dataToConfirm.comissao8)}</td></tr>
+                        <tr style="font-weight:bold; border-top:1px solid #000; font-size:12px;"><td>TOTAL COMISSÃO</td><td>${formatCurrencyResult(dataToConfirm.comissaoTotal)}</td></tr>
+                    </table>
 
-                    <div class="big-result">
-                        <div style="font-size:10px; margin-bottom:2px;">RESULTADO FINAL</div>
-                        <div style="font-size:12px; font-weight:bold;">${dataToConfirm.diferencaLabel.toUpperCase()}</div>
-                        <div style="font-size:18px; font-weight:800; margin-top:4px;">${formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}</div>
-                    </div>
-                    ${paymentBlockHtml}
+                    <div class="big-result" style="border: 2px solid #000; padding: 10px; text-align: center;">
+                        <div style="font-size:10px; margin-bottom:2px;">RESULTADO FINAL</div>
+                        <div style="font-size:13px; font-weight:bold;">${dataToConfirm.diferencaLabel.toUpperCase()}</div>
+                        <div style="font-size:22px; font-weight:900; margin-top:4px;">${formatCurrencyResult(dataToConfirm.diferencaPagarReceber)}</div>
+                    </div>
+
+                    <div style="margin-top:10px; border: 1px solid #000; padding: 5px;">
+                        <div style="font-size:10px; font-weight:bold; text-align:center; background:#eee; padding:2px;">MEIO DE PAGAMENTO</div>
+                        <div style="display:flex; justify-content:space-around; padding: 5px 0;">
+                            <span>[ ] DINHEIRO</span>
+                            <span>[ ] PIX</span>
+                        </div>
+                        <div style="font-size:9px; color:#555; margin-top:5px;">PIX Cadastrado:</div>
+                        <div style="font-size:11px; font-weight:bold; border-bottom:1px solid #ccc;">
+                            ${dataToConfirm.chavePix ? `${dataToConfirm.tipoPix}: ${dataToConfirm.chavePix}` : 'Não informado no cadastro'}
+                        </div>
+                        <div style="font-size:9px; color:#555; margin-top:8px;">Outra Chave/OBS:</div>
+                        <div style="border-bottom: 1px solid #000; height:15px;"></div>
+                    </div>
                     <br/><br/>
                     <div class="center">_______________________________</div>
                     <div class="center sig-text">${dataToConfirm.waiterName}</div>
@@ -346,53 +378,47 @@ function ZigCashlessClosingPage() {
         // ==========================================
         else if (type === 'a4') {
             const isReceivingA4 = dataToConfirm.diferencaLabel === 'Receber do Garçom';
-            
-            const createA4ManualRow = (label) => `
-                <div style="display: flex; align-items: flex-end; margin-bottom: 12px; font-size: 11px;">
-                    <span style="font-weight:bold; margin-right: 5px;">[ &nbsp; ]</span>
-                    <span style="margin-right: 5px;">${label}</span>
-                    <div style="flex:1; border-bottom: 1px solid #000;"></div>
-                </div>
-            `;
-
-            let a4PaymentBlock = '';
-            
-            if (isReceivingA4) {
-                 a4PaymentBlock = `
+            const pixCadastrado = dataToConfirm.chavePix ? `${dataToConfirm.tipoPix}: ${dataToConfirm.chavePix}` : 'Não informado';
+            
+            let a4PaymentBlock = '';
+            
+            if (isReceivingA4) {
+                 // CENÁRIO RECEBER (Operador recebe do garçom)
+                 a4PaymentBlock = `
+                    <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <div style="font-size:10px; font-weight:bold; text-align:center; background:#eee; padding:3px; border:1px solid #ccc; margin-bottom: 8px;">FORMA DE RECEBIMENTO</div>
+                        <div style="display:flex; justify-content:space-around; margin-bottom: 12px; font-size: 11px;">
+                            <span>[ &nbsp; ] VALE</span>
+                            <span>[ &nbsp; ] DINHEIRO</span>
+                            <span>[ &nbsp; ] PIX</span>
+                        </div>
+                        <div style="margin-top: 5px;">
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
+                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
+                        </div>
+                    </div>
+                 `;
+            } else {
+                 // CENÁRIO PAGAR (Operador paga o garçom -> Puxa PIX Automático)
+                 a4PaymentBlock = `
                     <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
-                        <div style="font-size: 10px; font-weight:bold; margin-bottom:8px;">FORMA DE RECEBIMENTO:</div>
-                        ${createA4ManualRow('Vale')}
-                        ${createA4ManualRow('Dinheiro')}
-                        ${createA4ManualRow('PIX')}
-                        
-                        <div style="margin-top: 5px;">
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
+                        <div style="font-size:10px; font-weight:bold; text-align:center; background:#eee; padding:3px; border:1px solid #ccc;">MEIO DE PAGAMENTO</div>
+                        <div style="display:flex; justify-content:space-around; padding: 8px 0; font-size: 11px;">
+                            <span>[ &nbsp; ] DINHEIRO</span>
+                            <span>[ &nbsp; ] PIX</span>
                         </div>
+                        <div style="font-size:10px; color:#555; margin-top:5px;">PIX Cadastrado:</div>
+                        <div style="font-size:12px; font-weight:bold; border-bottom:1px solid #ccc; padding-bottom:3px; word-break: break-all;">
+                            ${pixCadastrado}
+                        </div>
+                        <div style="font-size:10px; color:#555; margin-top:8px;">Outra Chave/OBS:</div>
+                        <div style="border-bottom: 1px solid #000; height:18px;"></div>
                     </div>
-                 `;
-            } else {
-                 a4PaymentBlock = `
-                    <div style="margin-top: auto; padding-top: 10px; border-top: 1px dashed #ccc;">
-                        <div style="border: 1px solid #000; margin-bottom: 10px;">
-                            <div style="background-color: #000; color: #fff; padding: 5px; text-align:center; font-weight:bold; font-size:11px;">
-                                PAGAMENTO REALIZADO?
-                            </div>
-                            <div style="padding:15px 5px; text-align:center; font-weight:bold; font-size:12px;">
-                                ( &nbsp;&nbsp; ) SIM &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ( &nbsp;&nbsp; ) NÃO
-                            </div>
-                        </div>
-                        <div style="margin-top: 5px;">
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px; margin-bottom: 4px;"></div>
-                            <div style="border-bottom: 1px solid #000; height: 16px;"></div>
-                        </div>
-                    </div>
-                 `;
-            }
+                 `;
+            }
 
-            content = `
+            content = `
                 <html>
                 <head>
                     <title>A4 - ${dataToConfirm.protocol}</title>
@@ -476,7 +502,7 @@ function ZigCashlessClosingPage() {
                                         <div class="row"><span>Crédito:</span> <span>${formatCurrencyResult(dataToConfirm.credito)}</span></div>
                                         <div class="row"><span>Débito:</span> <span>${formatCurrencyResult(dataToConfirm.debito)}</span></div>
                                         <div class="row"><span>PIX:</span> <span>${formatCurrencyResult(dataToConfirm.pix)}</span></div>
-                                        ${dataToConfirm.temEstorno ? `<div class="row" style="color:red"><span>Estorno:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
+                                        ${(dataToConfirm.temEstorno || dataToConfirm.valorEstorno > 0) ? `<div class="row" style="color:#d32f2f; font-weight:bold;"><span>(-) Estorno Lançado:</span> <span>-${formatCurrencyResult(dataToConfirm.valorEstorno)}</span></div>` : ''}
                                         
                                         <div style="flex:1"></div>
                                         <div class="row row-total" style="padding: 5px;"><span>Recarga Cashless:</span> <span>${formatCurrencyResult(dataToConfirm.valorTotal)}</span></div>
@@ -551,11 +577,17 @@ function ZigCashlessClosingPage() {
         const operatorName = localStorage.getItem('loggedInUserName') || 'N/A';
         
         const closingData = {
-            type: 'waiter_zig',
-            timestamp: timestamp || new Date().toISOString(), protocol, eventName, operatorName, 
-            cpf: waiterCpf,
-            waiterName: waiterName,
-            numeroCamiseta, numeroMaquina, 
+            type: 'waiter', 
+            subType: '8_percent', 
+            timestamp: timestamp || new Date().toISOString(), 
+            protocol, eventName, operatorName, 
+            cpf: selectedWaiter.cpf,
+            waiterName: selectedWaiter.name,
+            // ADICIONADO: Vincula os dados bancários e de contato diretamente ao salvamento
+            chavePix: selectedWaiter.pix || '',
+            tipoPix: selectedWaiter.tipo_pix || '',
+            telefone: selectedWaiter.telefone || '',
+            numeroCamiseta, numeroMaquina, 
             valorTotal: getNumericValue(valorTotal), // Recarga
             credito: getNumericValue(credito),
             debito: getNumericValue(debito), 
@@ -623,47 +655,90 @@ function ZigCashlessClosingPage() {
                 </div>
                 
                 {/* Seção de Busca */}
-                <div className="form-section" style={{ display: 'block' }}>
-                    <div className="form-row">
-                        <div className="input-group">
-                            <label>Buscar Garçom (Nome ou CPF)</label>
-                            <input 
-                                ref={formRefs.cpf} 
-                                onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} 
-                                placeholder="Digite o nome ou CPF do garçom" 
-                                value={searchInput} 
-                                onChange={(e) => { setSearchInput(e.target.value); setSelectedWaiter(null); }}  
-                                disabled={!!protocol} 
-                            />
-                            {filteredWaiters.length > 0 && ( 
-                                <div className="suggestions-list">
-                                    {filteredWaiters.map(item => (
-                                        <div 
-                                            key={item.cpf} 
-                                            className="suggestion-item" 
-                                            onClick={() => handleSelectWaiter(item)}>
-                                                {item.name} - {item.cpf}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <div className="input-group">
-                            <label>Garçom Selecionado</label>
-                            <input 
-                                type="text" 
-                                value={selectedWaiter ? `${selectedWaiter.name} - ${selectedWaiter.cpf}` : ''} 
-                                readOnly 
-                                placeholder="Selecione um garçom da lista" 
-                            />
-                        </div>
-                    </div>
-                    {showRegisterButton && (<button className="login-button" style={{marginTop: '10px', backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>CPF não encontrado. Cadastrar novo garçom?</button>)}
-                    <div className="form-row">
-                        <div className="input-group"><label>Número da Camiseta</label><input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')} value={numeroCamiseta} onChange={(e) => setNumeroCamiseta(e.target.value)} /></div>
-                        <div className="input-group"><label>Número da Máquina</label><input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotalProdutos')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} /></div>
-                    </div>
-                </div>
+                <div className="form-section" style={{display: 'block'}}>
+                    {/* LINHA 1: Busca ou Crachá Preenchido */}
+                    <div className="form-row">
+                        {!selectedWaiter ? (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Buscar Garçom (Nome/CPF)</label>
+                                <input ref={formRefs.cpf} onKeyDown={(e) => handleKeyDown(e, 'numeroCamiseta')} value={searchInput} onChange={(e) => {setSearchInput(e.target.value); setSelectedWaiter(null);}} disabled={!!protocol} placeholder="Digite o nome ou CPF..." />
+                                {filteredWaiters.length > 0 && (
+                                    <div className="suggestions-list">
+                                        {filteredWaiters.map((w, index) => (
+                                            <div key={`sug-${index}`} className="suggestion-item" onClick={() => handleSelectWaiter(w)}>
+                                                {w.name || w.nome} - {w.cpf}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {showRegisterButton && <button className="login-button" style={{marginTop: 10, backgroundColor: '#5bc0de'}} onClick={() => setRegisterModalVisible(true)}>Cadastrar Novo Garçom?</button>}
+                            </div>
+                        ) : (
+                            <div className="input-group" style={{ width: '100%' }}>
+                                <label>Garçom Selecionado</label>
+                                {/* CRACHÁ AZUL TRAVADO 100% LARGURA */}
+                                <div style={{
+                                    backgroundColor: '#e8f4fd', border: '1px solid #b6d4fe', 
+                                    borderRadius: '8px', padding: '12px 15px', color: '#084298',
+                                    display: 'flex', flexDirection: 'column', gap: '8px',
+                                    boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.05)'
+                                }}>
+                                    {/* CABEÇALHO DO CRACHÁ (Nome + Botão Sutil) */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #b6d4fe', paddingBottom: '6px' }}>
+                                        <span style={{ fontWeight: '900', fontSize: '1.15rem', textTransform: 'uppercase' }}>
+                                            {selectedWaiter.name || selectedWaiter.nome}
+                                        </span>
+                                        
+                                        {!protocol && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => { setSelectedWaiter(null); setSearchInput(''); setTimeout(() => formRefs.cpf.current?.focus(), 100); }}
+                                                style={{
+                                                    background: 'transparent', color: '#dc3545', border: '1px solid #dc3545',
+                                                    borderRadius: '6px', padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold',
+                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#dc3545'; e.currentTarget.style.color = '#fff'; }}
+                                                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#dc3545'; }}
+                                            >
+                                                🔄 Trocar
+                                            </button>
+                                        )}
+                                    </div>
+                                    
+                                    {/* DADOS DO CRACHÁ */}
+                                    <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                                        <div style={{ fontSize: '1.05rem' }}>
+                                            <strong>CPF:</strong> {selectedWaiter.cpf}
+                                        </div>
+                                        {selectedWaiter.pix ? (
+                                            <div style={{ fontSize: '1.05rem' }}>
+                                                <strong>PIX:</strong> {selectedWaiter.pix} ({selectedWaiter.tipo_pix})
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.95rem', color: '#b02a37', fontStyle: 'italic' }}>
+                                                ⚠️ Sem PIX Cadastrado
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* LINHA 2: Campos Isolados */}
+                    <div className="form-row" style={{ marginTop: '10px' }}>
+                        <div className="input-group">
+                            <label>Número da Camiseta</label>
+                            <input ref={formRefs.numeroCamiseta} onKeyDown={(e) => handleKeyDown(e, 'numeroMaquina')} value={numeroCamiseta} onChange={(e) => setNumeroCamiseta(e.target.value)} placeholder="Ex: 45" />
+                        </div>
+                        <div className="input-group">
+                            <label>Número da Máquina</label>
+                            <input ref={formRefs.numeroMaquina} onKeyDown={(e) => handleKeyDown(e, 'valorTotalProdutos')} value={numeroMaquina} onChange={(e) => setNumeroMaquina(e.target.value.toUpperCase())} placeholder="Ex: A1" />
+                        </div>
+                    </div>
+                </div>
 
                 {/* Seção de Valores */}
                 <div className="form-section" style={{ display: 'block' }}>
@@ -757,11 +832,13 @@ function ZigCashlessClosingPage() {
                         {modalState === 'confirm' && ( <>
                             <h2>Deseja Confirmar o Fechamento?</h2>
                             {dataToConfirm && ( <>
-                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
-                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
-                                <p><strong>Nº Camisa:</strong> {dataToConfirm.numeroCamiseta}</p>
-                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
-                                <hr />
+                                <p><strong>Evento:</strong> {dataToConfirm.eventName}</p>
+                                <p><strong>Garçom:</strong> {dataToConfirm.waiterName}</p>
+                                {/* ADICIONADO: Exibição no Modal de Confirmação */}
+                                {dataToConfirm.chavePix && <p><strong>Chave PIX:</strong> {dataToConfirm.chavePix} ({dataToConfirm.tipoPix})</p>}
+                                <p><strong>Nº Camisa:</strong> {dataToConfirm.numeroCamiseta}</p>
+                                <p><strong>Nº Máquina:</strong> {dataToConfirm.numeroMaquina}</p>
+                                <hr />
                                 <p>Valor Recarga Cashless: <strong>{formatCurrencyResult(dataToConfirm.valorTotal)}</strong></p>
                                 <p>Valor Total Produtos: <strong>{formatCurrencyResult(dataToConfirm.valorTotalProdutos)}</strong></p>
                                 <p>Valor Total Comissão (8%): <strong>{formatCurrencyResult(dataToConfirm.comissaoTotal)}</strong></p>
