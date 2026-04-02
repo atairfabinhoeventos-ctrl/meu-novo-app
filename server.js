@@ -19,7 +19,8 @@ const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
 require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 
 // 🚀 NOVA INTEGRAÇÃO: MONGODB DO SISGEF
-const dbManager = require('./dbManager'); 
+// Usando o path.join para evitar o erro "Cannot find module" no empacotamento do Electron
+const dbManager = require(path.join(__dirname, 'dbManager'));
 // A string de conexão deve estar no seu painel do Render (Environment Variables)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://<usuario>:<senha>@cluster...';
 dbManager.connect(MONGODB_URI);
@@ -135,13 +136,27 @@ app.get('/api/sync/master-data', async (req, res) => {
                 telefone: u.telefone || ''
             }));
 
-        // Mapeia os Eventos do formato Mongo
+        // Mapeia os Eventos do formato Mongo e extrai Credenciados escalados
+        let allCredentials = [];
         const events = dbEventos
             .filter(e => e.nome)
-            .map(e => ({
-                name: e.nome,
-                active: e.status === 'ABERTO' || e.status === 'ATIVO'
-            }));
+            .map(e => {
+                // Se o evento tem credenciados, adiciona o nome do evento neles para o App filtrar
+                if (e.credenciados && Array.isArray(e.credenciados)) {
+                    const credsComEvento = e.credenciados.map(c => ({
+                        ...c,
+                        eventName: e.nome // Vincula o credenciado ao nome do evento
+                    }));
+                    allCredentials = [...allCredentials, ...credsComEvento];
+                }
+
+                return {
+                    name: e.nome,
+                    cidade: e.cidade || '',
+                    data: e.data || '',
+                    active: e.status === 'ABERTO' || e.status === 'ATIVO'
+                };
+            });
 
         // --- LOGS DE DEPURAÇÃO ADICIONADOS AQUI ---
         console.log(`\n--- [DEBUG MONGODB] ---`);
@@ -149,6 +164,7 @@ app.get('/api/sync/master-data', async (req, res) => {
         console.log(`Qtd Eventos Brutos encontrados: ${dbEventos.length}`);
         console.log(`Garçons processados: ${waiters.length}`);
         console.log(`Eventos processados: ${events.length}`);
+        console.log(`Credenciados/Staff processados: ${allCredentials.length}`);
         if (events.length > 0) {
             console.log(`Exemplo de Evento:`, events[0]);
         } else {
@@ -169,7 +185,12 @@ app.get('/api/sync/master-data', async (req, res) => {
         })).filter(r => r.role);
 
         // 3. ENVIA TUDO PARA O FRONTEND
-        res.status(200).json({ waiters, events, receiptRoles });
+        res.status(200).json({ 
+            waiters, 
+            events, 
+            receiptRoles, 
+            credentials: allCredentials // 🚀 LISTA DE CREDENCIADOS ENVIADA PARA A ÁRVORE AQUI
+        });
         
     } catch (error) {
         console.error('Erro master-data:', error);
