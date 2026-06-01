@@ -13,16 +13,18 @@ const syncingEvents = new Set();
 // ==========================================
 const isRunningInElectron = !!process.versions['electron'];
 const isProduction = process.env.NODE_ENV === 'production';
-const isProdElectron = isRunningInElectron && isProduction;
-const resourcesPath = isProdElectron ? path.join(__dirname, '..') : __dirname;
+
+// CORREÇÃO: Como o .env e credentials.json estão empacotados na raiz junto com o server.js,
+// o diretório correto SEMPRE é o __dirname, tanto no dev quanto em produção.
+const resourcesPath = __dirname; 
 
 require('dotenv').config({ path: path.join(resourcesPath, '.env') });
 
 // 🚀 NOVA INTEGRAÇÃO: MONGODB DO SISGEF
-// Usando o path.join para evitar o erro "Cannot find module" no empacotamento do Electron
-const dbManager = require(path.join(__dirname, 'dbManager'));
-// A string de conexão deve estar no seu painel do Render (Environment Variables)
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://<usuario>:<senha>@cluster...';
+const dbManager = require(path.join(__dirname, 'dbManager')); 
+
+// A string de conexão pega do .env (se o .env for lido corretamente, a variável existirá)
+const MONGODB_URI = process.env.MONGODB_URI;
 dbManager.connect(MONGODB_URI);
 
 app.use(express.json({ limit: '50mb' }));
