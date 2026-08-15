@@ -25,17 +25,17 @@ const UsuarioSchema = new mongoose.Schema({
         } 
     },
     
-    // 🚀 CORREÇÃO AQUI: Tornamos os documentos vitais "nativos" na estrutura!
+    // Documentos vitais
     docs: { 
         type: mongoose.Schema.Types.Mixed, 
         default: {
             selfie: {},
             doc_identidade: {},
             aso: {},
-            epi: {},                // Agora é nativo
-            nr06: {},               // Agora é nativo
-            emp: {},                // Agora é nativo
-            permissao_trabalho: {}  // Agora é nativo
+            epi: {},
+            nr06: {},
+            emp: {},
+            permissao_trabalho: {}
         } 
     },
     temp: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -48,12 +48,11 @@ const UsuarioSchema = new mongoose.Schema({
         data: { type: Date, default: Date.now },
         nivel: Number, // 1, 2, 3 ou 4 (Banimento)
         motivo: String,
-        autor: String, // Quem aplicou o bloqueio (Admin ou Sistema)
+        autor: String,
         foi_revertido: { type: Boolean, default: false },
         motivo_reversao: String,
         data_reversao: Date
     }] 
-// 🚀 CORREÇÃO AQUI: A flag strict: false liberta o Mongoose para aceitar documentos "EXTRAS" imprevisíveis
 }, { timestamps: true, strict: false }); 
 
 const EventoSchema = new mongoose.Schema({
@@ -67,12 +66,12 @@ const EventoSchema = new mongoose.Schema({
     cidade: String,
     link_maps: String,
     obs: String,
-    trava_bpc: { type: Boolean, default: false }, // 🚀 Adicionado para gravar a configuração de BPC
-    admins_responsaveis: [{ type: String }], // 🚀 Adicionado para gravar quem recebe notificação no WhatsApp
+    trava_bpc: { type: Boolean, default: false },
+    admins_responsaveis: [{ type: String }],
     status: { type: String, default: 'ABERTO' }, // ABERTO, ATIVO, ENCERRADO
     docs_obrigatorios: { type: mongoose.Schema.Types.Mixed, default: { contrato: true, aso: false, epi: false, nr06: false } },
     credenciados: { type: Array, default: [] } 
-}, { timestamps: true, strict: false }); // 🚀 strict: false adicionado para garantir que não ignora campos extras futuros
+}, { timestamps: true, strict: false });
 
 const EquipeSchema = new mongoose.Schema({
     nome: { type: String, required: true, unique: true },
@@ -128,6 +127,16 @@ const dbManager = {
             console.log('✅ [MongoDB] Conectado com sucesso!');
         } catch (error) {
             console.error('❌ [MongoDB] Erro de conexão:', error);
+            throw error;
+        }
+    },
+
+    disconnect: async () => {
+        try {
+            await mongoose.disconnect();
+            console.log('🔌 [MongoDB] Desconectado com sucesso!');
+        } catch (error) {
+            console.error('❌ [MongoDB] Erro ao desconectar:', error);
         }
     },
 
@@ -139,18 +148,23 @@ const dbManager = {
     Config, 
     Bloqueio,
     
-    // Funções de Usuário
+    // ==============================================================================
+    // FUNÇÕES DE USUÁRIO
+    // ==============================================================================
+    
+    // Buscar usuário completo por telefone
     getUsuario: async (telefone) => {
-        return await Usuario.findOne({ telefone });
+        return await Usuario.findOne({ telefone }).lean();
     },
 
+    // Buscar usuário completo por CPF
     getUsuarioPorCPF: async (cpf) => {
         const cpfLimpo = cpf.replace(/\D/g, '');
-        return await Usuario.findOne({ "dados.cpf": cpfLimpo });
+        return await Usuario.findOne({ "dados.cpf": cpfLimpo }).lean();
     },
 
+    // Salvar/atualizar usuário
     salvarUsuario: async (telefone, dadosAtualizados) => {
-        // Usa markModified para garantir que campos Mixed (dados, temp, docs) sejam salvos
         if (dadosAtualizados.dados) dadosAtualizados.markModified?.('dados');
         if (dadosAtualizados.temp) dadosAtualizados.markModified?.('temp');
         if (dadosAtualizados.docs) dadosAtualizados.markModified?.('docs');
@@ -159,14 +173,207 @@ const dbManager = {
             new: true, 
             upsert: true,
             setDefaultsOnInsert: true 
-        });
+        }).lean();
     },
 
+    // 🚀 OTIMIZADO: Carregar apenas dados essenciais dos usuários
     carregarUsuarios: async () => {
-        const users = await Usuario.find();
+        const users = await Usuario.find(
+            { status_aprovacao: { $ne: 'BANIDO' } }, // Exclui usuários banidos
+            {
+                'telefone': 1,
+                'dados.nome': 1,
+                'dados.cpf': 1,
+                'dados.pix': 1,
+                'dados.tipo_pix': 1,
+                'status_aprovacao': 1,
+                '_id': 0
+            }
+        ).lean();
+        
         const mapa = {};
-        users.forEach(u => mapa[u.telefone] = u);
+        users.forEach(u => {
+            mapa[u.telefone] = u;
+        });
+        
+        console.log(`📦 [DB] Carregados ${users.length} usuários (dados essenciais)`);
         return mapa;
+    },
+
+    // 🚀 NOVO: Buscar usuário completo quando necessário
+    getUsuarioCompleto: async (telefone) => {
+        return await Usuario.findOne({ telefone }).lean();
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE EVENTOS
+    // ==============================================================================
+    
+    // 🚀 OTIMIZADO: Carregar apenas eventos ativos
+    carregarEventosAtivos: async () => {
+        const eventos = await Evento.find(
+            { status: 'ATIVO' }, // Apenas eventos com status ATIVO
+            {
+                'nome': 1,
+                'data': 1,
+                'data_fim': 1,
+                'local': 1,
+                'horario': 1,
+                'horario_evento': 1,
+                'horario_chegada': 1,
+                'cidade': 1,
+                'link_maps': 1,
+                'obs': 1,
+                'trava_bpc': 1,
+                'admins_responsaveis': 1,
+                'status': 1,
+                'docs_obrigatorios': 1,
+                '_id': 0
+            }
+        ).lean();
+        
+        console.log(`📦 [DB] Carregados ${eventos.length} eventos ativos`);
+        return eventos;
+    },
+
+    // Buscar evento completo por ID
+    getEventoCompleto: async (eventoId) => {
+        return await Evento.findById(eventoId).lean();
+    },
+
+    // Buscar evento por nome
+    getEventoPorNome: async (nome) => {
+        return await Evento.findOne({ nome }).lean();
+    },
+
+    // Salvar/atualizar evento
+    salvarEvento: async (eventoId, dadosAtualizados) => {
+        if (dadosAtualizados.docs_obrigatorios) dadosAtualizados.markModified?.('docs_obrigatorios');
+        
+        return await Evento.findByIdAndUpdate(
+            eventoId, 
+            dadosAtualizados, 
+            { new: true, upsert: true }
+        ).lean();
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE EQUIPE
+    // ==============================================================================
+    
+    // Carregar todas as equipes
+    carregarEquipes: async () => {
+        const equipes = await Equipe.find({}, { '_id': 0, '__v': 0 }).lean();
+        console.log(`📦 [DB] Carregadas ${equipes.length} equipes`);
+        return equipes;
+    },
+
+    // Buscar equipe por nome
+    getEquipePorNome: async (nome) => {
+        return await Equipe.findOne({ nome }).lean();
+    },
+
+    // Salvar/atualizar equipe
+    salvarEquipe: async (nome, dadosAtualizados) => {
+        return await Equipe.findOneAndUpdate(
+            { nome }, 
+            dadosAtualizados, 
+            { new: true, upsert: true }
+        ).lean();
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE LOG
+    // ==============================================================================
+    
+    // Registrar log
+    registrarLog: async (admin, acao, alvo, detalhes) => {
+        const log = new Log({
+            admin,
+            acao,
+            alvo,
+            detalhes
+        });
+        return await log.save();
+    },
+
+    // Buscar logs recentes
+    getLogsRecentes: async (limite = 100) => {
+        return await Log.find()
+            .sort({ createdAt: -1 })
+            .limit(limite)
+            .lean();
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE CONFIGURAÇÃO
+    // ==============================================================================
+    
+    // Buscar configuração
+    getConfig: async (chave) => {
+        const config = await Config.findOne({ chave }).lean();
+        return config ? config.valor : null;
+    },
+
+    // Salvar configuração
+    salvarConfig: async (chave, valor) => {
+        return await Config.findOneAndUpdate(
+            { chave }, 
+            { valor }, 
+            { new: true, upsert: true }
+        ).lean();
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE BLOQUEIO
+    // ==============================================================================
+    
+    // Buscar bloqueio por CPF
+    getBloqueioPorCPF: async (cpf) => {
+        const cpfLimpo = cpf.replace(/\D/g, '');
+        return await Bloqueio.findOne({ cpf: cpfLimpo }).lean();
+    },
+
+    // Salvar bloqueio
+    salvarBloqueio: async (cpf, dadosBloqueio) => {
+        const cpfLimpo = cpf.replace(/\D/g, '');
+        return await Bloqueio.findOneAndUpdate(
+            { cpf: cpfLimpo }, 
+            dadosBloqueio, 
+            { new: true, upsert: true }
+        ).lean();
+    },
+
+    // Remover bloqueio
+    removerBloqueio: async (cpf) => {
+        const cpfLimpo = cpf.replace(/\D/g, '');
+        return await Bloqueio.findOneAndDelete({ cpf: cpfLimpo });
+    },
+
+    // ==============================================================================
+    // FUNÇÕES DE ESTATÍSTICAS (OPCIONAL)
+    // ==============================================================================
+    
+    // Obter estatísticas gerais
+    getEstatisticas: async () => {
+        try {
+            const totalUsuarios = await Usuario.countDocuments();
+            const usuariosAprovados = await Usuario.countDocuments({ status_aprovacao: 'APROVADO' });
+            const usuariosPendentes = await Usuario.countDocuments({ status_aprovacao: 'PENDENTE' });
+            const eventosAtivos = await Evento.countDocuments({ status: 'ATIVO' });
+            const totalEquipes = await Equipe.countDocuments();
+            
+            return {
+                totalUsuarios,
+                usuariosAprovados,
+                usuariosPendentes,
+                eventosAtivos,
+                totalEquipes
+            };
+        } catch (error) {
+            console.error('❌ [DB] Erro ao obter estatísticas:', error);
+            return null;
+        }
     }
 };
 
