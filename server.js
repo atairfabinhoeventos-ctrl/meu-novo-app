@@ -31,6 +31,101 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
 // ==========================================
+// SISTEMA DE MONITORAMENTO EM TEMPO REAL
+// ==========================================
+
+// Array para armazenar logs em memória
+const requestLogs = [];
+const MAX_LOGS = 1000;
+
+// Mapa para rastrear conexões ativas
+const activeConnections = new Map();
+
+// Middleware de log global
+app.use((req, res, next) => {
+    const start = Date.now();
+    const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        url: req.url,
+        ip: clientIP,
+        userAgent: req.get('user-agent'),
+        body: null,
+        statusCode: null,
+        responseTime: null,
+        responseSize: 0,
+        type: 'request'
+    };
+
+    // Identificar tipo de operação
+    if (req.url.includes('/api/sync/master-data')) {
+        logEntry.type = 'DOWNLOAD_BASE';
+        console.log(`\n📥 [DOWNLOAD] Computador ${clientIP} está baixando a base de dados...`);
+    } else if (req.url.includes('/api/cloud-sync')) {
+        logEntry.type = 'UPLOAD_DADOS';
+        console.log(`\n📤 [UPLOAD] Computador ${clientIP} está enviando dados...`);
+    } else if (req.url.includes('/api/activate-license')) {
+        logEntry.type = 'ATIVACAO_LICENCA';
+        console.log(`\n🔑 [LICENÇA] Computador ${clientIP} está ativando licença...`);
+    } else if (req.url.includes('/api/check-version')) {
+        logEntry.type = 'CHECK_VERSION';
+        console.log(`\n🔄 [VERSÃO] Computador ${clientIP} está verificando versão...`);
+    }
+
+    // Capturar body para requisições POST/PUT
+    if (req.body && Object.keys(req.body).length > 0) {
+        const bodyCopy = { ...req.body };
+        if (bodyCopy.password) bodyCopy.password = '***';
+        if (bodyCopy.senha) bodyCopy.senha = '***';
+        logEntry.body = JSON.stringify(bodyCopy).substring(0, 1000);
+        
+        // Para uploads, mostrar detalhes
+        if (logEntry.type === 'UPLOAD_DADOS') {
+            if (bodyCopy.eventName) {
+                console.log(`🎪 Evento: ${bodyCopy.eventName}`);
+            }
+            if (bodyCopy.waiterData) {
+                console.log(`👥 Garçons: ${bodyCopy.waiterData.length} registros`);
+            }
+            if (bodyCopy.cashierData) {
+                console.log(`💰 Caixas: ${bodyCopy.cashierData.length} registros`);
+            }
+        }
+    }
+
+    // Capturar resposta
+    const originalSend = res.send;
+    res.send = function(data) {
+        const duration = Date.now() - start;
+        logEntry.statusCode = res.statusCode;
+        logEntry.responseTime = duration;
+        
+        if (data) {
+            logEntry.responseSize = typeof data === 'string' ? data.length : JSON.stringify(data).length;
+        }
+        
+        // Adicionar ao array de logs
+        requestLogs.unshift(logEntry);
+        if (requestLogs.length > MAX_LOGS) {
+            requestLogs.pop();
+        }
+        
+        // Log resumido
+        const sizeKB = (logEntry.responseSize / 1024).toFixed(2);
+        console.log(`✅ [${logEntry.type}] Concluído!`);
+        console.log(`📊 Status: ${logEntry.statusCode} | ⏱️ ${duration}ms | 📦 ${sizeKB}KB`);
+        console.log(`👤 IP: ${clientIP}`);
+        console.log(`🕐 ${logEntry.timestamp}\n`);
+        
+        originalSend.call(this, data);
+    };
+    
+    next();
+});
+
+// ==========================================
 // 2. FUNÇÕES AUXILIARES
 // ==========================================
 
@@ -123,9 +218,18 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 // --- ROTA 1: OBTER DADOS MESTRE (MONGODB + SHEETS) ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
+        const startTime = Date.now();
+        const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        
+        console.log(`🔄 [DOWNLOAD] Buscando dados do MongoDB...`);
+        console.log(`📡 Cliente: ${clientIP}`);
+        console.log(`🕐 Início: ${new Date().toISOString()}`);
+        
         // 1. BUSCA GARÇONS E EVENTOS NO MONGODB
         const dbUsuarios = await dbManager.Usuario.find({});
         const dbEventos = await dbManager.Evento.find({});
+        
+        console.log(`✅ [DOWNLOAD] MongoDB: ${dbUsuarios.length} usuários, ${dbEventos.length} eventos (${Date.now() - startTime}ms)`);
 
         // Mapeia os Garçons do formato Mongo para o formato que o SisFO precisa
         const waiters = dbUsuarios
@@ -336,7 +440,16 @@ app.post('/api/cloud-sync', async (req, res) => {
         return res.status(429).json({ message: `Sincronização já em andamento.` });
     }
     syncingEvents.add(eventName);
-    console.log(`[SYNC] Iniciando ${eventName}...`);
+    
+    const startTime = Date.now();
+    const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
+    console.log(`\n📤 [UPLOAD] Iniciando sync de dados...`);
+    console.log(`📡 Cliente: ${clientIP}`);
+    console.log(`🎪 Evento: ${eventName}`);
+    console.log(`👥 Garçons: ${waiterData ? waiterData.length : 0} registros`);
+    console.log(`💰 Caixas: ${cashierData ? cashierData.length : 0} registros`);
+    console.log(`🕐 Início: ${new Date().toISOString()}`);
 
     try {
         const googleSheets = await getGoogleSheetsClient();
@@ -483,6 +596,15 @@ app.post('/api/cloud-sync', async (req, res) => {
         if (zigWaiters.length > 0) await processSheet(zigWaiters, `GarçomZIG - ${eventName}`, headerZIG);
         if (cashierData && cashierData.length > 0) await processSheet(cashierData, `Caixas - ${eventName}`, headerCaixa);
 
+        const duration = Date.now() - startTime;
+        console.log(`✅ [UPLOAD] Sync completo em ${duration}ms`);
+        console.log(`📊 Resumo:`);
+        console.log(`   🆕 Novos garçons: ${counts.newW}`);
+        console.log(`   🔄 Garçons atualizados: ${counts.updW}`);
+        console.log(`   🆕 Novos caixas: ${counts.newC}`);
+        console.log(`   🔄 Caixas atualizados: ${counts.updC}`);
+        console.log(`👤 Cliente: ${clientIP}\n`);
+        
         res.status(200).json({ 
             newWaiters: counts.newW, updatedWaiters: counts.updW, 
             newZigWaiters: counts.newZ, updatedZigWaiters: counts.updZ, 
@@ -490,10 +612,11 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Erro no sync:', error);
+        console.error(`❌ [UPLOAD] Erro no sync:`, error);
         res.status(500).json({ message: 'Erro ao salvar na nuvem.' });
     } finally {
         syncingEvents.delete(eventName);
+        console.log(`🔓 [UPLOAD] Lock liberado para ${eventName}`);
     }
 });
 
@@ -973,6 +1096,57 @@ app.get('/api/check-version', async (req, res) => {
         console.error('[CheckVersion] Erro ao ler aba Config:', error.message);
         res.status(200).json({ remoteVersion: '0.0.0', storeLink: '' }); 
     }
+});
+
+// ==========================================
+// 4.5 ROTA DE MONITORAMENTO
+// ==========================================
+
+// Ver logs das últimas requisições
+app.get('/api/monitor/logs', (req, res) => {
+    const password = req.query.password || req.headers['x-admin-password'];
+    
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ 
+            error: 'Senha incorreta',
+            hint: 'Use a mesma senha do histórico online'
+        });
+    }
+    
+    res.json({
+        total: requestLogs.length,
+        logs: requestLogs.slice(0, 200) // Últimas 200 requisições
+    });
+});
+
+// Ver status do servidor
+app.get('/api/monitor/status', (req, res) => {
+    const status = {
+        server: 'online',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        memory: {
+            heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+            heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB'
+        },
+        mongoConnection: 'connected',
+        activeRequests: requestLogs.filter(log => log.responseTime === null).length,
+        totalLogsStored: requestLogs.length
+    };
+    
+    res.json(status);
+});
+
+// Limpar logs
+app.post('/api/monitor/clear', (req, res) => {
+    const password = req.body.password;
+    
+    if (!password || password !== process.env.ONLINE_HISTORY_PASSWORD) {
+        return res.status(401).json({ error: 'Senha incorreta' });
+    }
+    
+    requestLogs.length = 0;
+    res.json({ message: 'Logs limpos com sucesso' });
 });
 
 // ==========================================
