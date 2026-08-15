@@ -215,7 +215,7 @@ const spreadsheetId_cloud_sync = '1tP4zTpGf3haa5pkV0612Y7Ifs6_f2EgKJ9MrURuIUnQ';
 // 4. ROTAS DA APLICAÇÃO
 // ==========================================
 
-// --- ROTA 1: OBTER DADOS MESTRE (MONGODB + SHEETS) ---
+// --- ROTA 1: OBTER DADOS MESTRE (MONGODB + SHEETS) - OTIMIZADA ---
 app.get('/api/sync/master-data', async (req, res) => {
     try {
         const startTime = Date.now();
@@ -224,16 +224,40 @@ app.get('/api/sync/master-data', async (req, res) => {
         console.log(`🔄 [DOWNLOAD] Buscando dados do MongoDB...`);
         console.log(`📡 Cliente: ${clientIP}`);
         console.log(`🕐 Início: ${new Date().toISOString()}`);
+
+        // 🚀 OTIMIZAÇÃO 1: Buscar apenas usuários com dados essenciais
+        const dbUsuarios = await dbManager.Usuario.find(
+            { status_aprovacao: { $ne: 'BANIDO' } }, // Exclui banidos
+            {
+                'telefone': 1,
+                'dados.nome': 1,
+                'dados.cpf': 1,
+                'dados.pix': 1,
+                'dados.tipo_pix': 1,
+                '_id': 0
+            }
+        ).lean();
         
-        // 1. BUSCA GARÇONS E EVENTOS NO MONGODB
-        const dbUsuarios = await dbManager.Usuario.find({});
-        const dbEventos = await dbManager.Evento.find({});
+        console.log(`✅ [DOWNLOAD] ${dbUsuarios.length} usuários em ${Date.now() - startTime}ms`);
+
+        // 🚀 OTIMIZAÇÃO 2: Buscar apenas eventos ATIVOS
+        const dbEventos = await dbManager.Evento.find(
+            { status: 'ATIVO' }, // Apenas eventos ativos
+            {
+                'nome': 1,
+                'cidade': 1,
+                'data': 1,
+                'status': 1,
+                'credenciados': 1,
+                '_id': 0
+            }
+        ).lean();
         
-        console.log(`✅ [DOWNLOAD] MongoDB: ${dbUsuarios.length} usuários, ${dbEventos.length} eventos (${Date.now() - startTime}ms)`);
+        console.log(`✅ [DOWNLOAD] ${dbEventos.length} eventos ativos em ${Date.now() - startTime}ms`);
 
         // Mapeia os Garçons do formato Mongo para o formato que o SisFO precisa
         const waiters = dbUsuarios
-            .filter(u => u.dados && u.dados.nome) // Garante que tem nome
+            .filter(u => u.dados && u.dados.nome)
             .map(u => ({
                 name: u.dados.nome,
                 cpf: u.dados.cpf || '',
@@ -242,16 +266,15 @@ app.get('/api/sync/master-data', async (req, res) => {
                 telefone: u.telefone || ''
             }));
 
-        // Mapeia os Eventos do formato Mongo e extrai Credenciados escalados
+        // Mapeia os Eventos e extrai Credenciados apenas dos eventos ativos
         let allCredentials = [];
         const events = dbEventos
             .filter(e => e.nome)
             .map(e => {
-                // Se o evento tem credenciados, adiciona o nome do evento neles para o App filtrar
                 if (e.credenciados && Array.isArray(e.credenciados)) {
                     const credsComEvento = e.credenciados.map(c => ({
                         ...c,
-                        eventName: e.nome // Vincula o credenciado ao nome do evento
+                        eventName: e.nome
                     }));
                     allCredentials = [...allCredentials, ...credsComEvento];
                 }
@@ -264,21 +287,14 @@ app.get('/api/sync/master-data', async (req, res) => {
                 };
             });
 
-        // --- LOGS DE DEPURAÇÃO ADICIONADOS AQUI ---
-        console.log(`\n--- [DEBUG MONGODB] ---`);
-        console.log(`Qtd Usuários Brutos encontrados: ${dbUsuarios.length}`);
-        console.log(`Qtd Eventos Brutos encontrados: ${dbEventos.length}`);
-        console.log(`Garçons processados: ${waiters.length}`);
-        console.log(`Eventos processados: ${events.length}`);
-        console.log(`Credenciados/Staff processados: ${allCredentials.length}`);
-        if (events.length > 0) {
-            console.log(`Exemplo de Evento:`, events[0]);
-        } else {
-            console.log(`AVISO: A lista final de eventos ficou vazia. Verifique o status deles no banco!`);
-        }
+        console.log(`\n--- [RESUMO DOWNLOAD] ---`);
+        console.log(`👥 Garçons: ${waiters.length}`);
+        console.log(`📅 Eventos ativos: ${events.length}`);
+        console.log(`🎖️ Credenciados: ${allCredentials.length}`);
+        console.log(`⏱️ Tempo total: ${Date.now() - startTime}ms`);
         console.log(`-----------------------\n`);
 
-        // 2. BUSCA APENAS OS RECIBOS NO GOOGLE SHEETS (Mantém compatibilidade de contratos)
+        // 2. BUSCA APENAS OS RECIBOS NO GOOGLE SHEETS
         const googleSheets = await getGoogleSheetsClient();
         const response = await googleSheets.spreadsheets.values.get({
             spreadsheetId: spreadsheetId_sync,
@@ -291,15 +307,21 @@ app.get('/api/sync/master-data', async (req, res) => {
         })).filter(r => r.role);
 
         // 3. ENVIA TUDO PARA O FRONTEND
-        res.status(200).json({ 
+        const responseData = { 
             waiters, 
             events, 
             receiptRoles, 
-            credentials: allCredentials // 🚀 LISTA DE CREDENCIADOS ENVIADA PARA A ÁRVORE AQUI
-        });
+            credentials: allCredentials
+        };
+        
+        const responseSize = JSON.stringify(responseData).length;
+        console.log(`📦 Tamanho da resposta: ${(responseSize / 1024).toFixed(2)} KB`);
+        console.log(`⏱️ Tempo total: ${Date.now() - startTime}ms`);
+        
+        res.status(200).json(responseData);
         
     } catch (error) {
-        console.error('Erro master-data:', error);
+        console.error('❌ Erro master-data:', error);
         res.status(500).json({ message: 'Erro interno ao buscar dados mestre do MongoDB/Sheets.' });
     }
 });
