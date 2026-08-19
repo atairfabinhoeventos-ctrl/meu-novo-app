@@ -453,7 +453,7 @@ app.post('/api/add-event', async (req, res) => { ... });
 app.post('/api/update-event-status', async (req, res) => { ... });
 */
 
-// --- ROTA 7: SYNC PARA A NUVEM (FECHAMENTOS) ---
+// --- ROTA 7: SYNC PARA A NUVEM (AGORA SALVA NO MONGODB) ---
 app.post('/api/cloud-sync', async (req, res) => {
     const { eventName, waiterData, cashierData } = req.body;
     if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -474,168 +474,128 @@ app.post('/api/cloud-sync', async (req, res) => {
     console.log(`🕐 Início: ${new Date().toISOString()}`);
 
     try {
-        const googleSheets = await getGoogleSheetsClient();
-        const sheetInfo = await googleSheets.spreadsheets.get({ spreadsheetId: spreadsheetId_cloud_sync });
-        const sheets = sheetInfo.data.sheets;
-        let counts = { newW: 0, updW: 0, newZ: 0, updZ: 0, newC: 0, updC: 0 };
+        // Acessa o modelo Fechamento
+        const Fechamento = dbManager.Fechamento;
+        const dadosParaSalvar = [];
 
-        const processSheet = async (data, sheetNameRaw, headerRef) => {
-            if (!data || data.length === 0) return;
-
-            const safeSheetName = `'${sheetNameRaw.trim()}'`;
-
-            let sheet = sheets.find(s => s.properties.title === sheetNameRaw.trim());
-            if (!sheet) {
-                await googleSheets.spreadsheets.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { requests: [{ addSheet: { properties: { title: sheetNameRaw.trim() } } }] } });
-                await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
-            } else {
-                const hCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1:Z1` });
-                if (!hCheck.data.values || hCheck.data.values[0].length < headerRef.length || hCheck.data.values[0].join(',') !== headerRef.join(',')) {
-                    await googleSheets.spreadsheets.values.update({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A1`, valueInputOption: 'USER_ENTERED', resource: { values: [headerRef] } });
-                }
-            }
-
-            const isWaiterSheet = sheetNameRaw.includes('Garço') || sheetNameRaw.includes('Garco');
-
-            const rows = data.map(c => {
-                if (isWaiterSheet) {
-                    let val = c.diferencaPagarReceber;
-                    if (val === undefined || val === null) val = 0;
-                    let absVal = Math.abs(parseFloat(val) || 0);
-                    const label = String(c.diferencaLabel || '').toLowerCase();
-                    let acertoFinal = absVal; 
-                    if (label.includes('pagar') || label.includes('faltou')) {
-                        acertoFinal = -absVal; 
-                    }
-
-                    const ts = String(c.timestamp || '').trim();
-                    const proto = String(c.protocol || '').trim();
-                    const tp = String(c.type || 'waiter').trim();
-                    const cpf = String(c.cpf || '').trim();
-                    const nome = String(c.waiterName || '').trim();
-                    const maq = String(c.numeroMaquina || '').trim();
-                    const op = String(c.operatorName || '').trim();
-                    const appVer = String(c.appVersion || '').trim();
-
-                    if (sheetNameRaw.includes('GarçomZIG')) {
-                        return [
-                            ts, proto, 'waiter_zig', cpf, nome, maq,
-                            c.valorTotal??0, 
-                            c.credito??0, c.debito??0, c.pix??0, 
-                            c.valorTotalProdutos??0, c.valorEstorno??0, c.comissaoTotal??0, 
-                            acertoFinal, op, appVer
-                        ];
-                    } else { 
-                        return [
-                            ts, proto, tp, cpf, nome, maq,
-                            c.valorTotal??0, 
-                            c.credito??0, c.debito??0, c.pix??0, c.cashless??0,
-                            c.valorEstorno??0, 
-                            c.comissao8  || 0,
-                            c.comissao10 || 0,
-                            c.comissao4  || 0,
-                            c.comissaoTotal??0, 
-                            acertoFinal, op, appVer
-                        ];
-                    }
-                } else { 
-                    const ts = String(c.timestamp || '').trim();
-                    const proto = String(c.protocol || '').trim();
-                    const tp = String(c.type || '').trim();
-                    const cpf = String(c.cpf || '').trim();
-                    const nome = String(c.cashierName || '').trim();
-                    const maq = String(c.numeroMaquina || '').trim();
-                    const op = String(c.operatorName || '').trim();
-                    const appVer = String(c.appVersion || '').trim();
-
-                    return [
-                        proto, ts, tp, cpf, nome, maq,
-                        c.valorTotalVenda, c.credito, c.debito, c.pix, c.cashless, c.valorTroco,
-                        c.valorEstorno, c.dinheiroFisico, c.valorAcerto, 
-                        c.diferenca, op, appVer
-                    ];
-                }
-            });
-
-            const response = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:A` });
-            const existingRows = response.data.values || [];
-            
-            let nextRowIndex = existingRows.length + 1; 
-            if (nextRowIndex < 2) nextRowIndex = 2; 
-
-            const protocolIdx = sheetNameRaw.includes('Caixas') ? 0 : 1; 
-            const fullCheck = await googleSheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId_cloud_sync, range: `${safeSheetName}!A:B` });
-            const checkRows = fullCheck.data.values || [];
-            
-            const protocolMap = new Map();
-            checkRows.forEach((row, idx) => {
-                if(row[protocolIdx]) protocolMap.set(String(row[protocolIdx]).trim(), idx + 1);
-            });
-
-            const toAdd = [], toUpdate = [];
-            rows.forEach(row => {
-                const p = String(row[protocolIdx]).trim();
-                if (protocolMap.has(p)) {
-                    const rowNum = protocolMap.get(p);
-                    toUpdate.push({ range: `${safeSheetName}!A${rowNum}`, values: [row] });
-                } else {
-                    toAdd.push(row);
-                }
-            });
-
-            if (toAdd.length > 0) {
-                await googleSheets.spreadsheets.values.update({ 
-                    spreadsheetId: spreadsheetId_cloud_sync, 
-                    range: `${safeSheetName}!A${nextRowIndex}`, 
-                    valueInputOption: 'USER_ENTERED', 
-                    resource: { values: toAdd } 
+        // 1. Processa Garçons
+        if (waiterData && waiterData.length > 0) {
+            waiterData.forEach(w => {
+                dadosParaSalvar.push({
+                    eventName,
+                    protocol: w.protocol,
+                    tipo: w.type === 'waiter_zig' ? 'waiter_zig' : 'waiter',
+                    timestamp: new Date(),
+                    operatorName: w.operatorName || '',
+                    
+                    // Dados pessoais
+                    waiterName: w.waiterName || '',
+                    cpf: w.cpf || '',
+                    numeroMaquina: w.numeroMaquina || '',
+                    chavePix: w.chavePix || '',
+                    tipoPix: w.tipoPix || '',
+                    telefone: w.telefone || '',
+                    
+                    // Valores financeiros
+                    valorTotal: Number(w.valorTotal) || 0,
+                    credito: Number(w.credito) || 0,
+                    debito: Number(w.debito) || 0,
+                    pix: Number(w.pix) || 0,
+                    cashless: Number(w.cashless) || 0,
+                    valorEstorno: Number(w.valorEstorno) || 0,
+                    comissao8: Number(w.comissao8) || 0,
+                    comissao10: Number(w.comissao10) || 0,
+                    comissao4: Number(w.comissao4) || 0,
+                    comissaoTotal: Number(w.comissaoTotal) || 0,
+                    diferencaPagarReceber: Number(w.diferencaPagarReceber) || 0,
+                    diferencaLabel: String(w.diferencaLabel) || '',
+                    valorTotalProdutos: Number(w.valorTotalProdutos) || 0
                 });
+            });
+        }
 
-                if (sheetNameRaw.includes('GarçomZIG')) counts.newZ += toAdd.length;
-                else if (isWaiterSheet) counts.newW += toAdd.length;
-                else counts.newC += toAdd.length;
-            }
-            
-            if (toUpdate.length > 0) {
-                await googleSheets.spreadsheets.values.batchUpdate({ spreadsheetId: spreadsheetId_cloud_sync, resource: { valueInputOption: 'USER_ENTERED', data: toUpdate } });
-                if (isWaiterSheet) {
-                    if(sheetNameRaw.includes('ZIG')) counts.updZ += toUpdate.length;
-                    else counts.updW += toUpdate.length;
+        // 2. Processa Caixas
+        if (cashierData && cashierData.length > 0) {
+            cashierData.forEach(c => {
+                if (c.groupProtocol) {
+                    // Caixa Fixo - agrupa pelo protocolo do grupo
+                    const existing = dadosParaSalvar.find(d => d.protocol === c.groupProtocol && d.tipo === 'fixed_cashier');
+                    if (existing) {
+                        if (!existing.caixas) existing.caixas = [];
+                        existing.caixas.push(c);
+                        existing.totalDinheiroFisicoGrupo = (existing.totalDinheiroFisicoGrupo || 0) + (c.dinheiroFisico || 0);
+                        existing.diferencaCaixa = (existing.diferencaCaixa || 0) + (c.diferenca || 0);
+                    } else {
+                        dadosParaSalvar.push({
+                            eventName,
+                            protocol: c.groupProtocol,
+                            tipo: 'fixed_cashier',
+                            timestamp: new Date(),
+                            operatorName: c.operatorName || '',
+                            caixas: [c],
+                            totalDinheiroFisicoGrupo: c.dinheiroFisico || 0,
+                            diferencaCaixa: c.diferenca || 0
+                        });
+                    }
                 } else {
-                    counts.updC += toUpdate.length;
+                    // Caixa Móvel ou individual
+                    dadosParaSalvar.push({
+                        eventName,
+                        protocol: c.protocol,
+                        tipo: c.type || 'cashier',
+                        timestamp: new Date(),
+                        operatorName: c.operatorName || '',
+                        
+                        cashierName: c.cashierName || '',
+                        cpf: c.cpf || '',
+                        numeroMaquina: c.numeroMaquina || '',
+                        valorTotalVenda: Number(c.valorTotalVenda) || 0,
+                        credito: Number(c.credito) || 0,
+                        debito: Number(c.debito) || 0,
+                        pix: Number(c.pix) || 0,
+                        cashless: Number(c.cashless) || 0,
+                        valorTroco: Number(c.valorTroco) || 0,
+                        valorEstorno: Number(c.valorEstorno) || 0,
+                        dinheiroFisico: Number(c.dinheiroFisico) || 0,
+                        valorAcerto: Number(c.valorAcerto) || 0,
+                        diferenca: Number(c.diferenca) || 0,
+                        temEstorno: Boolean(c.temEstorno) || false
+                    });
                 }
+            });
+        }
+
+        // 3. Salva no MongoDB (upsert para evitar duplicatas)
+        let novosRegistros = 0;
+        if (dadosParaSalvar.length > 0) {
+            for (const dado of dadosParaSalvar) {
+                const result = await Fechamento.findOneAndUpdate(
+                    { protocol: dado.protocol },
+                    { $set: { ...dado, synced: true, syncDate: new Date() } },
+                    { upsert: true, new: true }
+                );
+                if (result) novosRegistros++;
             }
-        };
-
-        const headerGarcom = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Devolução/Estorno", "Comissão (8%)", "Comissão (10%)", "Comissão (4%)", "Comissão Total", "Acerto", "Operador", "Versão"];
-        const headerZIG = ["Data", "Protocolo", "Tipo", "CPF", "Nome Garçom", "Nº Máquina", "Recarga Cashless", "Crédito", "Débito", "Pix", "Valor Total Produtos", "Devolução/Estorno", "Comissão Total", "Acerto", "Operador", "Versão"];
-        const headerCaixa = ["Protocolo", "Data", "Tipo", "CPF", "Nome do Caixa", "Nº Máquina", "Venda Total", "Crédito", "Débito", "Pix", "Cashless", "Troco", "Devolução/Estorno", "Dinheiro Físico", "Valor Acerto", "Diferença", "Operador", "Versão"];
-
-        const normalWaiters = waiterData ? waiterData.filter(c => c.type !== 'waiter_zig' && c.type !== 'Garçom ZIG') : [];
-        const zigWaiters = waiterData ? waiterData.filter(c => c.type === 'waiter_zig' || c.type === 'Garçom ZIG') : [];
-
-        if (normalWaiters.length > 0) await processSheet(normalWaiters, `Garçons - ${eventName}`, headerGarcom);
-        if (zigWaiters.length > 0) await processSheet(zigWaiters, `GarçomZIG - ${eventName}`, headerZIG);
-        if (cashierData && cashierData.length > 0) await processSheet(cashierData, `Caixas - ${eventName}`, headerCaixa);
+        }
 
         const duration = Date.now() - startTime;
         console.log(`✅ [UPLOAD] Sync completo em ${duration}ms`);
         console.log(`📊 Resumo:`);
-        console.log(`   🆕 Novos garçons: ${counts.newW}`);
-        console.log(`   🔄 Garçons atualizados: ${counts.updW}`);
-        console.log(`   🆕 Novos caixas: ${counts.newC}`);
-        console.log(`   🔄 Caixas atualizados: ${counts.updC}`);
+        console.log(`   🆕 Novos registros: ${novosRegistros}`);
         console.log(`👤 Cliente: ${clientIP}\n`);
         
         res.status(200).json({ 
-            newWaiters: counts.newW, updatedWaiters: counts.updW, 
-            newZigWaiters: counts.newZ, updatedZigWaiters: counts.updZ, 
-            newCashiers: counts.newC, updatedCashiers: counts.updC 
+            newWaiters: waiterData ? waiterData.length : 0,
+            updatedWaiters: 0,
+            newZigWaiters: waiterData ? waiterData.filter(w => w.type === 'waiter_zig').length : 0,
+            updatedZigWaiters: 0,
+            newCashiers: cashierData ? cashierData.length : 0,
+            updatedCashiers: 0
         });
 
     } catch (error) {
         console.error(`❌ [UPLOAD] Erro no sync:`, error);
-        res.status(500).json({ message: 'Erro ao salvar na nuvem.' });
+        res.status(500).json({ message: 'Erro ao salvar no MongoDB.' });
     } finally {
         syncingEvents.delete(eventName);
         console.log(`🔓 [UPLOAD] Lock liberado para ${eventName}`);
