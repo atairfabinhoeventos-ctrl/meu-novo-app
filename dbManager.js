@@ -105,6 +105,58 @@ const BloqueioSchema = new mongoose.Schema({
     data_bloqueio: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+// 🚀 NOVO MODELO: FECHAMENTOS (Sincronização Cloud)
+const FechamentoSchema = new mongoose.Schema({
+    // Identificação
+    eventName: { type: String, required: true },
+    protocol: { type: String, required: true, unique: true },
+    tipo: { type: String, required: true }, // waiter, waiter_zig, cashier, fixed_cashier
+    timestamp: { type: Date, default: Date.now },
+    operatorName: String,
+    
+    // ---- DADOS DO GARÇOM ----
+    waiterName: String,
+    cpf: String,
+    numeroCamiseta: String,
+    numeroMaquina: String,
+    chavePix: String,
+    tipoPix: String,
+    telefone: String,
+    
+    // Valores do Garçom
+    valorTotal: Number,
+    credito: Number,
+    debito: Number,
+    pix: Number,
+    cashless: Number,
+    valorEstorno: Number,
+    comissao8: Number,
+    comissao10: Number,
+    comissao4: Number,
+    comissaoTotal: Number,
+    diferencaPagarReceber: Number,
+    diferencaLabel: String,
+    valorTotalProdutos: Number,
+    
+    // ---- DADOS DO CAIXA MÓVEL ----
+    cashierName: String,
+    valorTotalVenda: Number,
+    valorTroco: Number,
+    dinheiroFisico: Number,
+    valorAcerto: Number,
+    diferenca: Number,
+    temEstorno: { type: Boolean, default: false },
+    
+    // ---- DADOS DO CAIXA FIXO (GRUPO) ----
+    caixas: { type: Array, default: [] },
+    totalDinheiroFisicoGrupo: { type: Number, default: 0 },
+    diferencaCaixa: { type: Number, default: 0 },
+    
+    // ---- CONTROLE DE SINCRONIZAÇÃO ----
+    synced: { type: Boolean, default: false },
+    syncDate: { type: Date, default: null }
+}, { timestamps: true });
+
 // ==============================================================================
 // 2. CRIAÇÃO DOS MODELOS
 // ==============================================================================
@@ -115,6 +167,7 @@ const Equipe = mongoose.model('Equipe', EquipeSchema);
 const Log = mongoose.model('Log', LogSchema);
 const Config = mongoose.model('Config', ConfigSchema);
 const Bloqueio = mongoose.model('Bloqueio', BloqueioSchema);
+const Fechamento = mongoose.model('Fechamento', FechamentoSchema); // 🚀 ADICIONADO
 
 // ==============================================================================
 // 3. EXPORTAÇÃO E MÉTODOS AUXILIARES
@@ -147,6 +200,7 @@ const dbManager = {
     Log, 
     Config, 
     Bloqueio,
+    Fechamento,
     
     // ==============================================================================
     // FUNÇÕES DE USUÁRIO
@@ -376,74 +430,5 @@ const dbManager = {
         }
     }
 };
-
-// ==============================================================================
-// 4. NOVO MODELO: FECHAMENTOS (Sincronização Cloud)
-// ==============================================================================
-
-const FechamentoSchema = new mongoose.Schema({
-    // Identificação
-    eventName: { type: String, required: true },
-    protocol: { type: String, required: true, unique: true },
-    tipo: { type: String, required: true }, // waiter, waiter_zig, cashier, fixed_cashier
-    timestamp: { type: Date, default: Date.now },
-    operatorName: String,
-    
-    // ---- DADOS DO GARÇOM ----
-    waiterName: String,
-    cpf: String,
-    numeroCamiseta: String,
-    numeroMaquina: String,
-    chavePix: String,
-    tipoPix: String,
-    telefone: String,
-    
-    // Valores do Garçom
-    valorTotal: Number,       // Venda bruta
-    credito: Number,
-    debito: Number,
-    pix: Number,
-    cashless: Number,
-    valorEstorno: Number,
-    comissao8: Number,
-    comissao10: Number,
-    comissao4: Number,
-    comissaoTotal: Number,
-    diferencaPagarReceber: Number,
-    diferencaLabel: String,
-    valorTotalProdutos: Number, // Para ZIG
-    
-    // ---- DADOS DO CAIXA MÓVEL ----
-    cashierName: String,
-    valorTotalVenda: Number,
-    valorTroco: Number,
-    dinheiroFisico: Number,
-    valorAcerto: Number,
-    diferenca: Number,
-    temEstorno: { type: Boolean, default: false },
-    
-    // ---- DADOS DO CAIXA FIXO (GRUPO) ----
-    caixas: { type: Array, default: [] }, // Array de objetos com os dados de cada caixa
-    totalDinheiroFisicoGrupo: { type: Number, default: 0 },
-    diferencaCaixa: { type: Number, default: 0 },
-    
-    // ---- CONTROLE DE SINCRONIZAÇÃO ----
-    synced: { type: Boolean, default: false },
-    syncDate: { type: Date, default: null }
-}, { timestamps: true });
-
-// ==============================================================================
-// 5. CRIAÇÃO DO MODELO
-// ==============================================================================
-
-const Fechamento = mongoose.model('Fechamento', FechamentoSchema);
-
-// ==============================================================================
-// 6. ATUALIZAÇÃO DO dbManager PARA INCLUIR O NOVO MODELO
-// ==============================================================================
-
-// IMPORTANTE: NO SEU OBJETO dbManager, ADICIONE 'Fechamento' NA LISTA DE MODELOS
-// Procure a linha: "// Modelos" dentro do objeto dbManager e adicione:
-// Fechamento,
 
 module.exports = dbManager;
