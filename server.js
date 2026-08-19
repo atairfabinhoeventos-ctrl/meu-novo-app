@@ -454,6 +454,7 @@ app.post('/api/update-event-status', async (req, res) => { ... });
 */
 
 // --- ROTA 7: SYNC PARA A NUVEM (AGORA SALVA NO MONGODB) ---
+// --- ROTA 7: SYNC PARA A NUVEM (AGORA SALVA NO MONGODB COM LOGS DETALHADOS) ---
 app.post('/api/cloud-sync', async (req, res) => {
     const { eventName, waiterData, cashierData } = req.body;
     if (!eventName) return res.status(400).json({ message: 'Nome do evento é obrigatório.' });
@@ -473,9 +474,21 @@ app.post('/api/cloud-sync', async (req, res) => {
     console.log(`💰 Caixas: ${cashierData ? cashierData.length : 0} registros`);
     console.log(`🕐 Início: ${new Date().toISOString()}`);
 
+    // Log detalhado do payload (para debug)
+    if (waiterData && waiterData.length > 0) {
+        console.log("📦 Exemplo do primeiro garçom:", JSON.stringify(waiterData[0], null, 2));
+    }
+    if (cashierData && cashierData.length > 0) {
+        console.log("📦 Exemplo do primeiro caixa:", JSON.stringify(cashierData[0], null, 2));
+    }
+
     try {
-        // Acessa o modelo Fechamento
+        // Acessa o modelo Fechamento (já deve estar exportado no dbManager)
         const Fechamento = dbManager.Fechamento;
+        if (!Fechamento) {
+            throw new Error("Modelo Fechamento não encontrado no dbManager. Verifique a exportação.");
+        }
+
         const dadosParaSalvar = [];
 
         // 1. Processa Garçons
@@ -565,16 +578,22 @@ app.post('/api/cloud-sync', async (req, res) => {
             });
         }
 
-        // 3. Salva no MongoDB (upsert para evitar duplicatas)
+        // 3. Salva no MongoDB (com upsert para evitar duplicatas)
         let novosRegistros = 0;
         if (dadosParaSalvar.length > 0) {
+            console.log(`💾 Salvando ${dadosParaSalvar.length} registros no MongoDB...`);
             for (const dado of dadosParaSalvar) {
-                const result = await Fechamento.findOneAndUpdate(
-                    { protocol: dado.protocol },
-                    { $set: { ...dado, synced: true, syncDate: new Date() } },
-                    { upsert: true, new: true }
-                );
-                if (result) novosRegistros++;
+                try {
+                    const result = await Fechamento.findOneAndUpdate(
+                        { protocol: dado.protocol },
+                        { $set: { ...dado, synced: true, syncDate: new Date() } },
+                        { upsert: true, new: true }
+                    );
+                    if (result) novosRegistros++;
+                } catch (singleError) {
+                    console.error(`❌ Erro ao salvar protocolo ${dado.protocol}:`, singleError.message);
+                    // Continua com os próximos
+                }
             }
         }
 
@@ -594,8 +613,28 @@ app.post('/api/cloud-sync', async (req, res) => {
         });
 
     } catch (error) {
-        console.error(`❌ [UPLOAD] Erro no sync:`, error);
-        res.status(500).json({ message: 'Erro ao salvar no MongoDB.' });
+        console.error("❌ [UPLOAD] ERRO DETALHADO NO SERVIDOR:");
+        console.error("🚨 Mensagem:", error.message);
+        console.error("📄 Stack:", error.stack);
+        
+        // Se for erro do MongoDB/Mongoose
+        if (error.name === 'MongoError' || error.name === 'MongoServerError') {
+            console.error("🔴 Código MongoDB:", error.code);
+            console.error("🔴 Detalhe:", error.errmsg);
+            if (error.code === 11000) {
+                console.error("⚠️ ERRO DE DUPLICATA: Protocolo já existe!");
+            }
+        }
+        
+        // Se for erro de validação do modelo
+        if (error.name === 'ValidationError') {
+            console.error("⚠️ Erro de validação:", error.errors);
+        }
+        
+        res.status(500).json({ 
+            message: 'Erro ao salvar no MongoDB. Verifique os logs do servidor.',
+            error: error.message 
+        });
     } finally {
         syncingEvents.delete(eventName);
         console.log(`🔓 [UPLOAD] Lock liberado para ${eventName}`);
